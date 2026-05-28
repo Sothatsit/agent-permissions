@@ -1,0 +1,15 @@
+{
+  "description": "Container runtimes. Daemonless/rootless runtimes (podman, singularity, apptainer) are allowed because the risk of unintentional permission bypass is low. Docker soft-asks because flags like --privileged, -v /:/host, --pid=host, --net=host can escape the sandbox.",
+  "Allow": {
+    "Commands": {
+      "podman:*": "daemonless, runs as user",
+      "singularity:*": "no daemon, no root",
+      "apptainer:*": "no daemon, no root"
+    }
+  },
+  "SoftAsk": {
+    "Commands": {
+      "docker:*": "daemon runs as root, flags can escape the sandbox"
+    }
+  }
+}

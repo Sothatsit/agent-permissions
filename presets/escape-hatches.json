@@ -1,0 +1,54 @@
+{
+  "description": "Commands and environment variables that can escape or bypass the permission model. Privilege escalation (sudo, su, ssh), namespace and process bypass (unshare, nsenter, env, nohup, nice), wrapper bypass (exec, builtin), command-name redirection (alias), multi-tool dispatch (busybox), out-of-session persistence (crontab, at, setsid), and environment variables that hijack later command execution (BASH_ENV, LD_PRELOAD, etc.). Denied outright since the hook cannot scope them safely. Suspicious-but-useful variables like PATH and EDITOR soft-ask so the user can confirm legitimate per-call uses.",
+  "Deny": {
+    "Commands": {
+      "ssh:*": "remote execution",
+      "su:*": "privilege escalation",
+      "sudo:*": "privilege escalation",
+      "env:*": "wrapper that can launch arbitrary commands",
+      "busybox:*": "multi-tool dispatch — applet name hides what runs",
+      "nohup:*": "detaches from session, escapes hook lifecycle",
+      "crontab:*": "schedules out-of-session execution",
+      "at:*": "schedules out-of-session execution",
+      "setsid:*": "detaches from session, escapes hook lifecycle",
+      "nice:*": "wrapper that can launch arbitrary commands",
+      "unshare:*": "namespace bypass — runs in a fresh namespace",
+      "nsenter:*": "enters another process's namespace",
+      "exec:*": "replaces the shell, bypasses subsequent hooks",
+      "builtin:*": "shell builtin invocation can mask redefined commands",
+      "alias:*": "command-name redirection"
+    },
+    "EnvVars": {
+      "BASH_ENV": "sourced automatically on shell startup",
+      "ENV": "sourced automatically on shell startup",
+      "GIT_SSH_COMMAND": "git runs this on every remote operation",
+      "GIT_SSH": "git runs this on every remote operation",
+      "GIT_EXTERNAL_DIFF": "git runs this on every diff",
+      "GIT_CONFIG_COUNT": "injects arbitrary git config entries",
+      "GIT_CONFIG_KEY_*": "injects arbitrary git config entries",
+      "GIT_CONFIG_VALUE_*": "injects arbitrary git config entries",
+      "TAR_OPTIONS": "injects flags into every tar invocation",
+      "LD_PRELOAD": "loaded into every dynamic exec",
+      "LD_LIBRARY_PATH": "redirects shared library lookup",
+      "LD_AUDIT": "audit hook injected into dynamic exec",
+      "PYTHONPATH": "redirects Python module lookup",
+      "PYTHONSTARTUP": "runs arbitrary code before scripts",
+      "NODE_OPTIONS": "applies to every Node process",
+      "PERL5OPT": "applies to every Perl process",
+      "PERL5LIB": "redirects Perl module lookup",
+      "RUBYOPT": "applies to every Ruby process",
+      "LESSOPEN": "runs on file open in less",
+      "LESSCLOSE": "runs on file close in less"
+    }
+  },
+  "SoftAsk": {
+    "EnvVars": {
+      "PATH": "command lookup hijack risk",
+      "EDITOR": "executed by tools that open an editor",
+      "VISUAL": "executed by tools that open an editor",
+      "GIT_PAGER": "executed by git when paging output",
+      "GIT_EDITOR": "executed by git when opening an editor",
+      "GH_HOST": "redirects gh to a different GitHub host"
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "description": "MPI launchers. Soft-ask: local launches are routine, but --hostfile / -H can spread work across hosts and is worth flagging.",
+  "SoftAsk": {
+    "Commands": {
+      "mpiexec:*": "can launch processes on remote hosts",
+      "mpirun:*": "can launch processes on remote hosts"
+    }
+  }
+}

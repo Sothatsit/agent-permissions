@@ -1,0 +1,9 @@
+{
+  "description": "Network fetch tools. Soft-ask so the classifier can flag suspicious uses (curl piped to bash, fetching from untrusted hosts).",
+  "SoftAsk": {
+    "Commands": {
+      "curl:*": "fetches remote content",
+      "wget:*": "fetches remote content"
+    }
+  }
+}

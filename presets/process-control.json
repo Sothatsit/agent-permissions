@@ -1,0 +1,10 @@
+{
+  "description": "Process and disk control. All soft-ask: routine in many workflows but capable of destroying running work or data.",
+  "SoftAsk": {
+    "Commands": {
+      "kill:*": "terminates processes",
+      "killall:*": "terminates processes by name",
+      "dd:*": "raw disk I/O — destructive on the wrong device"
+    }
+  }
+}
