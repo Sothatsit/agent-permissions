@@ -1,8 +1,6 @@
 package rules
 
 import (
-	"fmt"
-
 	"github.com/sothatsit/agent-permissions/internal/model"
 	"github.com/sothatsit/agent-permissions/internal/word"
 )
@@ -58,6 +56,7 @@ var xargsParser, _xargsBaseBreakdown = wrapperBreakdown(
 			"--open-tty": "-o/--open-tty denied " +
 				"— opens /dev/tty",
 		},
+		denyRule: xargsInteractive,
 	})
 
 // breakdownXargs wraps the generic wrapper breakdown
@@ -72,6 +71,14 @@ func breakdownXargs(
 	if err != nil || result == nil ||
 		len(result.Commands) == 0 {
 		return result, err
+	}
+
+	// The remaining checks (ambiguous/empty -I, command
+	// from stdin) are the xargs.unverified rule. When it's
+	// disabled, skip them and return the already-extracted
+	// inner command for normal checking.
+	if !state.RuleConfig.For(xargsUnverified).Enabled {
+		return result, nil
 	}
 
 	// Find the -I/--replace replacement string.
@@ -89,18 +96,22 @@ func breakdownXargs(
 		}
 	}
 	if replCount > 1 {
-		return nil, fmt.Errorf(
-			"multiple -I/--replace flags " +
-				"— ambiguous")
+		return nil, &model.RuleError{
+			Def: xargsUnverified,
+			Reason: "multiple -I/--replace flags " +
+				"— ambiguous",
+		}
 	}
 	if replStr == "" {
 		// Explicit empty replacement string (e.g. -I "")
 		// is nonsensical and could mask intent. No -I flag
 		// at all also lands here (replCount == 0).
 		if replCount > 0 {
-			return nil, fmt.Errorf(
-				"-I/--replace with empty " +
-					"replacement string")
+			return nil, &model.RuleError{
+				Def: xargsUnverified,
+				Reason: "-I/--replace with empty " +
+					"replacement string",
+			}
 		}
 		return result, nil
 	}
@@ -111,10 +122,12 @@ func breakdownXargs(
 	cmd := result.Commands[0]
 	if len(cmd) > 0 &&
 		word.MayContain(cmd[0], replStr) {
-		return nil, fmt.Errorf(
-			"-I replacement string in command " +
+		return nil, &model.RuleError{
+			Def: xargsUnverified,
+			Reason: "-I replacement string in command " +
 				"name — command to execute comes " +
-				"from stdin")
+				"from stdin",
+		}
 	}
 
 	return result, nil

@@ -275,16 +275,13 @@ stripped first; dangerous patterns are matched with a regex that
 skips string literals via a SKIP/FAIL construction. Per-language deny
 rules:
 
-- **Python** — `import subprocess`, `import ctypes` / `cffi`,
-  `import os` with dangerous funcs, `os.system` / `os.popen` /
-  `os.exec*` calls.
-- **Perl** — `use IPC::*` / `Inline::*` / `FFI::*` / `DynaLoader` /
-  `XSLoader`, bare `system` / `exec`, backtick, `qx`.
-- **Ruby** — `require 'open3'` / `'open4'` / `'fiddle'` / `'ffi'`,
-  bare `system` / `exec` / `spawn`, `IO.popen`,
+- **Python** — `import subprocess`, `import os` with dangerous
+  funcs, `os.system` / `os.popen` / `os.exec*` calls.
+- **Perl** — `use IPC::*`, bare `system` / `exec`, backtick, `qx`.
+- **Ruby** — `require 'open3'` / `'open4'`, bare
+  `system` / `exec` / `spawn`, `IO.popen`,
   `Open3.popen` / `capture` / `pipeline`, backtick, `%x`.
-- **Node** — `require('child_process')` / `'ffi'` / `'ref'`,
-  `process.binding` / `dlopen`.
+- **Node** — `require('child_process')`.
 
 Outcome asymmetry: inline `-c/-e` snippets that trip a rule **deny**
 (agent-generated code can't be permission-allowed); file-script
@@ -299,9 +296,12 @@ LLM script-veto gate. It also has visible-inline-exec composition
 detection so `cat foo | python3 -c "filter code"` allows when the
 inline code is plainly visible.
 
-Convergent for `python3 -c 'import os; os.system("rm -rf /")'`;
-divergent for native-code paths like `import ctypes` — agent-permissions
-catches them by static rule, nah relies on LLM script veto if enabled.
+Convergent for `python3 -c 'import os; os.system("rm -rf /")'`.
+Neither statically denies native-code loading (`import ctypes`,
+`use FFI`, `require 'fiddle'`): agent-permissions deliberately scopes
+the snippet rules to shell-command execution, since native-code
+denial has a high false-positive rate against legitimate FFI use and
+only blocks deliberate evasion that has other routes anyway.
 
 ## Threat-class coverage
 

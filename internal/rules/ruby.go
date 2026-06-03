@@ -46,8 +46,9 @@ var rubyParser = func() *model.FullParser {
 
 var breakdownRuby = breakdownInterpreter(
 	interpreterConfig{
-		lang: model.LangRuby,
-		name: "ruby",
+		lang:       model.LangRuby,
+		name:       "ruby",
+		unverified: rubyUnverified,
 		// -v is NOT an info flag in Ruby — it prints
 		// the version but continues execution (sets
 		// $VERBOSE), so ruby -v script.rb runs the

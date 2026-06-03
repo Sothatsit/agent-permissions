@@ -47,8 +47,9 @@ var pythonParser = func() *model.FullParser {
 
 var breakdownPython = breakdownInterpreter(
 	interpreterConfig{
-		lang: model.LangPython,
-		name: "python",
+		lang:       model.LangPython,
+		name:       "python",
+		unverified: pythonUnverified,
 		infoFlags: []string{
 			"--version", "--help", "-V", "-h",
 		},
@@ -59,7 +60,7 @@ var breakdownPython = breakdownInterpreter(
 // --- Snippet matching ---
 
 // pythonDangerousOSFuncs lists os module functions that
-// execute shell commands or native code.
+// execute shell commands.
 var pythonDangerousOSFuncs = []string{
 	"system", "popen", "exec",
 }

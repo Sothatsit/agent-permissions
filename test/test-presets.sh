@@ -25,8 +25,11 @@ if ! declare -F assert_contains >/dev/null 2>&1; then
     source "$(dirname "${BASH_SOURCE[0]}")/test-lib.sh"
 fi
 
-# Known top-level keys: description and the four tiers.
-KNOWN_TOP_KEYS='["description","Allow","SoftAsk","Ask","Deny"]'
+# Known top-level keys: description, the four tiers, and the
+# Rules axis (rule ID -> {Enabled}). Catalog-vs-preset rule
+# invariants (every rule owned by exactly one preset; IDs
+# valid) live in the Go test, which can see the rule catalog.
+KNOWN_TOP_KEYS='["description","Allow","SoftAsk","Ask","Deny","Rules"]'
 # Known per-tier keys: tool axes only.
 KNOWN_TIER_KEYS='["Commands","EnvVars"]'
 TIER_NAMES='["Allow","SoftAsk","Ask","Deny"]'

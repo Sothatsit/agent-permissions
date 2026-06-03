@@ -123,5 +123,15 @@
       "micromamba create:*": "creates a new env",
       "micromamba remove:*": "removes packages from env"
     }
+  },
+  "Rules": {
+    "python.command-execution": {"Enabled": true},
+    "perl.command-execution": {"Enabled": true},
+    "ruby.command-execution": {"Enabled": true},
+    "node.command-execution": {"Enabled": true},
+    "python.unverified": {"Enabled": true},
+    "perl.unverified": {"Enabled": true},
+    "ruby.unverified": {"Enabled": true},
+    "node.unverified": {"Enabled": true}
   }
 }

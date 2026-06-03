@@ -18,6 +18,13 @@ type interpreterConfig struct {
 	// name is the interpreter name for error messages
 	// (e.g. "python", "perl").
 	name string
+	// unverified governs this interpreter's "cannot
+	// verify" denials (opaque inline code, opaque or
+	// unreadable script path). The breakdown returns them
+	// as a RuleError carrying this def, so they attribute
+	// to the rule and runBreakdown suppresses them when the
+	// rule is disabled.
+	unverified *model.RuleDef
 	// infoFlags cause an immediate fallthrough to
 	// permissions (e.g. --version, --help).
 	infoFlags []string
@@ -86,18 +93,24 @@ func breakdownInterpreter(
 		// Inline code extraction.
 		if codeFlag != nil {
 			if codeFlag.Value == nil {
-				return nil, fmt.Errorf(
-					"%s requires a code argument",
-					codeFlag.Name)
+				return nil, &model.RuleError{
+					Def: cfg.unverified,
+					Reason: fmt.Sprintf(
+						"%s requires a code argument",
+						codeFlag.Name),
+				}
 			}
 			if reason := word.ExpansionReason(
 				codeFlag.Value); reason != "" {
-				return nil, fmt.Errorf(
-					"%s %s: code comes from %s"+
-						" — cannot read and "+
-						"verify it",
-					cfg.name, codeFlag.Name,
-					reason)
+				return nil, &model.RuleError{
+					Def: cfg.unverified,
+					Reason: fmt.Sprintf(
+						"%s %s: code comes from %s"+
+							" — cannot read and "+
+							"verify it",
+						cfg.name, codeFlag.Name,
+						reason),
+				}
 			}
 			code := word.Text(codeFlag.Value)
 			if code == "" {
@@ -120,10 +133,12 @@ func breakdownInterpreter(
 		// First positional is the script file.
 		scriptWord := input.Positionals[0]
 		if !word.Static(scriptWord) {
-			return nil, fmt.Errorf(
-				"script path contains expansion" +
-					" — cannot determine which" +
-					" file to scan")
+			return nil, &model.RuleError{
+				Def: cfg.unverified,
+				Reason: "script path contains " +
+					"expansion — cannot determine " +
+					"which file to scan",
+			}
 		}
 
 		path := word.Text(scriptWord)
@@ -132,18 +147,24 @@ func breakdownInterpreter(
 		}
 
 		if state.Cwd == "" && !filepath.IsAbs(path) {
-			return nil, fmt.Errorf(
-				"%s: cannot verify file — "+
-					"working directory may have"+
-					" changed. Use an absolute"+
-					" path", path)
+			return nil, &model.RuleError{
+				Def: cfg.unverified,
+				Reason: fmt.Sprintf(
+					"%s: cannot verify file — "+
+						"working directory may have"+
+						" changed. Use an absolute"+
+						" path", path),
+			}
 		}
 
 		data, err := model.ReadScript(
 			path, state.Cwd)
 		if err != nil {
-			return nil, fmt.Errorf(
-				"%s: %v", path, err)
+			return nil, &model.RuleError{
+				Def: cfg.unverified,
+				Reason: fmt.Sprintf(
+					"%s: %v", path, err),
+			}
 		}
 
 		return &model.UnwrapResult{

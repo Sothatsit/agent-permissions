@@ -41,10 +41,16 @@ func check(args []string) error {
 	if err != nil {
 		return err
 	}
+	// Prune disabled declarative rules so check evaluates
+	// against the same effective registry the hook does.
+	rules.FilterByConfig(
+		registry, snippetRules, resolved.RuleConfig)
 	resolved.Permissions.Rules = registry
 	resolved.Permissions.SnippetRules = snippetRules
 
-	br, brErr := breakdown.Breakdown(cmd, cwd, registry)
+	// Same rule config the hook resolves (presets + .agents).
+	br, brErr := breakdown.Breakdown(
+		cmd, cwd, registry, resolved.RuleConfig)
 
 	fmt.Println("Command:")
 	fmt.Printf("  %s\n", cmd)
@@ -60,7 +66,8 @@ func check(args []string) error {
 		fmt.Println("Decision: deny")
 		fmt.Println()
 		fmt.Println("Reason:")
-		fmt.Printf("  breakdown error: %v\n", brErr)
+		fmt.Printf("  breakdown error: %s\n",
+			breakdownDenialReason(brErr))
 		return nil
 	}
 

@@ -17,6 +17,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/sothatsit/agent-permissions/internal/model"
 )
 
 //go:embed *.json
@@ -35,13 +37,19 @@ type TierEntries struct {
 // the JSON. A preset may populate any subset of the four
 // tier objects, and within each, any subset of the tool
 // axes.
+//
+// Rules enables Rules-layer rules by ID (rule -> {Enabled}).
+// Rules ship default-OFF in code, so a preset listing a rule
+// with Enabled true is what turns it on. A preset owns the
+// rules for its topic; disabling the preset disables them.
 type Preset struct {
 	Name        string
-	Description string      `json:"description"`
-	Allow       TierEntries `json:"Allow"`
-	SoftAsk     TierEntries `json:"SoftAsk"`
-	Ask         TierEntries `json:"Ask"`
-	Deny        TierEntries `json:"Deny"`
+	Description string                      `json:"description"`
+	Allow       TierEntries                 `json:"Allow"`
+	SoftAsk     TierEntries                 `json:"SoftAsk"`
+	Ask         TierEntries                 `json:"Ask"`
+	Deny        TierEntries                 `json:"Deny"`
+	Rules       map[string]model.RuleConfig `json:"Rules,omitempty"`
 }
 
 var (
@@ -143,13 +151,18 @@ func parseOne(
 		"SoftAsk":     true,
 		"Ask":         true,
 		"Deny":        true,
+		"Rules":       true,
 	}
 	for k, v := range generic {
 		if !known[k] {
 			return nil, fmt.Errorf(
 				"%s: unknown key %q", filename, k)
 		}
-		if k == "description" {
+		// description is a string and Rules is an object
+		// keyed by rule ID; neither is a tier, so skip the
+		// legacy flat-array check below (which guards the
+		// Commands/EnvVars tier keys).
+		if k == "description" || k == "Rules" {
 			continue
 		}
 		if len(v) > 0 && v[0] == '[' {

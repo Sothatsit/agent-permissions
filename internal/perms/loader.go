@@ -12,19 +12,28 @@ import (
 
 	"github.com/sothatsit/agent-permissions/internal/agentconfig"
 	"github.com/sothatsit/agent-permissions/internal/harness"
+	"github.com/sothatsit/agent-permissions/internal/model"
 	"github.com/sothatsit/agent-permissions/presets"
 )
 
-// Resolved is the full view used by `check`: the
-// Permissions to evaluate against plus the ordered list
-// of sources consulted (highest priority first), which is
-// the same data Permissions.Sources holds.
+// Resolved is one harness's full resolution: the
+// Permissions to evaluate against (its ordered Sources,
+// highest priority first) plus the resolved per-rule config
+// the breakdown consults. RuleConfig is harness-agnostic —
+// it comes only from presets and .agents, never from a
+// harness's native settings — so when multi-harness support
+// lands each harness's Resolved shares the same RuleConfig
+// and differs only in its native Sources.
 type Resolved struct {
 	Permissions *Permissions
+	RuleConfig  model.RuleConfigs
 }
 
-// Load reads every config source and returns the
-// resolved Permissions.
+// Resolve reads every config source and returns the full
+// resolved view: the Permissions to evaluate against (with
+// per-source attribution) and the resolved per-rule config.
+// Used by both the hook and the `check` subcommand so they
+// resolve identically.
 //
 // configDir is CLAUDE_CONFIG_DIR (defaults to ~/.claude).
 // cwd is the project directory. Either may be empty;
@@ -40,19 +49,6 @@ type Resolved struct {
 //  6. Embedded presets, filtered by enabled-/disabled-
 //     presets from the most-specific .agents config
 //     that specifies either field (project beats global)
-func Load(
-	configDir, cwd string,
-) (*Permissions, error) {
-	r, err := Resolve(configDir, cwd)
-	if err != nil {
-		return nil, err
-	}
-	return r.Permissions, nil
-}
-
-// Resolve is like Load but returns the full Resolved
-// view, including per-source attribution. Used by the
-// `check` subcommand.
 func Resolve(
 	configDir, cwd string,
 ) (*Resolved, error) {
@@ -148,6 +144,8 @@ func Resolve(
 	}
 
 	return &Resolved{
+		RuleConfig: resolveRuleConfig(
+			projectAgent, globalAgent, selected),
 		Permissions: &Permissions{
 			Sources:  sources,
 			Warnings: warnings,
@@ -208,6 +206,39 @@ func SelectPresets(
 	if cfg.DisabledPresets != nil {
 		out = filterByName(
 			out, *cfg.DisabledPresets, false)
+	}
+	return out
+}
+
+// resolveRuleConfig resolves per-rule config across the
+// rule-config sources. Rules ship default-OFF in code, so a
+// rule absent from every source stays disabled; presets are
+// the enable base and .agents overrides win. Sources are
+// applied lowest priority first so later writes win: presets,
+// then global .agents, then project .agents. No two presets
+// own the same rule, so the preset layer is an unambiguous
+// union. Claude settings.json does not participate — rule
+// config is an agent-permissions concept kept in the shared
+// layers, which is what makes it identical across harnesses.
+func resolveRuleConfig(
+	project, global *agentconfig.Config,
+	selected []*presets.Preset,
+) model.RuleConfigs {
+	out := model.RuleConfigs{}
+	for _, p := range selected {
+		for id, cfg := range p.Rules {
+			out[id] = cfg
+		}
+	}
+	if global != nil {
+		for id, cfg := range global.Rules {
+			out[id] = cfg
+		}
+	}
+	if project != nil {
+		for id, cfg := range project.Rules {
+			out[id] = cfg
+		}
 	}
 	return out
 }

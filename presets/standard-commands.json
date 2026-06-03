@@ -147,5 +147,24 @@
       ".:*": "scopes to project — review which file is sourced",
       "rm:*": "deletes files"
     }
+  },
+  "Rules": {
+    "tar.command-execution": {"Enabled": true},
+    "sort.command-execution": {"Enabled": true},
+    "man.command-execution": {"Enabled": true},
+    "make.command-execution": {"Enabled": true},
+    "zip.command-execution": {"Enabled": true},
+    "patch.command-execution": {"Enabled": true},
+    "nm.command-execution": {"Enabled": true},
+    "sed.command-execution": {"Enabled": true},
+    "awk.command-execution": {"Enabled": true},
+    "find.interactive": {"Enabled": true},
+    "xargs.interactive": {"Enabled": true},
+    "xargs.unverified": {"Enabled": true},
+    "strace.env-injection": {"Enabled": true},
+    "bash.unverified": {"Enabled": true},
+    "eval.unverified": {"Enabled": true},
+    "trap.unverified": {"Enabled": true},
+    "command.unverified": {"Enabled": true}
   }
 }

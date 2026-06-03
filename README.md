@@ -229,6 +229,19 @@ and `git status <anything>`. Use `git status *` (with a space) if
 you need to require at least one argument, and bare `git status`
 for the no-args form only.
 
+A preset may also carry a `Rules` axis that enables Rules-layer
+rules (layer 2) by ID:
+
+```json
+"Rules": {"git.branch-writes": {"Enabled": true}}
+```
+
+The built-in rules ship disabled in the binary; each preset turns
+on the rules for its topic, so disabling a preset also disables
+its rules. The object shape leaves room for future per-rule
+options. Override individual rules in your
+`.agents/permissions.json` (see Configuration).
+
 All presets are active by default. To narrow the set, add
 `enabled-presets` or `disabled-presets` to your
 `~/.agents/permissions.json`. See Configuration below.
@@ -285,6 +298,9 @@ Claude Code's settings.json syntax, not ours), plus optional
     "Commands": {"some-binary:*": ""},
     "EnvVars": {"DANGEROUS_VAR": "leaks credentials"}
   },
+  "Rules": {
+    "git.branch-writes": {"Enabled": false}
+  },
   "disabled-presets": ["containers"]
 }
 ```
@@ -298,6 +314,12 @@ objects you can fill in.
 - `enabled-presets: ["git", "languages"]` → only those listed.
 - Both → `enabled-presets` is applied first, then
   `disabled-presets` filters what remains.
+
+`Rules` overrides Rules-layer rule config by ID. Presets enable
+the rules for their topic; set `Enabled: false` here to turn one
+off, or `Enabled: true` to turn on a rule no active preset
+enables. Project `.agents` beats global `.agents` beats presets,
+and a rule mentioned nowhere stays off.
 
 Project-level `<cwd>/.agents/permissions.json` overrides the
 global file for preset selection: if the project file specifies

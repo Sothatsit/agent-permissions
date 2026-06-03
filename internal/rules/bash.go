@@ -60,13 +60,16 @@ func breakdownBash(
 		}
 		if reason := word.ExpansionReason(
 			pf.Value); reason != "" {
-			return nil, fmt.Errorf(
-				"bash -c: code comes from %s "+
-					"— cannot read and verify "+
-					"it. Use the command "+
-					"directly instead of "+
-					"bash -c",
-				reason)
+			return nil, &model.RuleError{
+				Def: bashUnverified,
+				Reason: fmt.Sprintf(
+					"bash -c: code comes from %s "+
+						"— cannot read and verify "+
+						"it. Use the command "+
+						"directly instead of "+
+						"bash -c",
+					reason),
+			}
 		}
 		code := word.Text(pf.Value)
 		if code == "" {
@@ -96,12 +99,15 @@ func breakdownBash(
 	}
 	path := word.Text(scriptWord)
 	if state.Cwd == "" && !filepath.IsAbs(path) {
-		return nil, fmt.Errorf(
-			"%s: cannot verify file — working "+
-				"directory may have changed. "+
-				"Use an absolute path or run "+
-				"the script directly (%s)",
-			path, word.DirectPath(path))
+		return nil, &model.RuleError{
+			Def: bashUnverified,
+			Reason: fmt.Sprintf(
+				"%s: cannot verify file — working "+
+					"directory may have changed. "+
+					"Use an absolute path or run "+
+					"the script directly (%s)",
+				path, word.DirectPath(path)),
+		}
 	}
 	return &model.UnwrapResult{
 		ScanFiles: []string{path},

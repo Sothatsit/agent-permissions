@@ -49,13 +49,16 @@ func breakdownCommand(
 			// command -p -v name — safe lookup.
 			return &model.UnwrapResult{}, nil
 		} else if word.DefinitelyHasPrefix(w, "-") {
-			return nil, fmt.Errorf(
-				"command: unrecognised flag "+
-					"%s — use 'command -v "+
-					"<name>' to check "+
-					"availability or invoke "+
-					"the command directly",
-				word.Text(w))
+			return nil, &model.RuleError{
+				Def: commandUnverified,
+				Reason: fmt.Sprintf(
+					"command: unrecognised flag "+
+						"%s — use 'command -v "+
+						"<name>' to check "+
+						"availability or invoke "+
+						"the command directly",
+					word.Text(w)),
+			}
 		}
 	} else if word.DefinitelyEqual(w, "--") {
 		idx++
@@ -63,13 +66,16 @@ func breakdownCommand(
 			return &model.UnwrapResult{}, nil
 		}
 	} else if word.DefinitelyHasPrefix(w, "-") {
-		return nil, fmt.Errorf(
-			"command: unrecognised flag "+
-				"%s — use 'command -v "+
-				"<name>' to check "+
-				"availability or invoke "+
-				"the command directly",
-			word.Text(w))
+		return nil, &model.RuleError{
+			Def: commandUnverified,
+			Reason: fmt.Sprintf(
+				"command: unrecognised flag "+
+					"%s — use 'command -v "+
+					"<name>' to check "+
+					"availability or invoke "+
+					"the command directly",
+				word.Text(w)),
+		}
 	}
 
 	// Remaining args are the inner command.

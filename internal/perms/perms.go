@@ -193,6 +193,12 @@ type commandCheck struct {
 	// to their source (e.g. "preset:git") in the reason
 	// text shown to users.
 	sourceName string
+	// ruleDef is the rule definition behind a sourceRules
+	// decision. It drives the "(from rule:<id>)" attribution
+	// so the displayed ID is the one the user puts in their
+	// Rules config to disable it. Nil for structural rule
+	// decisions with no governing rule.
+	ruleDef *model.RuleDef
 	// args holds the command's string arguments. Set
 	// only for sourceNone (unknown commands) so the
 	// caller can compute a suggestion pattern.
@@ -542,12 +548,12 @@ func sourceGuidance(scriptPaths []string) string {
 // be pasted into an Allow list when applicable. Rule-layer
 // matches surface the rule's subject and description with
 // a dash separator, distinguishing them visually from
-// patterns; the subject becomes a kebab-case source label
-// (e.g. "rule:git-branch") so a future configurability
-// path can address the rule by name. Empty descriptions
-// drop the dash and surface only the subject — common for
-// Claude Code settings.json (no reason slot) and presets
-// where a reason wasn't worth writing.
+// patterns; the source is the rule's ID from its RuleDef
+// (e.g. "rule:git.branch-writes"), so it is the exact ID
+// the user puts in their Rules config to disable it. Empty
+// descriptions drop the dash and surface only the subject —
+// common for Claude Code settings.json (no reason slot) and
+// presets where a reason wasn't worth writing.
 func formatCheck(
 	check commandCheck, cmd model.Command,
 ) string {
@@ -558,9 +564,8 @@ func formatCheck(
 	source := check.sourceName
 	if check.source == sourceRules {
 		source = "rule"
-		if check.subject != "" {
-			source = "rule:" + strings.ReplaceAll(
-				check.subject, " ", "-")
+		if check.ruleDef != nil {
+			source = "rule:" + check.ruleDef.ID
 		}
 	}
 	label := body
@@ -647,7 +652,10 @@ func (p *Permissions) checkSnippet(
 		return commandCheck{decision: model.Allow}
 	}
 
-	// Build the reason with source context.
+	// Build the reason with source context. All of a
+	// language's snippet rules share one RuleDef, so attribute
+	// the finding to it — the displayed ID is the one the user
+	// disables in their Rules config.
 	source := "inline code"
 	if snippet.SourceFile != "" {
 		source = snippet.SourceFile
@@ -655,6 +663,9 @@ func (p *Permissions) checkSnippet(
 	reason := fmt.Sprintf(
 		"%s: %s",
 		source, strings.Join(reasons, ", "))
+	if lang.Def != nil {
+		reason += "  (from rule:" + lang.Def.ID + ")"
+	}
 
 	// Inline code (-c) keeps the original decision
 	// (deny). File-based code is downgraded to ask.
@@ -671,13 +682,13 @@ func (p *Permissions) checkSnippet(
 	return commandCheck{
 		decision: decision,
 		source:   sourceRules,
+		ruleDef:  lang.Def,
 		// Snippet reasons are pre-composed
-		// "<source>: <findings>" strings; they bypass
-		// formatCheck and get dumped to the user verbatim
-		// so source attribution and `<thing> - <reason>`
-		// formatting wouldn't add anything here. Park the
-		// composed string in subject; description stays
-		// empty.
+		// "<source>: <findings>  (from rule:<id>)" strings;
+		// they bypass formatCheck and get dumped to the user
+		// verbatim, so the attribution is baked in above.
+		// Park the composed string in subject; description
+		// stays empty.
 		subject: reason,
 	}
 }
@@ -707,6 +718,7 @@ func (p *Permissions) checkOne(
 				source:      sourceRules,
 				subject:     subject,
 				description: desc,
+				ruleDef:     action.Def,
 			}
 		}
 	}

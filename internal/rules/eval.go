@@ -22,12 +22,15 @@ func breakdownEval(
 	// could execute anything.
 	for _, w := range input.Raw {
 		if !word.Static(w) {
-			return nil, fmt.Errorf(
-				"eval contains %s — cannot verify "+
-					"what will execute. Use the "+
-					"command directly instead "+
-					"of eval",
-				word.OpaqueReason(w))
+			return nil, &model.RuleError{
+				Def: evalUnverified,
+				Reason: fmt.Sprintf(
+					"eval contains %s — cannot verify "+
+						"what will execute. Use the "+
+						"command directly instead "+
+						"of eval",
+					word.OpaqueReason(w)),
+			}
 		}
 	}
 	// All args are static — join and re-parse as a

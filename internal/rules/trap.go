@@ -1,8 +1,6 @@
 package rules
 
 import (
-	"fmt"
-
 	"github.com/sothatsit/agent-permissions/internal/model"
 	"github.com/sothatsit/agent-permissions/internal/word"
 )
@@ -43,10 +41,12 @@ func breakdownTrap(
 	}
 
 	if !word.Static(codeWord) {
-		return nil, fmt.Errorf(
-			"trap: cannot verify command — use " +
+		return nil, &model.RuleError{
+			Def: trapUnverified,
+			Reason: "trap: cannot verify command — use " +
 				"a literal string instead of a " +
-				"variable")
+				"variable",
+		}
 	}
 
 	return &model.UnwrapResult{

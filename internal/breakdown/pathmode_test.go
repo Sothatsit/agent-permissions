@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/sothatsit/agent-permissions/internal/model"
+	"github.com/sothatsit/agent-permissions/internal/rules"
 	"github.com/sothatsit/agent-permissions/internal/word"
 
 	"mvdan.cc/sh/v3/syntax"
@@ -44,7 +45,7 @@ func TestPathDenyRejectsPathInvoked(t *testing.T) {
 	var called bool
 	reg := makeRegistry("mycmd", model.PathDeny, &called)
 	_, err := Breakdown(
-		"/usr/bin/mycmd arg", "/tmp", reg)
+		"/usr/bin/mycmd arg", "/tmp", reg, rules.AllEnabled())
 	if err == nil {
 		t.Fatal("expected error for path-invoked " +
 			"command with PathDeny")
@@ -58,7 +59,7 @@ func TestPathDenyRejectsPathInvoked(t *testing.T) {
 func TestPathDenyAllowsBareCommand(t *testing.T) {
 	var called bool
 	reg := makeRegistry("mycmd", model.PathDeny, &called)
-	_, err := Breakdown("mycmd arg", "/tmp", reg)
+	_, err := Breakdown("mycmd arg", "/tmp", reg, rules.AllEnabled())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -71,7 +72,7 @@ func TestPathSkipSkipsPathInvoked(t *testing.T) {
 	var called bool
 	reg := makeRegistry("mycmd", model.PathSkip, &called)
 	result, err := Breakdown(
-		"/usr/bin/mycmd arg", "/tmp", reg)
+		"/usr/bin/mycmd arg", "/tmp", reg, rules.AllEnabled())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -95,7 +96,7 @@ func TestPathSkipSkipsPathInvoked(t *testing.T) {
 func TestPathSkipAllowsBareCommand(t *testing.T) {
 	var called bool
 	reg := makeRegistry("mycmd", model.PathSkip, &called)
-	_, err := Breakdown("mycmd arg", "/tmp", reg)
+	_, err := Breakdown("mycmd arg", "/tmp", reg, rules.AllEnabled())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -110,7 +111,7 @@ func TestPathAllowRunsBreakdownForPath(t *testing.T) {
 	reg := makeRegistry(
 		"mycmd", model.PathAllow, &called)
 	result, err := Breakdown(
-		"/usr/bin/mycmd arg", "/tmp", reg)
+		"/usr/bin/mycmd arg", "/tmp", reg, rules.AllEnabled())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -142,7 +143,7 @@ func TestPathAllowBareCommandReplaces(t *testing.T) {
 	reg := makeRegistry(
 		"mycmd", model.PathAllow, &called)
 	result, err := Breakdown(
-		"mycmd arg", "/tmp", reg)
+		"mycmd arg", "/tmp", reg, rules.AllEnabled())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -163,7 +164,7 @@ func TestPathAllowBareCommandReplaces(t *testing.T) {
 func TestPathDenyRelativePath(t *testing.T) {
 	var called bool
 	reg := makeRegistry("mycmd", model.PathDeny, &called)
-	_, err := Breakdown("./mycmd arg", "/tmp", reg)
+	_, err := Breakdown("./mycmd arg", "/tmp", reg, rules.AllEnabled())
 	if err == nil {
 		t.Fatal("expected error for relative " +
 			"path-invoked command with PathDeny")
@@ -178,7 +179,7 @@ func TestPathSkipRelativePath(t *testing.T) {
 	var called bool
 	reg := makeRegistry("mycmd", model.PathSkip, &called)
 	result, err := Breakdown(
-		"./mycmd arg", "/tmp", reg)
+		"./mycmd arg", "/tmp", reg, rules.AllEnabled())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -108,5 +108,14 @@
       "gh extension remove:*": "removes installed extensions",
       "gh secret:*": "manages repo or org secrets"
     }
+  },
+  "Rules": {
+    "git.interactive": {"Enabled": true},
+    "git.command-execution": {"Enabled": true},
+    "git.config-injection": {"Enabled": true},
+    "git.branch-writes": {"Enabled": true},
+    "git.tag-writes": {"Enabled": true},
+    "git.remote-writes": {"Enabled": true},
+    "gh.api-writes": {"Enabled": true}
   }
 }

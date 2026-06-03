@@ -4,6 +4,7 @@
 package breakdown
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -72,18 +73,23 @@ func (b *breaker) isolateForBash() func() {
 // commands that could be executed. cwd is the working
 // directory used to resolve relative paths in bash
 // script.sh and source/. commands. registry provides
-// command rules for BreakdownFunc dispatch. Returns an
+// command rules for BreakdownFunc dispatch. ruleConfig is the
+// resolved per-rule configuration that breakdown functions
+// consult before applying imperative denials; it must be
+// populated (RuleConfigs.For panics on a nil map). Returns an
 // error with a reason if any AST node is unrecognised.
 func Breakdown(
 	command string,
 	cwd string,
 	registry map[string]*model.CommandRules,
+	ruleConfig model.RuleConfigs,
 ) (model.BreakdownResult, error) {
 	b := &breaker{
 		State: model.State{
-			Cwd:     cwd,
-			Visited: make(map[string]bool),
-			Funcs:   make(map[string]bool),
+			Cwd:        cwd,
+			Visited:    make(map[string]bool),
+			Funcs:      make(map[string]bool),
+			RuleConfig: ruleConfig,
 		},
 		registry: registry,
 		parser: syntax.NewParser(
@@ -122,6 +128,22 @@ func (b *breaker) sourcePathStr() string {
 	return strings.Join(b.FilePath, sourcePathSep)
 }
 
+// suppressDisabled reports whether a breakdown error should
+// be swallowed because the rule that produced it is disabled.
+// Rule-attributed denials carry a *model.RuleError with a
+// Def; when that rule is off, the denial is dropped and the
+// command falls through to the permissions layer. Plain
+// errors (parse failures with no governing rule, unsupported
+// syntax) carry no Def and are never suppressed — they fail
+// closed.
+func (b *breaker) suppressDisabled(err error) bool {
+	var re *model.RuleError
+	if errors.As(err, &re) && re.Def != nil {
+		return !b.RuleConfig.For(re.Def).Enabled
+	}
+	return false
+}
+
 // runBreakdown calls the BreakdownFunc for a command and
 // processes the UnwrapResult. Returns the inner commands
 // extracted (if any) and whether the outer command was
@@ -148,8 +170,25 @@ func (b *breaker) runBreakdown(
 	if rules.Parser != nil {
 		parsed, err := rules.Parser.Parse(args)
 		if err != nil {
-			return model.BreakdownResult{}, true,
-				fmt.Errorf("%s: %w", baseName, err)
+			// A parser failure is this command's "cannot
+			// verify" denial. Attribute it to the
+			// command's Unverified rule so it both shows
+			// the rule ID and suppresses when that rule
+			// is disabled.
+			var perr error = fmt.Errorf(
+				"%s: %w", baseName, err)
+			if rules.Unverified != nil {
+				perr = &model.RuleError{
+					Def: rules.Unverified,
+					Reason: fmt.Sprintf(
+						"%s: %v", baseName, err),
+				}
+			}
+			if b.suppressDisabled(perr) {
+				return model.BreakdownResult{},
+					false, nil
+			}
+			return model.BreakdownResult{}, true, perr
 		}
 		parsed.Name = baseName
 		input = parsed
@@ -161,6 +200,12 @@ func (b *breaker) runBreakdown(
 	unwrapResult, err := rules.Breakdown(
 		input, &b.State)
 	if err != nil {
+		// A breakdown denial attributed to a disabled rule
+		// is dropped — the command falls through to the
+		// permissions layer instead of being denied.
+		if b.suppressDisabled(err) {
+			return model.BreakdownResult{}, false, nil
+		}
 		return model.BreakdownResult{}, true, err
 	}
 	if unwrapResult == nil {

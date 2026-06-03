@@ -103,6 +103,18 @@ _clear_project_settings() {
     rm -rf "$_bp_tmpdir/project/.claude"
 }
 
+# _write_agent_config writes project .agents/permissions.json
+# (the agent-permissions config — Rules overrides etc.).
+_write_agent_config() {
+    mkdir -p "$_bp_tmpdir/project/.agents"
+    echo "$1" > "$_bp_tmpdir/project/.agents/permissions.json"
+}
+
+# _clear_agent_config removes the project .agents config.
+_clear_agent_config() {
+    rm -rf "$_bp_tmpdir/project/.agents"
+}
+
 # Isolate HOME so the test runner's real ~/.agents/
 # permissions.json doesn't bleed into the hook's resolver.
 # CLAUDE_CONFIG_DIR is also pinned at the tmpdir, so an
@@ -1975,6 +1987,11 @@ assert_contains "deny: xargs unrecognized flag" "$(_decision "$out")" "deny"
 # xargs -p/--interactive denied — hangs in non-interactive.
 out=$(_run_hook 'xargs -p git status')
 assert_contains "deny: xargs -p denied" "$(_decision "$out")" "deny"
+# Imperative deny-flags deny via the breakdown error channel;
+# they still attribute to the rule ID so it's clear what to
+# disable.
+assert_contains "xargs -p attributes the rule ID" \
+    "$(_reason "$out")" "(from rule:xargs.interactive)"
 
 out=$(_run_hook 'xargs --interactive git status')
 assert_contains "deny: xargs --interactive denied" "$(_decision "$out")" "deny"
@@ -1985,6 +2002,74 @@ assert_contains "deny: xargs -o denied" "$(_decision "$out")" "deny"
 
 out=$(_run_hook 'xargs --open-tty git status')
 assert_contains "deny: xargs --open-tty denied" "$(_decision "$out")" "deny"
+
+# --- Rule config: disabling a rule via .agents ---
+#
+# End-to-end check that .agents/permissions.json Rules flows
+# through resolution into the breakdown. xargs.interactive is
+# an imperative deny-flag rule, so disabling it makes the
+# wrapper skip the -p denial and check the inner command
+# (git status -> allow) instead.
+_write_agent_config \
+    '{"Rules":{"xargs.interactive":{"Enabled":false}}}'
+out=$(_run_hook 'xargs -p git status')
+assert_contains "rule-config: disabled xargs.interactive falls through" \
+    "$(_decision "$out")" "allow"
+
+# Re-enabling restores the deny.
+_write_agent_config \
+    '{"Rules":{"xargs.interactive":{"Enabled":true}}}'
+out=$(_run_hook 'xargs -p git status')
+assert_contains "rule-config: re-enabled xargs.interactive denies" \
+    "$(_decision "$out")" "deny"
+
+_clear_agent_config
+
+# --- Rule config: disabling declarative rules ---
+#
+# Declarative rules are pruned from the registry by the filter
+# when disabled (not gated at runtime like xargs). Disabling a
+# flag rule drops its deny node, so the command falls through
+# to the permissions layer — tar is allowed there, so the deny
+# becomes allow.
+out=$(_run_hook 'tar --to-command=sh -cf a.tar x')
+assert_contains "rule-config: tar.command-execution on denies" \
+    "$(_decision "$out")" "deny"
+_write_agent_config \
+    '{"Rules":{"tar.command-execution":{"Enabled":false}}}'
+out=$(_run_hook 'tar --to-command=sh -cf a.tar x')
+assert_contains "rule-config: disabled tar.command-execution allows" \
+    "$(_decision "$out")" "allow"
+_clear_agent_config
+
+# Snippet rules share one def per language; disabling it drops
+# the whole language scan, so dangerous inline code is no
+# longer flagged and the snippet scans clean (allow).
+out=$(_run_hook 'python3 -c "import subprocess"')
+assert_contains "rule-config: python.command-execution on denies" \
+    "$(_decision "$out")" "deny"
+_write_agent_config \
+    '{"Rules":{"python.command-execution":{"Enabled":false}}}'
+out=$(_run_hook 'python3 -c "import subprocess"')
+assert_contains "rule-config: disabled python.command-execution allows" \
+    "$(_decision "$out")" "allow"
+_clear_agent_config
+
+# Imperative "cannot verify" denials (eval of a variable) now
+# attribute to their .unverified rule, and disabling it makes
+# the breakdown fall through to the permissions layer instead
+# of denying.
+out=$(_run_hook 'eval "$CMD"')
+assert_contains "rule-config: eval.unverified denies opaque eval" \
+    "$(_decision "$out")" "deny"
+assert_contains "rule-config: eval denial attributes the rule ID" \
+    "$(_reason "$out")" "(from rule:eval.unverified)"
+_write_agent_config \
+    '{"Rules":{"eval.unverified":{"Enabled":false}}}'
+out=$(_run_hook 'eval "$CMD"')
+assert_not_contains "rule-config: disabled eval.unverified no longer denies" \
+    "$(_decision "$out")" "deny"
+_clear_agent_config
 
 # xargs in a pipe — common real-world pattern.
 out=$(_run_hook 'echo hello | xargs echo')
@@ -4897,6 +4982,10 @@ assert_contains "ask: git branch -d" \
 out=$(_run_hook 'git branch -D feature')
 assert_contains "ask: git branch -D" \
     "$(_decision "$out")" "ask"
+# Attribution names the configurable rule ID, not a label
+# derived from the command, so it can be pasted into Rules.
+assert_contains "git branch -D attributes the rule ID" \
+    "$(_reason "$out")" "(from rule:git.branch-writes)"
 
 out=$(_run_hook 'git branch -m old new')
 assert_contains "ask: git branch -m" \
@@ -5322,26 +5411,6 @@ assert_contains "python: subprocess file ask" \
 assert_contains "python: subprocess file reason" \
     "$(_reason "$out")" "subprocess"
 
-echo 'import ctypes
-ctypes.CDLL("libc.so.6")' \
-    > "$_bp_scripts/uses-ctypes.py"
-
-out=$(_run_hook "python3 uses-ctypes.py")
-assert_contains "python: ctypes file ask" \
-    "$(_decision "$out")" "ask"
-assert_contains "python: ctypes file reason" \
-    "$(_reason "$out")" "ctypes"
-
-echo 'import cffi
-ffi = cffi.FFI()' \
-    > "$_bp_scripts/uses-cffi.py"
-
-out=$(_run_hook "python3 uses-cffi.py")
-assert_contains "python: cffi file ask" \
-    "$(_decision "$out")" "ask"
-assert_contains "python: cffi file reason" \
-    "$(_reason "$out")" "cffi"
-
 echo 'from os import system
 system("ls")' \
     > "$_bp_scripts/uses-os-system.py"
@@ -5407,7 +5476,7 @@ assert_contains "python: os.exec qualified call ask" \
 
 # Multiple dangerous imports — all reasons shown.
 echo 'import subprocess
-import ctypes' \
+from os import system' \
     > "$_bp_scripts/uses-multi.py"
 
 out=$(_run_hook "python3 uses-multi.py")
@@ -5415,8 +5484,8 @@ assert_contains "python: multi-danger ask" \
     "$(_decision "$out")" "ask"
 assert_contains "python: multi-danger shows subprocess" \
     "$(_reason "$out")" "subprocess"
-assert_contains "python: multi-danger shows ctypes" \
-    "$(_reason "$out")" "ctypes"
+assert_contains "python: multi-danger shows os" \
+    "$(_reason "$out")" "os"
 
 # --- Python: code snippet scanning (inline -c) ---
 #
@@ -5433,10 +5502,9 @@ assert_contains "python: subprocess -c deny" \
     "$(_decision "$out")" "deny"
 assert_contains "python: subprocess -c reason" \
     "$(_reason "$out")" "subprocess"
-
-out=$(_run_hook 'python3 -c "import ctypes"')
-assert_contains "python: ctypes -c deny" \
-    "$(_decision "$out")" "deny"
+# Snippet denials attribute to the language's rule ID.
+assert_contains "python: subprocess -c attributes rule ID" \
+    "$(_reason "$out")" "(from rule:python.command-execution)"
 
 out=$(_run_hook \
     'python3 -c "from os import system; system(\"ls\")"')
@@ -5523,8 +5591,8 @@ assert_contains "python: -c os.system deny under python3 * allow" \
 _write_project_settings \
     '{"permissions":{"allow":["Bash(python3 -c *)"]}}'
 
-out=$(_run_hook 'python3 -c "import ctypes"')
-assert_contains "python: -c ctypes deny under specific allow" \
+out=$(_run_hook 'python3 -c "import subprocess"')
+assert_contains "python: -c subprocess deny under specific allow" \
     "$(_decision "$out")" "deny"
 
 _write_project_settings \
@@ -5793,22 +5861,6 @@ assert_contains "perl: IPC -e deny" \
 assert_contains "perl: IPC -e reason" \
     "$(_reason "$out")" "IPC"
 
-out=$(_run_hook 'perl -e "use FFI::Platypus"')
-assert_contains "perl: FFI -e deny" \
-    "$(_decision "$out")" "deny"
-
-out=$(_run_hook 'perl -e "use Inline::C"')
-assert_contains "perl: Inline -e deny" \
-    "$(_decision "$out")" "deny"
-
-out=$(_run_hook 'perl -e "use DynaLoader"')
-assert_contains "perl: DynaLoader -e deny" \
-    "$(_decision "$out")" "deny"
-
-out=$(_run_hook 'perl -e "use XSLoader"')
-assert_contains "perl: XSLoader -e deny" \
-    "$(_decision "$out")" "deny"
-
 # Backtick shell syntax.
 out=$(_run_hook 'perl -e "my \$x = \`ls\`"')
 assert_contains "perl: backtick -e deny" \
@@ -5948,14 +6000,6 @@ assert_contains "ruby: open3 -e deny" \
 assert_contains "ruby: open3 -e reason" \
     "$(_reason "$out")" "open3"
 
-out=$(_run_hook 'ruby -e "require \"fiddle\""')
-assert_contains "ruby: fiddle -e deny" \
-    "$(_decision "$out")" "deny"
-
-out=$(_run_hook 'ruby -e "require \"ffi\""')
-assert_contains "ruby: ffi -e deny" \
-    "$(_decision "$out")" "deny"
-
 out=$(_run_hook 'ruby -e "IO.popen(\"ls\")"')
 assert_contains "ruby: IO.popen -e deny" \
     "$(_decision "$out")" "deny"
@@ -6055,25 +6099,6 @@ assert_contains "node: child_process -e deny" \
     "$(_decision "$out")" "deny"
 assert_contains "node: child_process -e reason" \
     "$(_reason "$out")" "child_process"
-
-out=$(_run_hook 'node -e "require(\"ffi-napi\")"')
-assert_contains "node: ffi-napi -e deny" \
-    "$(_decision "$out")" "deny"
-
-out=$(_run_hook \
-    'node -e "require(\"ref-napi\")"')
-assert_contains "node: ref-napi -e deny" \
-    "$(_decision "$out")" "deny"
-
-out=$(_run_hook \
-    'node -e "process.binding(\"fs\")"')
-assert_contains "node: process.binding -e deny" \
-    "$(_decision "$out")" "deny"
-
-out=$(_run_hook \
-    'node -e "process.dlopen(module, \"lib.so\")"')
-assert_contains "node: process.dlopen -e deny" \
-    "$(_decision "$out")" "deny"
 
 # --eval long form.
 out=$(_run_hook \

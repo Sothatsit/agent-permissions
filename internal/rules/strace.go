@@ -102,4 +102,5 @@ var straceParser, breakdownStrace = wrapperBreakdown(
 				"dangerous environment variables. " +
 				"Set env vars inline instead",
 		},
+		denyRule: straceEnvInject,
 	})

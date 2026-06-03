@@ -25,9 +25,24 @@ func Evaluate(
 	if cr.Parser != nil {
 		parsed, err := cr.Parser.Parse(args)
 		if err != nil {
+			// A parser failure is this command's "cannot
+			// verify" denial, governed by its Unverified
+			// rule. This path does NOT gate on rule
+			// config, and doesn't need to: every command
+			// with a Parser also has a Breakdown func, so
+			// runBreakdown parses first — a failure there
+			// aborts before this layer runs, and a success
+			// there means this re-parse also succeeds. So
+			// this branch is dead for the current
+			// registry. If a Parser-only command with an
+			// Unverified rule is ever added, this path
+			// becomes reachable and would deny even when
+			// that rule is disabled — gate it on config
+			// then (the breakdown already does).
 			return &model.Action{
 				Decision: model.Deny,
 				Reason:   err.Error(),
+				Def:      cr.Unverified,
 			}
 		}
 		parsed.Name = name
@@ -36,20 +51,28 @@ func Evaluate(
 		model.PopulatePossibleFlags(&input)
 	}
 
-	result := evaluateRules(cr.Rules, input, name)
+	result := evaluateRules(cr.Rules, input, name, nil)
 	if result != nil {
 		return result
 	}
 	if cr.Default != nil {
-		return formatAction(cr.Default, name)
+		// The command-level Default is the fail-closed
+		// denial gated by the command's Unverified rule.
+		return formatAction(cr.Default, name, cr.Unverified)
 	}
 	return nil
 }
 
+// evaluateRules walks a rule tree. govDef is the rule
+// governing the current subtree — a node's own Def when set,
+// otherwise inherited from an ancestor — so a hook or Default
+// under a Subcmd(...).WithRuleDef(...) is attributed to that
+// ancestor's rule even though it carries no Def of its own.
 func evaluateRules(
 	ruleList []model.Rule,
 	input model.ParseResult,
 	path string,
+	govDef *model.RuleDef,
 ) *model.Action {
 	var strongest *model.Action
 
@@ -61,6 +84,12 @@ func evaluateRules(
 			continue
 		}
 
+		// The rule governing this node and its subtree.
+		ruleDef := govDef
+		if rule.Def != nil {
+			ruleDef = rule.Def
+		}
+
 		// Extend path with match context (e.g.
 		// "git" → "git --upload-pack", or
 		// "git" → "git remote" → "git remote add").
@@ -70,7 +99,8 @@ func evaluateRules(
 		}
 
 		if rule.Action != nil {
-			a := formatAction(rule.Action, childPath)
+			a := formatAction(
+				rule.Action, childPath, ruleDef)
 			strongest = stronger(strongest, a)
 		}
 
@@ -82,6 +112,7 @@ func evaluateRules(
 					&model.Action{
 						Decision: decision,
 						Reason:   reason,
+						Def:      ruleDef,
 					},
 				)
 			}
@@ -90,12 +121,12 @@ func evaluateRules(
 		if len(rule.Children) > 0 {
 			child := evaluateRules(
 				rule.Children, childInput,
-				childPath)
+				childPath, ruleDef)
 			if child != nil {
 				strongest = stronger(strongest, child)
 			} else if rule.Default != nil {
 				d := formatAction(
-					rule.Default, childPath)
+					rule.Default, childPath, ruleDef)
 				strongest = stronger(strongest, d)
 			}
 		}
@@ -126,14 +157,16 @@ func stronger(a, b *model.Action) *model.Action {
 	return a
 }
 
-// formatAction builds a new Action with a formatted reason.
-// Never mutates the input action.
+// formatAction builds a new Action with a formatted reason
+// and the governing rule definition stamped on for
+// attribution. Never mutates the input action.
 func formatAction(
-	action *model.Action, path string,
+	action *model.Action, path string, def *model.RuleDef,
 ) *model.Action {
 	return &model.Action{
 		Decision: action.Decision,
 		Reason: fmt.Sprintf(
 			"%s: %s", path, action.Reason),
+		Def: def,
 	}
 }

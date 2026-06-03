@@ -36,27 +36,35 @@ func Registry() (
 		Breakdown: breakdownGit,
 		PathMode:  model.PathSkip,
 		Rules: []model.Rule{
-			model.Flag("-e", "--edit").Deny(
+			model.Flag("-e", "--edit").
+				WithRuleDef(gitInteractive).Deny(
 				"interactive"),
 			model.Flag("--upload-pack",
 				"--receive-pack",
 				"--open-files-in-pager",
-			).Deny("can execute arbitrary commands"),
+			).WithRuleDef(gitCommandExec).Deny(
+				"can execute arbitrary commands"),
 			model.Flag("-c").
+				WithRuleDef(gitConfigInject).
 				ValueCouldContain("=").Deny(
 				"can execute arbitrary commands " +
 					"via hooks/editor/pager " +
 					"config — use git config " +
 					"instead"),
-			model.Subcmd("branch").DefaultDeny(
+			// git branch/tag: the subcommand carries the
+			// def and a DefaultDeny safety net; the hook
+			// (under it, governed by the same def) does the
+			// classification. classifyGit* always decides,
+			// so the default only fires if that ever changes.
+			model.Subcmd("branch").
+				WithRuleDef(gitBranchWrites).DefaultDeny(
 				"unrecognised flag").Rules(
-				model.Hook("gitBranch",
-					classifyGitBranch),
+				model.Always().Hook(classifyGitBranch),
 			),
-			model.Subcmd("tag").DefaultDeny(
+			model.Subcmd("tag").
+				WithRuleDef(gitTagWrites).DefaultDeny(
 				"unrecognised flag").Rules(
-				model.Hook("gitTag",
-					classifyGitTag),
+				model.Always().Hook(classifyGitTag),
 			),
 			model.Subcmd("remote").DefaultAllow(
 				"read-only").Rules(
@@ -64,7 +72,8 @@ func Registry() (
 					"remove", "rm", "set-head",
 					"set-branches", "set-url",
 					"prune", "update",
-				).SoftAsk("git remote: write operation"),
+				).WithRuleDef(gitRemoteWrites).SoftAsk(
+					"write operation"),
 			),
 		},
 	}
@@ -72,10 +81,10 @@ func Registry() (
 	// gh: classify gh api by HTTP method.
 	r["gh"] = &model.CommandRules{
 		Rules: []model.Rule{
-			model.Subcmd("api").DefaultDeny(
+			model.Subcmd("api").
+				WithRuleDef(ghAPIWrites).DefaultDeny(
 				"unrecognised flag").Rules(
-				model.Hook("ghApi",
-					classifyGhApi),
+				model.Always().Hook(classifyGhApi),
 			),
 		},
 	}
@@ -87,13 +96,16 @@ func Registry() (
 				"--use-compress-program",
 				"--rsh-command", "--rmt-command",
 				"--info-script",
-			).Deny("can execute arbitrary commands"),
+			).WithRuleDef(tarCommandExec).Deny(
+				"can execute arbitrary commands"),
 			model.Flag(
 				"--checkpoint-action",
-			).ValueMayHavePrefix(
-				"exec=",
-			).Deny("can execute arbitrary commands"),
-			model.Flag("-I").Deny(
+			).WithRuleDef(tarCommandExec).
+				ValueMayHavePrefix(
+					"exec=",
+				).Deny("can execute arbitrary commands"),
+			model.Flag("-I").
+				WithRuleDef(tarCommandExec).Deny(
 				"can execute arbitrary commands"),
 		},
 	}
@@ -101,7 +113,8 @@ func Registry() (
 	// sort: --compress-program runs an external command.
 	r["sort"] = &model.CommandRules{
 		Rules: []model.Rule{
-			model.Flag("--compress-program").Deny(
+			model.Flag("--compress-program").
+				WithRuleDef(sortCommandExec).Deny(
 				"can execute arbitrary commands"),
 		},
 	}
@@ -111,14 +124,16 @@ func Registry() (
 		Rules: []model.Rule{
 			model.Flag("--html", "--pager",
 				"-H", "-P",
-			).Deny("can execute arbitrary commands"),
+			).WithRuleDef(manCommandExec).Deny(
+				"can execute arbitrary commands"),
 		},
 	}
 
 	// make: --eval executes arbitrary makefile code.
 	r["make"] = &model.CommandRules{
 		Rules: []model.Rule{
-			model.Flag("--eval").Deny(
+			model.Flag("--eval").
+				WithRuleDef(makeCommandExec).Deny(
 				"can execute arbitrary commands"),
 		},
 	}
@@ -126,7 +141,8 @@ func Registry() (
 	// zip: -TT runs a test command on each file.
 	r["zip"] = &model.CommandRules{
 		Rules: []model.Rule{
-			model.Flag("-TT").Deny(
+			model.Flag("-TT").
+				WithRuleDef(zipCommandExec).Deny(
 				"can execute arbitrary commands"),
 		},
 	}
@@ -136,16 +152,21 @@ func Registry() (
 	// detection can also trigger this without the flag.
 	r["patch"] = &model.CommandRules{
 		Rules: []model.Rule{
-			model.Flag("-e", "--ed").Deny(
+			model.Flag("-e", "--ed").
+				WithRuleDef(patchCommandExec).Deny(
 				"ed script mode can execute " +
 					"shell commands"),
 		},
 	}
 
-	// nm: --plugin loads an arbitrary shared library.
+	// nm: --plugin loads an arbitrary shared library,
+	// turning a benign-looking symbol lister into a native
+	// code loader. Near-zero legitimate use, so blocking it
+	// costs little.
 	r["nm"] = &model.CommandRules{
 		Rules: []model.Rule{
-			model.Flag("--plugin").Deny(
+			model.Flag("--plugin").
+				WithRuleDef(nmCommandExec).Deny(
 				"can load arbitrary shared libraries"),
 		},
 	}
@@ -153,14 +174,16 @@ func Registry() (
 	// sed: deny scripts containing e (execute) command.
 	r["sed"] = &model.CommandRules{
 		Rules: []model.Rule{
-			model.Hook("sed", hookCheckSed),
+			model.Always().WithRuleDef(sedCommandExec).
+				Hook(hookCheckSed),
 		},
 	}
 
 	// awk: deny programs using system() or shell pipes.
 	r["awk"] = &model.CommandRules{
 		Rules: []model.Rule{
-			model.Hook("awk", hookCheckAwk),
+			model.Always().WithRuleDef(awkCommandExec).
+				Hook(hookCheckAwk),
 		},
 	}
 
@@ -172,7 +195,8 @@ func Registry() (
 	r["find"] = &model.CommandRules{
 		Breakdown: breakdownFind,
 		Rules: []model.Rule{
-			model.Flag("-ok", "-okdir").Deny(
+			model.Flag("-ok", "-okdir").
+				WithRuleDef(findInteractive).Deny(
 				"interactive"),
 		},
 	}
@@ -192,32 +216,36 @@ func Registry() (
 	// to permissions, where users can allow specific
 	// interpreter paths.
 	pythonRules := &model.CommandRules{
-		Parser:    pythonParser,
-		Breakdown: breakdownPython,
-		PathMode:  model.PathAllow,
+		Parser:     pythonParser,
+		Breakdown:  breakdownPython,
+		PathMode:   model.PathAllow,
+		Unverified: pythonUnverified,
 	}
 	r["python3"] = pythonRules
 	r["python"] = pythonRules
 
 	// perl
 	r["perl"] = &model.CommandRules{
-		Parser:    perlParser,
-		Breakdown: breakdownPerl,
-		PathMode:  model.PathAllow,
+		Parser:     perlParser,
+		Breakdown:  breakdownPerl,
+		PathMode:   model.PathAllow,
+		Unverified: perlUnverified,
 	}
 
 	// ruby
 	r["ruby"] = &model.CommandRules{
-		Parser:    rubyParser,
-		Breakdown: breakdownRuby,
-		PathMode:  model.PathAllow,
+		Parser:     rubyParser,
+		Breakdown:  breakdownRuby,
+		PathMode:   model.PathAllow,
+		Unverified: rubyUnverified,
 	}
 
 	// node
 	r["node"] = &model.CommandRules{
-		Parser:    nodeParser,
-		Breakdown: breakdownNode,
-		PathMode:  model.PathAllow,
+		Parser:     nodeParser,
+		Breakdown:  breakdownNode,
+		PathMode:   model.PathAllow,
+		Unverified: nodeUnverified,
 	}
 
 	// --- Managed ---
@@ -231,8 +259,10 @@ func Registry() (
 		Breakdown: breakdownBash,
 		Default: model.DenyAction(
 			"invocation could not be verified"),
+		Unverified: bashUnverified,
 		Rules: []model.Rule{
-			model.Hook("bash", hookFormatBashDenial),
+			model.Always().WithRuleDef(bashUnverified).
+				Hook(hookFormatBashDenial),
 		},
 	}
 	r["bash"] = bashRules
@@ -263,7 +293,8 @@ func Registry() (
 	}
 
 	// strace: skip tracing flags, extract inner.
-	// Denies -E/--env (can inject env vars).
+	// Denies -E/--env (can inject env vars) via
+	// strace.env-injection.
 	r["strace"] = &model.CommandRules{
 		Parser:    straceParser,
 		Breakdown: breakdownStrace,
@@ -271,10 +302,13 @@ func Registry() (
 
 	// xargs: skip flags, extract inner command.
 	// Denies -p/--interactive (hangs) and
-	// -o/--open-tty (opens /dev/tty).
+	// -o/--open-tty (opens /dev/tty) via xargs.interactive.
+	// The -I-from-stdin / ambiguous-replacement / unknown-
+	// flag denials are gated by xargs.unverified.
 	r["xargs"] = &model.CommandRules{
-		Parser:    xargsParser,
-		Breakdown: breakdownXargs,
+		Parser:     xargsParser,
+		Breakdown:  breakdownXargs,
+		Unverified: xargsUnverified,
 	}
 
 	// --- Shell builtins ---
@@ -282,19 +316,22 @@ func Registry() (
 	// eval: join args and re-parse as code. All args
 	// must be static — variables could execute anything.
 	r["eval"] = &model.CommandRules{
-		Breakdown: breakdownEval,
+		Breakdown:  breakdownEval,
+		Unverified: evalUnverified,
 	}
 
 	// trap: extract the code string (first positional)
 	// for re-parsing. -l/-p and signal resets are safe.
 	r["trap"] = &model.CommandRules{
-		Breakdown: breakdownTrap,
+		Breakdown:  breakdownTrap,
+		Unverified: trapUnverified,
 	}
 
 	// command: strip -v/-V/-p/-- flags, extract the
 	// inner command. Rejects unknown flags.
 	r["command"] = &model.CommandRules{
-		Breakdown: breakdownCommand,
+		Breakdown:  breakdownCommand,
+		Unverified: commandUnverified,
 	}
 
 	// cd/pushd/popd: track cwd changes. cd with a
@@ -325,84 +362,76 @@ func Registry() (
 	// produced by multiple commands (python3 and python
 	// both emit LangPython snippets). Patterns and rules
 	// are defined in each language file (python.go, etc.);
-	// this just wires them into the map.
+	// this just wires them into the map. All of a language's
+	// snippet rules detect the same threat — running shell
+	// commands from inside the script — so they share one
+	// def (on the SnippetLang) and are enabled or disabled
+	// together.
 	// =========================================================
 
 	s := map[string]*model.SnippetLang{
-		model.LangPython: {
-			StripComments: syntaxPython.stripComments,
-			Rules: []model.SnippetRule{
-				pythonImport("subprocess", nil).
-					Deny("subprocess (shell command execution)"),
-				pythonImport("ctypes", nil).
-					Deny("ctypes (native code execution)"),
-				pythonImport("cffi", nil).
-					Deny("cffi (native code execution)"),
-				pythonImport("os", pythonDangerousOSFuncs).
-					Deny("os (shell command execution)"),
-				pythonCall("os", pythonDangerousOSFuncs).
-					Deny("os (shell command execution)"),
-			},
-		},
+		model.LangPython: snippetLang(
+			pythonCommandExec,
+			syntaxPython.stripComments,
+			pythonImport("subprocess", nil).
+				Deny("subprocess (shell command execution)"),
+			pythonImport("os", pythonDangerousOSFuncs).
+				Deny("os (shell command execution)"),
+			pythonCall("os", pythonDangerousOSFuncs).
+				Deny("os (shell command execution)"),
+		),
 
-		model.LangPerl: {
-			StripComments: syntaxPerl.stripComments,
-			Rules: []model.SnippetRule{
-				perlUse("IPC::").
-					Deny("IPC (shell command execution)"),
-				perlUse("Inline::").
-					Deny("Inline (native code execution)"),
-				perlUse("FFI::").
-					Deny("FFI (native code execution)"),
-				perlUse("DynaLoader").
-					Deny("DynaLoader (native code loading)"),
-				perlUse("XSLoader").
-					Deny("XSLoader (native code loading)"),
-				perlBareCall("system", "exec").
-					Deny("shell command execution"),
-				syntaxPerl.match("`" + `|\bqx\b`).
-					Deny("shell execution (backtick/qx)"),
-			},
-		},
+		model.LangPerl: snippetLang(
+			perlCommandExec,
+			syntaxPerl.stripComments,
+			perlUse("IPC::").
+				Deny("IPC (shell command execution)"),
+			perlBareCall("system", "exec").
+				Deny("shell command execution"),
+			syntaxPerl.match("`"+`|\bqx\b`).
+				Deny("shell execution (backtick/qx)"),
+		),
 
-		model.LangRuby: {
-			StripComments: syntaxRuby.stripComments,
-			Rules: []model.SnippetRule{
-				rubyRequire("open3", "open4").
-					Deny("open3/open4 (shell command execution)"),
-				rubyRequire("fiddle").
-					Deny("fiddle (native code execution)"),
-				rubyRequire("ffi").
-					Deny("ffi (native code execution)"),
-				rubyBareCall(
-					"system", "exec", "spawn").
-					Deny("shell command execution"),
-				syntaxRuby.match(`\bIO\.popen`).
-					Deny("IO.popen (shell command execution)"),
-				syntaxRuby.match(
-					`\bOpen3\.(?:popen|capture|pipeline)`).
-					Deny("Open3 (shell command execution)"),
-				syntaxRuby.match(
-					"`" + `|%x(?:[^a-zA-Z0-9_]|$)`).
-					Deny("shell execution (backtick/%x)"),
-			},
-		},
+		model.LangRuby: snippetLang(
+			rubyCommandExec,
+			syntaxRuby.stripComments,
+			rubyRequire("open3", "open4").
+				Deny("open3/open4 (shell command execution)"),
+			rubyBareCall(
+				"system", "exec", "spawn").
+				Deny("shell command execution"),
+			syntaxRuby.match(`\bIO\.popen`).
+				Deny("IO.popen (shell command execution)"),
+			syntaxRuby.match(
+				`\bOpen3\.(?:popen|capture|pipeline)`).
+				Deny("Open3 (shell command execution)"),
+			syntaxRuby.match(
+				"`"+`|%x(?:[^a-zA-Z0-9_]|$)`).
+				Deny("shell execution (backtick/%x)"),
+		),
 
-		model.LangNode: {
-			StripComments: syntaxNode.stripComments,
-			Rules: []model.SnippetRule{
-				nodeRequire("child_process").
-					Deny("child_process (shell command execution)"),
-				nodeRequire("ffi", "ffi-napi").
-					Deny("ffi (native code execution)"),
-				nodeRequire("ref", "ref-napi").
-					Deny("ref (native memory access)"),
-				syntaxNode.match(
-					`\bprocess\.(?:binding|dlopen)`).
-					Deny("process (native code loading)"),
-			},
-		},
+		model.LangNode: snippetLang(
+			nodeCommandExec,
+			syntaxNode.stripComments,
+			nodeRequire("child_process").
+				Deny("child_process (shell command execution)"),
+		),
 	}
 
 	return r, s
+}
+
+// snippetLang builds a SnippetLang governed by def. All of a
+// language's snippet rules share that one def, so users enable
+// or disable the whole set at once.
+func snippetLang(
+	def *model.RuleDef,
+	strip func(string) string,
+	rules ...model.SnippetRule,
+) *model.SnippetLang {
+	return &model.SnippetLang{
+		Def:           def,
+		StripComments: strip,
+		Rules:         rules,
+	}
 }

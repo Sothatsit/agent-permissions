@@ -1,8 +1,6 @@
 package rules
 
 import (
-	"fmt"
-
 	"github.com/sothatsit/agent-permissions/internal/model"
 
 	"mvdan.cc/sh/v3/syntax"
@@ -14,8 +12,15 @@ import (
 // flags, skips leading positionals (e.g. timeout's
 // duration), and returns the rest as the inner command.
 type wrapperDef struct {
-	flags          []model.FlagDef
-	denyFlags      map[string]string
+	flags     []model.FlagDef
+	denyFlags map[string]string
+	// denyRule gates denyFlags. When it is disabled, the
+	// deny-flag check is skipped and the wrapper still
+	// extracts its inner command, so the inner command is
+	// checked normally. A wrapper with deny-flags must set
+	// this — the breakdown calls For(denyRule) on a match,
+	// so a nil here with non-empty denyFlags would panic.
+	denyRule       *model.RuleDef
 	skipPositional int // positional args to skip
 }
 
@@ -32,15 +37,23 @@ func wrapperBreakdown(
 
 	breakdown := func(
 		input model.ParseResult,
-		_ *model.State,
+		state *model.State,
 	) (*model.UnwrapResult, error) {
-		// Deny flags checked post-parse — deny is
-		// policy, not parsing.
+		// Deny flags checked post-parse — deny is policy,
+		// not parsing. A matched deny-flag implies this
+		// wrapper has a denyRule; honor its config so a
+		// disabled rule skips the denial and the wrapper
+		// still extracts and checks its inner command.
 		for _, f := range input.Flags {
-			if reason, ok :=
-				def.denyFlags[f.Name]; ok {
-				return nil, fmt.Errorf(
-					"%s", reason)
+			reason, ok := def.denyFlags[f.Name]
+			if !ok {
+				continue
+			}
+			if state.RuleConfig.For(def.denyRule).Enabled {
+				return nil, &model.RuleError{
+					Def:    def.denyRule,
+					Reason: reason,
+				}
 			}
 		}
 

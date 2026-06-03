@@ -4,9 +4,11 @@
 // The schema is four tier objects, each holding entries by
 // tool axis (Commands, EnvVars). Within each axis, entries
 // are a map from pattern → reason; the reason is shown in
-// hook output and may be empty. The top-level shape also
-// carries optional enabled-presets / disabled-presets
-// fields for selecting which embedded presets contribute.
+// hook output and may be empty. A top-level Rules object
+// (rule ID -> {Enabled}) overrides Rules-layer config. The
+// top-level shape also carries optional enabled-presets /
+// disabled-presets fields for selecting which embedded
+// presets contribute.
 package agentconfig
 
 import (
@@ -15,6 +17,7 @@ import (
 	"os"
 
 	"github.com/sothatsit/agent-permissions/internal/atomicfile"
+	"github.com/sothatsit/agent-permissions/internal/model"
 )
 
 // TierEntries is one tier's entries split by tool axis.
@@ -38,6 +41,13 @@ type Config struct {
 	Ask     TierEntries
 	Deny    TierEntries
 
+	// Rules overrides Rules-layer rule config by ID
+	// (rule -> {Enabled}). Presets enable rules by default;
+	// a user sets Enabled false here to turn one off, or
+	// Enabled true to turn on one no active preset enables.
+	// Nil when absent.
+	Rules map[string]model.RuleConfig
+
 	// EnabledPresets and DisabledPresets are nil when the
 	// field is absent from the JSON. An empty slice means
 	// the user explicitly wrote `[]`. The distinction
@@ -60,12 +70,13 @@ func (c *Config) HasPresetSelection() bool {
 }
 
 type rawConfig struct {
-	Allow           TierEntries `json:"Allow,omitempty"`
-	SoftAsk         TierEntries `json:"SoftAsk,omitempty"`
-	Ask             TierEntries `json:"Ask,omitempty"`
-	Deny            TierEntries `json:"Deny,omitempty"`
-	EnabledPresets  *[]string   `json:"enabled-presets,omitempty"`
-	DisabledPresets *[]string   `json:"disabled-presets,omitempty"`
+	Allow           TierEntries                 `json:"Allow,omitempty"`
+	SoftAsk         TierEntries                 `json:"SoftAsk,omitempty"`
+	Ask             TierEntries                 `json:"Ask,omitempty"`
+	Deny            TierEntries                 `json:"Deny,omitempty"`
+	Rules           map[string]model.RuleConfig `json:"Rules,omitempty"`
+	EnabledPresets  *[]string                   `json:"enabled-presets,omitempty"`
+	DisabledPresets *[]string                   `json:"disabled-presets,omitempty"`
 }
 
 // Load reads the JSON file at path and returns the parsed
@@ -101,6 +112,7 @@ func Parse(path string, data []byte) (*Config, error) {
 		"SoftAsk":          true,
 		"Ask":              true,
 		"Deny":             true,
+		"Rules":            true,
 		"enabled-presets":  true,
 		"disabled-presets": true,
 	}
@@ -109,7 +121,12 @@ func Parse(path string, data []byte) (*Config, error) {
 			return nil, fmt.Errorf(
 				"%s: unknown key %q", path, k)
 		}
-		if k == "enabled-presets" ||
+		// Rules is an object keyed by rule ID and the preset
+		// fields are arrays/objects of their own; none are
+		// tier objects, so skip the legacy flat-array check
+		// (which guards only the Commands/EnvVars tiers).
+		if k == "Rules" ||
+			k == "enabled-presets" ||
 			k == "disabled-presets" {
 			continue
 		}
@@ -137,6 +154,7 @@ func Parse(path string, data []byte) (*Config, error) {
 		SoftAsk:         raw.SoftAsk,
 		Ask:             raw.Ask,
 		Deny:            raw.Deny,
+		Rules:           raw.Rules,
 		EnabledPresets:  raw.EnabledPresets,
 		DisabledPresets: raw.DisabledPresets,
 	}, nil
@@ -155,6 +173,7 @@ func (c *Config) Save() error {
 		SoftAsk:         c.SoftAsk,
 		Ask:             c.Ask,
 		Deny:            c.Deny,
+		Rules:           c.Rules,
 		EnabledPresets:  c.EnabledPresets,
 		DisabledPresets: c.DisabledPresets,
 	}

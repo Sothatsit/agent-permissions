@@ -49,8 +49,9 @@ var nodeParser = func() *model.FullParser {
 
 var breakdownNode = breakdownInterpreter(
 	interpreterConfig{
-		lang: model.LangNode,
-		name: "node",
+		lang:       model.LangNode,
+		name:       "node",
+		unverified: nodeUnverified,
 		infoFlags: []string{
 			"--version", "--help", "-v", "-h",
 		},

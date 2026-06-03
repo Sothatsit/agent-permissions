@@ -44,13 +44,18 @@ func TestFormatAction(t *testing.T) {
 		Decision: model.Deny,
 		Reason:   "executes a program",
 	}
-	result := formatAction(a, "git --upload-pack")
+	def := &model.RuleDef{ID: "git.command-execution"}
+	result := formatAction(a, "git --upload-pack", def)
 	want := "git --upload-pack: executes a program"
 	if result.Reason != want {
 		t.Errorf("got %q", result.Reason)
 	}
 	if result.Decision != model.Deny {
 		t.Error("decision should be preserved")
+	}
+	// The governing rule def is stamped for attribution.
+	if result.Def != def {
+		t.Error("def should be stamped on the action")
 	}
 	// Must not mutate original.
 	if a.Reason != "executes a program" {
@@ -64,7 +69,7 @@ func TestFormatActionBare(t *testing.T) {
 		Reason: "invocation could not " +
 			"be verified",
 	}
-	result := formatAction(a, "bash")
+	result := formatAction(a, "bash", nil)
 	want := "bash: invocation could not be verified"
 	if result.Reason != want {
 		t.Errorf("got %q", result.Reason)
@@ -113,13 +118,54 @@ func TestEvaluateNoMatch(t *testing.T) {
 	}
 }
 
+// A hook nested under a Subcmd that carries a RuleDef
+// inherits that def (the hook has none of its own), and the
+// command-level Default is attributed to the Unverified def.
+// This is what lets `check` surface the configurable rule ID.
+func TestEvaluateStampsGoverningDef(t *testing.T) {
+	branchWrites := &model.RuleDef{ID: "git.branch-writes"}
+	unverified := &model.RuleDef{ID: "git.unverified"}
+	r := map[string]*model.CommandRules{
+		"git": {
+			Default:    model.DenyAction("unverified"),
+			Unverified: unverified,
+			Rules: []model.Rule{
+				model.Subcmd("branch").
+					WithRuleDef(branchWrites).
+					DefaultDeny("unrecognised").Rules(
+					model.Always().Hook(func(
+						model.ParseResult,
+					) (model.Decision, string) {
+						return model.SoftAsk,
+							"write flag -D"
+					}),
+				),
+			},
+		},
+	}
+
+	got := Evaluate(r, "git",
+		word.FromStrings([]string{"branch", "-D", "x"}))
+	if got == nil || got.Def != branchWrites {
+		t.Fatalf("hook should inherit git.branch-writes, "+
+			"got %+v", got)
+	}
+
+	got = Evaluate(r, "git",
+		word.FromStrings([]string{"unknown-subcmd"}))
+	if got == nil || got.Def != unverified {
+		t.Fatalf("command Default should carry the "+
+			"Unverified def, got %+v", got)
+	}
+}
+
 func TestEvaluateCommandDefault(t *testing.T) {
 	r := map[string]*model.CommandRules{
 		"_test": {
 			Default: model.DenyAction(
 				"invocation could not be verified"),
 			Rules: []model.Rule{
-				model.Hook("test", func(
+				model.Always().Hook(func(
 					input model.ParseResult,
 				) (model.Decision, string) {
 					return model.Undecided, ""
@@ -145,7 +191,7 @@ func TestEvaluateSubcmdWithHook(t *testing.T) {
 			Rules: []model.Rule{
 				model.Subcmd("api").DefaultDeny(
 					"unrecognised flag").Rules(
-					model.Hook("classify", func(
+					model.Always().Hook(func(
 						input model.ParseResult,
 					) (model.Decision, string) {
 						return model.Allow,
@@ -174,7 +220,7 @@ func TestEvaluateSubcmdDefault(t *testing.T) {
 			Rules: []model.Rule{
 				model.Subcmd("api").DefaultDeny(
 					"unrecognised flag").Rules(
-					model.Hook("classify", func(
+					model.Always().Hook(func(
 						input model.ParseResult,
 					) (model.Decision, string) {
 						return model.Undecided, ""

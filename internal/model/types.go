@@ -47,19 +47,98 @@ const (
 type Action struct {
 	Decision Decision
 	Reason   string
+	// Def is the rule definition that produced this action,
+	// or nil for a structural decision with no governing
+	// rule (never user-disableable — e.g. a permissive
+	// container's Allow). The evaluator stamps it as the
+	// action bubbles up, taking the governing Def from the
+	// node or an ancestor, so callers can attribute the
+	// decision: `check` and the hook surface it as "(from
+	// rule:<Def.ID>)".
+	Def *RuleDef
 }
+
+// RuleDef is the canonical definition of one user-disableable
+// rule: its threat ID and the one-line description a user reads
+// to decide whether to disable it. Every rule in the registry
+// references a RuleDef rather than a bare ID string, so the
+// directory of RuleDefs (in the rules package) is the single
+// source of truth and a typo is a compile error. Future
+// cross-cutting metadata (e.g. a category) is added here.
+type RuleDef struct {
+	ID          string
+	Description string
+}
+
+// RuleConfig is the resolved configuration for one rule, and
+// also the on-disk shape under a Rules entry in presets and
+// permissions.json (id -> RuleConfig). v1 carries only
+// Enabled; cross-cutting options (e.g. downgrading a rule's
+// tier from Deny to Ask) become fields here when built. The
+// zero value is disabled, matching the rules-default-OFF
+// posture: a rule fires only when a preset (or user config)
+// sets Enabled true.
+type RuleConfig struct {
+	Enabled bool `json:"Enabled"`
+}
+
+// RuleConfigs maps rule ID to resolved config. The loader
+// supplies a resolved map: each rule's entry comes from the
+// highest-priority source that mentions it (project .agents >
+// global .agents > presets); an ID mentioned nowhere is
+// absent and reads as the zero value, disabled. The map must
+// be populated before use — see For.
+type RuleConfigs map[string]RuleConfig
+
+// For returns the resolved config for a rule. The map must be
+// populated first: a nil map is a wiring bug — a nil-map read
+// returns the zero value, silently disabling every denial
+// (fail open) — so we crash rather than run without knowing
+// the config. An absent ID is a valid, resolved "disabled".
+func (rc RuleConfigs) For(def *RuleDef) RuleConfig {
+	if rc == nil {
+		panic("RuleConfigs not populated")
+	}
+	return rc[def.ID]
+}
+
+// RuleError is a breakdown-layer denial attributed to a
+// specific rule. The imperative wrapper/xargs checks deny by
+// returning an error — the denial aborts the whole breakdown
+// before the permissions layer runs — so they return a
+// RuleError carrying the governing RuleDef. The hook and
+// check unwrap it with errors.As to surface "(from
+// rule:<id>)", the same attribution the permissions layer
+// gives its decisions. A plain error (parse failure,
+// unrecognised syntax) carries no Def and renders without
+// attribution.
+type RuleError struct {
+	Def    *RuleDef
+	Reason string
+}
+
+func (e *RuleError) Error() string { return e.Reason }
 
 // SnippetLang holds the snippet rules for a single
 // language.
 type SnippetLang struct {
+	// Def is the rule governing this language's snippet
+	// rules. All of a language's snippet rules detect the
+	// same threat (running shell commands from the script),
+	// so they share one def and are enabled or disabled
+	// together. The registry filter drops a disabled
+	// language before the scan, so the scan never consults
+	// config itself.
+	Def *RuleDef
 	// StripComments removes comments (not strings)
 	// before running rules. Nil means no stripping.
 	StripComments func(string) string
 	Rules         []SnippetRule
 }
 
-// SnippetRule checks code snippets for dangerous
-// patterns and produces an action when matched.
+// SnippetRule checks code snippets for dangerous patterns
+// and produces an action when matched. The rule governing
+// it lives on the enclosing SnippetLang.
 type SnippetRule struct {
 	// Check reports whether the code contains the
 	// dangerous pattern. Comments are already stripped
@@ -147,6 +226,16 @@ type State struct {
 	FilePath []string
 	// RootScript is the outermost script name.
 	RootScript string
+	// RuleConfig is the resolved per-rule configuration.
+	// Breakdown functions consult it before applying an
+	// imperative denial: a disabled deny-flag rule is
+	// skipped (the breakdown continues), and a disabled
+	// .unverified rule makes the function decline to unwrap
+	// so the command falls through to the permissions layer
+	// instead of being denied. The declarative layers (rule
+	// trees, snippets) are filtered before evaluation and
+	// never consult this.
+	RuleConfig RuleConfigs
 }
 
 // CodeSnippet holds non-bash code extracted from a command

@@ -19,6 +19,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -151,12 +152,18 @@ func claudeHook() error {
 
 	registry, snippetRules := rules.Registry()
 
-	permissions, err := perms.Load(
-		configDir, input.CWD)
+	resolved, err := perms.Resolve(configDir, input.CWD)
 	if err != nil {
 		return fmt.Errorf(
 			"failed to load permissions: %v", err)
 	}
+	// Prune the registry to the resolved rule config before
+	// either layer runs: disabled declarative rules vanish,
+	// so the breakdown and permissions layers below see only
+	// the rules actually in effect.
+	rules.FilterByConfig(
+		registry, snippetRules, resolved.RuleConfig)
+	permissions := resolved.Permissions
 	permissions.Rules = registry
 	permissions.SnippetRules = snippetRules
 	// claude-hook is the Claude-Code-bound entrypoint, so
@@ -165,12 +172,14 @@ func claudeHook() error {
 	// /permissions etc.
 	permissions.Harness = harness.ClaudeCode{}
 
-	// Parse the bash command.
+	// Parse the bash command with the resolved per-rule
+	// config (which rules fire); check resolves it the same
+	// way via perms.Resolve.
 	br, err := breakdown.Breakdown(
 		input.ToolInput.Command, input.CWD,
-		registry)
+		registry, resolved.RuleConfig)
 	if err != nil {
-		r := perms.DenyResult(err.Error())
+		r := perms.DenyResult(breakdownDenialReason(err))
 		writeDecision("deny", r.Reason)
 		return nil
 	}
@@ -227,6 +236,20 @@ func hasInlineSnippets(
 		}
 	}
 	return false
+}
+
+// breakdownDenialReason renders a breakdown error as a deny
+// reason. When the denial came from a specific rule (the
+// imperative wrapper/xargs checks return a *model.RuleError),
+// it appends "(from rule:<id>)" so the attribution matches
+// the permissions layer and names the ID to disable.
+func breakdownDenialReason(err error) string {
+	reason := err.Error()
+	var re *model.RuleError
+	if errors.As(err, &re) && re.Def != nil {
+		reason += "  (from rule:" + re.Def.ID + ")"
+	}
+	return reason
 }
 
 func writeDecision(decision, reason string) {

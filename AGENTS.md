@@ -213,7 +213,19 @@ all must agree to allow.
 * **Breakdown errors = denials.** When the breakdown can't handle a
   rule-owned command (e.g. an unsupported `bash` flag combination),
   return an error (not `handled=false` with nil error) so the denial
-  includes a useful message.
+  includes a useful message. A "cannot verify" breakdown error
+  should be a `model.RuleError` carrying the command's `Unverified`
+  def — that both attributes the denial (`(from rule:<id>)`) and
+  lets `runBreakdown` suppress it when the user disables the rule.
+* **Every restrictive node needs a governing `RuleDef`.** Any rule
+  that can deny/ask/soft-ask must be attributable to a catalog rule
+  so the user can disable it: set it via `WithRuleDef` (rule-tree
+  nodes), `CommandRules.Unverified` (a command's fail-closed
+  `Default` and "cannot verify" errors), `SnippetLang.Def`, or a
+  wrapper's `denyRule`. `rules.ValidateRegistry` (run by a Go test)
+  fails the build if a restrictive node has no def on its path. New
+  catalog rules must also be enabled by exactly one preset — see
+  Presets.
 * **Comment every registry entry.** Each command entry in `Registry()`
   must have a comment explaining what the breakdown and/or rules do
   for that command — the threat model, what gets extracted, and what
@@ -243,7 +255,9 @@ all must agree to allow.
 
 `presets/*.json` are topic-organised permission bundles. Each file may
 span multiple tiers, and each tier may carry entries on any tool axis
-(`Commands`, `EnvVars`). Shape:
+(`Commands`, `EnvVars`). A top-level `Rules` object enables Rules-layer
+rules by ID — rules ship default-OFF in the binary, so the preset
+turns on the rules for its topic. Shape:
 
 ```json
 {
@@ -261,6 +275,9 @@ span multiple tiers, and each tier may carry entries on any tool axis
   "Deny": {
     "Commands": {"...": "..."},
     "EnvVars":  {"BASH_ENV": "sourced automatically on shell startup"}
+  },
+  "Rules": {
+    "git.branch-writes": {"Enabled": true}
   }
 }
 ```
@@ -297,13 +314,24 @@ variables can be assigned, not what they're assigned to.
 * **Collapse same-tier bare+starred pairs.** When both `cmd` and
   `cmd *` would live in the same tier, write `cmd:*` instead. The
   invariant tests enforce this too.
-* **Rule-owned commands stay out of preset tiers.** Commands the
-  Rules layer owns (`bash`, `sh`, `xargs`, `timeout`,
+* **Rule-owned commands stay out of preset Command tiers.**
+  Commands the Rules layer owns (`bash`, `sh`, `xargs`, `timeout`,
   `git remote`/`branch`/`tag`, `gh api`, `eval`, etc.) must not
   appear in `Allow`, `Ask`, or `Deny` Commands in any preset.
   Claude Code ask/deny rules override hook allow decisions, so a
   duplicated entry breaks the hook's ability to auto-allow safe
-  invocations decided by the rule.
+  invocations decided by the rule. This is about the Command
+  tiers only — a rule-owned command's *rules* are enabled via the
+  preset's `Rules` axis (e.g. `bash.unverified` lives in
+  `standard-commands`'s Rules without `bash` appearing in its
+  Commands).
+* **Every rule is owned by exactly one preset.** Rules ship
+  default-OFF, so a rule no preset enables ships permanently off,
+  and a rule two presets enable can't be cleanly disabled. The
+  Go invariant test (`internal/perms/ruleconfig_test.go`) enforces
+  one-preset ownership and that every preset rule ID is a real
+  catalog rule. When you add a rule to the catalog, add it to its
+  topic preset's `Rules` in the same change.
 * **Env-var policy lives in `escape-hatches.json`.** All preset-
   shipped EnvVar entries are bundled there: dangerous vars
   (BASH_ENV, LD_PRELOAD, etc.) under Deny.EnvVars, suspicious-

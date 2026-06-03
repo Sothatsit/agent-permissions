@@ -52,8 +52,9 @@ var perlParser = func() *model.FullParser {
 
 var breakdownPerl = breakdownInterpreter(
 	interpreterConfig{
-		lang: model.LangPerl,
-		name: "perl",
+		lang:       model.LangPerl,
+		name:       "perl",
+		unverified: perlUnverified,
 		infoFlags: []string{
 			"--version", "--help", "-v", "-h",
 		},

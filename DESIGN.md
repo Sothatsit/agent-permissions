@@ -412,14 +412,85 @@ Concrete examples under the source-priority model:
 
 After the v1 simplification pass (above), the rules layer is the
 sole owner of per-command logic, and the `HookDecides` tier name
-is gone. The remaining question is whether users can disable or
-reconfigure individual rules from their permissions.json. For
-example: "disable the rule that denies `tar --to-command`", or
-"treat `sed -e ...e...` as ask instead of deny". That gives users
-real control over what the rules layer does on their behalf,
-rather than the current take-it-or-leave-it behaviour.
+is gone. This graduated from open question to settled design and
+is being implemented incrementally.
 
-Big design area. Revisit properly before implementing.
+**Schema.** Each rule has a stable ID (`git.branch-writes`,
+`xargs.unverified`, ...) and a one-line threat description, both
+declared once in the rule catalog (`internal/rules/catalog.go`).
+Config is expressed per rule as an object:
+
+```json
+"Rules": {"git.branch-writes": {"Enabled": true}}
+```
+
+The object shape (rather than a bare bool) leaves room for future
+per-rule options — e.g. downgrading a rule's tier from Deny to
+Ask — without a schema change.
+
+**Default-OFF, presets enable.** Rules ship disabled in code (the
+`RuleConfig` zero value). A preset's `Rules` section sets
+`Enabled: true` for the rules of its topic — git rules in the
+`git` preset, interpreter rules in `languages`, the standard
+shell tooling rules in `standard-commands`. So a default install
+(all presets on) has every rule active, matching prior behaviour,
+and disabling a preset cleanly disables its rules. An invariant
+test enforces that every catalog rule is owned by exactly one
+preset.
+
+**Resolution.** Rule config is harness-agnostic: it comes only
+from presets and `.agents/permissions.json`, never from a
+harness's native settings (Claude's `settings.json` has no
+vocabulary for our rules). It resolves on the same priority chain
+as everything else — project `.agents` beats global `.agents`
+beats the preset union; a rule mentioned nowhere stays disabled.
+Because rule config is shared across harnesses, the multi-harness
+`check` (future) breaks a command down once and varies only the
+pattern-layer `Check` per harness.
+
+**Enforcement.** Reading and resolution are wired (`perms.Resolve`
+returns the resolved `RuleConfigs`, threaded into the breakdown by
+both the hook and `check`), and both layers honour config through
+two complementary mechanisms. The declarative layers are pruned by
+the registry filter (`rules.FilterByConfig`, run once after
+resolution and before either layer evaluates): a disabled rule's
+node and subtree are dropped from the rule trees, a command's
+`Default` is nil'd when its `Unverified` rule is disabled, and a
+disabled language's snippet rules are dropped before the scan. The
+imperative paths gate at runtime: wrapper deny-flags and `xargs`
+consult `State.RuleConfig` directly, and every other "cannot
+verify" breakdown denial (bash/eval/trap/command/interpreters,
+plus interpreter parser failures) returns a `model.RuleError`
+carrying its `Unverified` def, which `runBreakdown` suppresses
+when that rule is disabled — the command then falls through to the
+permissions layer instead of being denied. Because the filter
+encodes every declarative decision and the parser path is dead in
+practice (any parse failure is caught in the breakdown first), the
+permissions layer needs no rule config of its own: a pruned node
+never matches, a nil'd `Default` never fires, a dropped language
+scans clean.
+
+`rules.ValidateRegistry` asserts the attribution invariant — every
+node that can produce a restrictive decision has a governing
+`RuleDef` reachable on its path, so the decision can be named and
+disabled. It depends only on the static registry (a violation is a
+coding mistake, not a config one), so a Go test runs it against the
+shipped registry rather than burning the check on every hook
+invocation; it is structured so `validate` could call it too.
+
+**Attribution.** Every rule decision carries its `RuleDef` so
+output names the exact ID to disable. `model.Action` holds a
+`Def`; the evaluator stamps the governing def as actions bubble
+up — a hook or `Default` under a `Subcmd(...).WithRuleDef(...)`
+inherits the ancestor's def, and a command's parser-failure and
+`Default` denials take its `Unverified` def. The imperative
+breakdown denials return a `model.RuleError` carrying the def
+(unwrapped at the top with `errors.As`), and snippet findings
+carry the `SnippetLang` def. `formatCheck` and the hook render
+this as `(from rule:<id>)`. The earlier scheme that kebab-cased
+the rule's subject into a fake name (`rule:git-branch`) is
+deleted — the displayed source is now the real catalog ID
+(`rule:git.branch-writes`), copy-pasteable into a Rules entry.
 
 ### Multi-harness support
 
@@ -457,16 +528,6 @@ requires:
 second harness or a second tool". Not needed for Claude Code
 bash-only operation. Recorded here so the architecture choice is
 not reinvented when the question comes up.
-
-### `setup` could port existing Claude Code permissions
-
-> Maybe as part of `setup` in the future we could have it port,
-> say, Claude Code permissions into `permissions.json`. That would
-> be neat.
-
-Useful onboarding path for existing Claude Code users who have
-already curated their `settings.json` and want the same set
-managed by agent-permissions going forward.
 
 ### `check` for multi-harness
 

@@ -63,6 +63,15 @@ type BreakdownFunc func(
 // decision via a static action, a hook, children, or a
 // combination.
 type Rule struct {
+	// Def is the rule governing this node. When the rule is
+	// disabled, the registry filter prunes this node and its
+	// whole subtree before evaluation, so the command falls
+	// through as if the rule did not exist. A nil Def marks a
+	// node governed by an ancestor's Def (or a structural
+	// node, e.g. a permissive container) — it is not
+	// independently disableable. ValidateRegistry asserts
+	// every restrictive node has a Def on its path.
+	Def      *RuleDef
 	Match    Matcher
 	Action   *Action
 	Hook     HookFunc
@@ -117,6 +126,13 @@ type CommandRules struct {
 	// matched. Nil means fall through to the permissions
 	// pattern layer.
 	Default *Action
+	// Unverified is the rule gating this command's
+	// fail-closed denials — the Default above (nil'd by the
+	// registry filter when disabled) and the "cannot verify"
+	// errors the Parser or Breakdown produce for this command
+	// (skipped in place by those functions when disabled). A
+	// nil Unverified leaves those denials always-on.
+	Unverified *RuleDef
 	// Rules are evaluated during the permissions phase.
 	Rules []Rule
 }
