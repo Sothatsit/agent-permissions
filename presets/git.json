@@ -8,6 +8,7 @@
       "git show:*": "",
       "git ls-files:*": "",
       "git rev-parse:*": "",
+      "git rev-list:*": "",
       "git merge-base:*": "",
       "git blame:*": "",
       "git shortlog:*": "",
