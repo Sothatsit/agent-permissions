@@ -3,12 +3,15 @@
 //
 //	claude-hook    PreToolUse hook for Claude Code
 //	check          Simulate the hook and print the decision
-//	validate       Report malformed entries across all
-//	               permission sources; exit non-zero if any
+//	validate       Report config problems: malformed
+//	               entries and unknown rule/preset names
+//	               fail (exit 2); empty reasons are an
+//	               informational note (exit 0)
 //	setup          Write a starter ~/.agents/permissions.json
 //	install        Wire the hook into known harness configs
 //	presets list   Show embedded presets, grouped by
 //	               enabled/disabled state
+//	rules list     List built-in rules as 'id - description'
 //
 // Top-level exit codes:
 //
@@ -64,6 +67,8 @@ func run() error {
 		return setup(os.Args[2:])
 	case "presets":
 		return presetsCmd(os.Args[2:])
+	case "rules":
+		return rulesCmd(os.Args[2:])
 	case "install":
 		return install(os.Args[2:])
 	default:
@@ -82,9 +87,10 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "Subcommands:")
 	fmt.Fprintln(w, "  claude-hook       PreToolUse hook for Claude Code (reads JSON on stdin)")
 	fmt.Fprintln(w, "  check '<cmd>'     Simulate the hook on a command and print the decision")
-	fmt.Fprintln(w, "  validate          Report malformed entries across permission sources")
+	fmt.Fprintln(w, "  validate          Report config problems (malformed entries, unknown rule/preset names)")
 	fmt.Fprintln(w, "  setup             Write a starter ~/.agents/permissions.json")
 	fmt.Fprintln(w, "  presets list      List embedded presets, grouped by enabled/disabled state")
+	fmt.Fprintln(w, "  rules list        List built-in rules as 'id - description'")
 	fmt.Fprintln(w, "  install           Wire the hook into known harness configs (e.g. ~/.claude/settings.json)")
 	fmt.Fprintln(w, "  --version         Print version")
 	fmt.Fprintln(w, "  --help            Print this help")

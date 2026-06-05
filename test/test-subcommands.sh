@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
 # Integration tests for agent-permissions subcommands other
-# than claude-hook: setup, install, presets list, and check.
+# than claude-hook: setup, install, presets list, rules list,
+# check, and validate.
 # Also asserts that the previously-shipped `presets enable`
 # and `presets disable` subcommands now fail with a helpful
 # message. Each test runs in an isolated HOME so the
@@ -35,6 +36,19 @@ _fresh_home() {
 # output so assertions don't have to match them.
 _sc_run() {
     HOME="$1" "$HOOK" "${@:2}" 2>&1
+}
+
+# validate reads <cwd>/.agents/permissions.json as well as
+# the global config, so run it from a fresh empty project
+# dir: a stray <repo>/.agents config must not perturb the
+# counts, and the cwd must differ from HOME or the global
+# and project agent paths collide and Resolve counts every
+# source twice.
+_validate_run() {
+    local h="$1" proj
+    proj=$(_fresh_home)
+    ( cd "$proj" && CLAUDE_CONFIG_DIR="$h/empty-claude" \
+        HOME="$h" "$HOOK" validate 2>&1 )
 }
 
 echo ""
@@ -90,6 +104,43 @@ assert_contains "presets enable subcommand removed" \
 out=$(_sc_run "$h" presets disable git 2>&1 || true)
 assert_contains "presets disable subcommand removed" \
     "$out" "only \`list\`"
+
+
+echo ""
+echo "=== subcommands: rules ==="
+
+# rules list prints the static catalog as "<id> - <desc>".
+h=$(_fresh_home)
+rc=0
+out=$(_sc_run "$h" rules list) || rc=$?
+assert_rc "rules list: exit 0" 0 "$rc"
+assert_contains "rules list: lists a known rule id" "$out" \
+    "git.branch-writes - "
+
+# It is a static catalog: config must not change the output.
+mkdir -p "$h/.agents"
+echo '{"Rules":{"git.branch-writes":{"Enabled":false}}}' \
+    > "$h/.agents/permissions.json"
+out2=$(_sc_run "$h" rules list)
+if [[ "$out" != "$out2" ]]; then
+    echo "FAIL: rules list: output changed with config (should be static)"
+    failed=$((failed + 1))
+else
+    echo "PASS: rules list: static regardless of config"
+    passed=$((passed + 1))
+fi
+
+# No subcommand and unknown subcommand both error.
+rc=0
+_sc_run "$h" rules >/dev/null 2>&1 || rc=$?
+assert_rc "rules: no subcommand exits 2" 2 "$rc"
+rc=0
+_sc_run "$h" rules bogus >/dev/null 2>&1 || rc=$?
+assert_rc "rules: unknown subcommand exits 2" 2 "$rc"
+# Extra args after `list` are rejected (parity with validate).
+rc=0
+_sc_run "$h" rules list extra-arg >/dev/null 2>&1 || rc=$?
+assert_rc "rules list: extra-arg exits 2" 2 "$rc"
 
 
 echo ""
@@ -246,8 +297,7 @@ echo "=== subcommands: validate ==="
 
 # No malformed entries → exit 0, "OK." message.
 h=$(_fresh_home)
-out=$(CLAUDE_CONFIG_DIR="$h/empty-claude" \
-        HOME="$h" "$HOOK" validate)
+out=$(_validate_run "$h")
 rc=$?
 assert_contains "validate: clean exit message" "$out" \
     "OK."
@@ -263,13 +313,74 @@ cat > "$h/.agents/permissions.json" <<'EOF'
 {"Allow": {"Commands": {"git status:*": "", ":*": ""}}, "Deny": {"Commands": {"  ": ""}}}
 EOF
 rc=0
-out=$(CLAUDE_CONFIG_DIR="$h/empty-claude" \
-        HOME="$h" "$HOOK" validate 2>&1) || rc=$?
+out=$(_validate_run "$h") || rc=$?
 assert_rc "validate: malformed exit code 2" 2 "$rc"
 assert_contains "validate: lists the count" "$out" \
     "Found 2 malformed"
 assert_contains "validate: quotes the bad entry" "$out" \
     '":*"'
+
+# Unknown rule ID in a user .agents config → exit 2. The
+# config also has a malformed pattern, so this doubles as a
+# check that validate reports every problem in one pass
+# rather than bailing on the first.
+h=$(_fresh_home)
+mkdir -p "$h/.agents"
+cat > "$h/.agents/permissions.json" <<'EOF'
+{"Rules": {"git.branch-writs": {"Enabled": false}}, "Allow": {"Commands": {":*": ""}}}
+EOF
+rc=0
+out=$(_validate_run "$h") || rc=$?
+assert_rc "validate: unknown rule ID exits 2" 2 "$rc"
+assert_contains "validate: names the unknown rule" "$out" \
+    '"git.branch-writs"'
+assert_contains "validate: labels it an unknown rule" "$out" \
+    "unknown rule"
+assert_contains "validate: also reports the malformed entry" \
+    "$out" "malformed"
+
+# Unknown preset name in disabled-presets → exit 2, the same
+# silent-no-op class as an unknown rule ID.
+h=$(_fresh_home)
+mkdir -p "$h/.agents"
+cat > "$h/.agents/permissions.json" <<'EOF'
+{"disabled-presets": ["containerz"]}
+EOF
+rc=0
+out=$(_validate_run "$h") || rc=$?
+assert_rc "validate: unknown preset exits 2" 2 "$rc"
+assert_contains "validate: names the unknown preset" "$out" \
+    '"containerz"'
+assert_contains "validate: labels it an unknown preset" \
+    "$out" "unknown preset"
+
+# A real preset name is not flagged.
+h=$(_fresh_home)
+mkdir -p "$h/.agents"
+cat > "$h/.agents/permissions.json" <<'EOF'
+{"disabled-presets": ["containers"]}
+EOF
+out=$(_validate_run "$h")
+rc=$?
+assert_rc "validate: real preset name is clean" 0 "$rc"
+assert_contains "validate: real preset → OK" "$out" "OK."
+
+# cwd == $HOME: the project and global agent paths are the
+# same file. Resolve must dedup it (keeping the higher-
+# precedence project entry), so one malformed entry is
+# reported once, not twice. Run from $HOME itself, not the
+# isolated project dir _validate_run uses.
+h=$(_fresh_home)
+mkdir -p "$h/.agents"
+cat > "$h/.agents/permissions.json" <<'EOF'
+{"Allow": {"Commands": {":*": ""}}}
+EOF
+rc=0
+out=$(cd "$h" && CLAUDE_CONFIG_DIR="$h/empty-claude" \
+        HOME="$h" "$HOOK" validate 2>&1) || rc=$?
+assert_rc "validate: cwd==HOME exits 2" 2 "$rc"
+assert_contains "validate: cwd==HOME counts the file once" \
+    "$out" "Found 1 malformed"
 
 # Invalid usage exits non-zero.
 rc=0

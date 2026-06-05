@@ -4,21 +4,33 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
+	"github.com/sothatsit/agent-permissions/internal/agentconfig"
 	"github.com/sothatsit/agent-permissions/internal/perms"
+	"github.com/sothatsit/agent-permissions/internal/rules"
+	"github.com/sothatsit/agent-permissions/presets"
 )
 
-// validate loads every permission source and reports two
+// validate loads every permission source and reports these
 // classes of issue:
 //
 //   - Malformed entries: rejected at load time and not
-//     contributing to the policy. Returns an error
-//     (exit 2 via main) so CI fails on these.
+//     contributing to the policy. A hard error (exit 2 via
+//     main) so CI fails on these.
+//   - Unknown rule IDs or preset names in a user .agents
+//     config: a typo (e.g. "git.branch-writs", or a
+//     misspelled preset name) that silently no-ops. Also a
+//     hard error, since the rule or preset the user meant to
+//     configure is then not actually being configured.
 //   - Empty-reason entries: load fine but carry no
-//     description. Surfaced as informational warnings;
-//     the exit code stays at 0 because empty reasons
-//     are allowed by design — useful for users who
-//     don't want to write a reason in their own config.
+//     description. Surfaced as an informational note; the
+//     exit code stays 0 because empty reasons are allowed by
+//     design.
+//
+// All problems are collected and reported in one pass —
+// validate never bails on the first error — and the exit code
+// is decided only at the end.
 func validate(args []string) error {
 	if len(args) != 0 {
 		return fmt.Errorf(
@@ -57,25 +69,173 @@ func validate(args []string) error {
 		fmt.Println()
 	}
 
+	// Collect every hard problem before deciding the exit
+	// code, so one run reports them all.
+	unknownRules, err := collectUnknownRules()
+	if err != nil {
+		return err
+	}
+	unknownPresets, err := collectUnknownPresets()
+	if err != nil {
+		return err
+	}
 	warnings := resolved.Permissions.Warnings
-	if len(warnings) == 0 {
-		fmt.Println("OK. No malformed entries.")
+
+	total := len(unknownRules) +
+		len(unknownPresets) + len(warnings)
+	if total == 0 {
+		fmt.Println("OK. No problems found.")
 		return nil
 	}
 
-	fmt.Printf(
-		"Found %d malformed %s:\n",
-		len(warnings),
-		plural(len(warnings), "entry", "entries"))
-	for _, w := range warnings {
+	printUnknownRefs(unknownRules,
+		"rule ID", "rule IDs", "rule", "rules list")
+	printUnknownRefs(unknownPresets,
+		"preset name", "preset names",
+		"preset", "presets list")
+
+	if len(warnings) > 0 {
 		fmt.Printf(
-			"  %s: %q (%s)\n",
-			w.Source, w.Entry, w.Reason)
+			"Found %d malformed %s:\n",
+			len(warnings),
+			plural(len(warnings), "entry", "entries"))
+		for _, w := range warnings {
+			fmt.Printf(
+				"  %s: %q (%s)\n",
+				w.Source, w.Entry, w.Reason)
+		}
 	}
+
 	return fmt.Errorf(
-		"%d malformed %s",
-		len(warnings),
-		plural(len(warnings), "entry", "entries"))
+		"%d %s", total,
+		plural(total, "problem", "problems"))
+}
+
+// unknownRef is a rule ID or preset name in a user .agents
+// config that doesn't match anything in the catalog — a typo
+// that would otherwise silently no-op.
+type unknownRef struct {
+	source string
+	value  string
+}
+
+// printUnknownRefs prints a "Found N unknown <kind>s" block
+// naming each typo'd value and pointing at the catalog
+// command that lists the valid names. No-op when refs is
+// empty.
+func printUnknownRefs(
+	refs []unknownRef, singular, plur, kind, listCmd string,
+) {
+	if len(refs) == 0 {
+		return
+	}
+	fmt.Printf(
+		"Found %d unknown %s:\n",
+		len(refs), plural(len(refs), singular, plur))
+	for _, r := range refs {
+		fmt.Printf(
+			"  %s: %q (not a known %s — see `%s`)\n",
+			r.source, r.value, kind, listCmd)
+	}
+	fmt.Println()
+}
+
+// forEachUserAgentConfig invokes fn for each user .agents
+// config that exists, in perms.Resolve's precedence order
+// (project before global) and with the same source label
+// Resolve attaches — the global file gets the "~/..." literal
+// rather than its expanded path. When cwd is the home
+// directory the two paths resolve to one file; it is visited
+// once, as the higher-precedence project source, matching the
+// dedup in Resolve so validate doesn't double-count it.
+func forEachUserAgentConfig(
+	fn func(cfg *agentconfig.Config, source string),
+) error {
+	srcs := []struct {
+		pathFn func() (string, error)
+		label  string // "" => use the resolved path
+	}{
+		{projectConfigPath, ""},
+		{globalConfigPath, "~/.agents/permissions.json"},
+	}
+	var seen string
+	for _, s := range srcs {
+		cfg, path, err := loadAgentConfig(s.pathFn)
+		if err != nil {
+			return err
+		}
+		if cfg == nil || path == seen {
+			continue
+		}
+		seen = path
+		source := s.label
+		if source == "" {
+			source = path
+		}
+		fn(cfg, source)
+	}
+	return nil
+}
+
+// collectUnknownRules returns rule IDs in the user .agents
+// configs that are not known catalog rules — typos that would
+// otherwise silently no-op. Presets are not checked here:
+// their IDs can't be user-typo'd and the Go invariant test
+// already enforces them against the catalog.
+func collectUnknownRules() ([]unknownRef, error) {
+	var out []unknownRef
+	err := forEachUserAgentConfig(
+		func(cfg *agentconfig.Config, source string) {
+			ids := make([]string, 0, len(cfg.Rules))
+			for id := range cfg.Rules {
+				ids = append(ids, id)
+			}
+			sort.Strings(ids)
+			for _, id := range ids {
+				if !rules.IsRuleID(id) {
+					out = append(out, unknownRef{
+						source: source, value: id,
+					})
+				}
+			}
+		})
+	return out, err
+}
+
+// collectUnknownPresets returns preset names referenced by
+// enabled-presets / disabled-presets in the user .agents
+// configs that don't match any embedded preset. A typo there
+// silently no-ops (filterByName just never matches it) — the
+// same failure mode collectUnknownRules guards for rule IDs.
+func collectUnknownPresets() ([]unknownRef, error) {
+	var out []unknownRef
+	err := forEachUserAgentConfig(
+		func(cfg *agentconfig.Config, source string) {
+			names := presetSelectionNames(cfg)
+			sort.Strings(names)
+			for _, name := range names {
+				if presets.ByName(name) == nil {
+					out = append(out, unknownRef{
+						source: source, value: name,
+					})
+				}
+			}
+		})
+	return out, err
+}
+
+// presetSelectionNames returns every preset name the config
+// references via enabled-presets or disabled-presets; a typo
+// in either silently no-ops, so both are validated.
+func presetSelectionNames(cfg *agentconfig.Config) []string {
+	var names []string
+	if cfg.EnabledPresets != nil {
+		names = append(names, *cfg.EnabledPresets...)
+	}
+	if cfg.DisabledPresets != nil {
+		names = append(names, *cfg.DisabledPresets...)
+	}
+	return names
 }
 
 type emptyReason struct {

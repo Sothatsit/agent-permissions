@@ -315,11 +315,19 @@ objects you can fill in.
 - Both → `enabled-presets` is applied first, then
   `disabled-presets` filters what remains.
 
+A misspelled preset name silently no-ops (it just never
+matches), so `agent-permissions validate` reports a preset
+name that isn't one of the embedded presets, the same way it
+flags a typo'd rule ID. Run `agent-permissions presets list`
+to see the valid names.
+
 `Rules` overrides Rules-layer rule config by ID. Presets enable
 the rules for their topic; set `Enabled: false` here to turn one
 off, or `Enabled: true` to turn on a rule no active preset
 enables. Project `.agents` beats global `.agents` beats presets,
-and a rule mentioned nowhere stays off.
+and a rule mentioned nowhere stays off. Run `agent-permissions
+rules list` to see every rule ID and what it guards;
+`agent-permissions validate` flags a rule ID you've typo'd.
 
 Project-level `<cwd>/.agents/permissions.json` overrides the
 global file for preset selection: if the project file specifies
@@ -350,7 +358,9 @@ agent-permissions claude-hook     # PreToolUse handler (used in settings.json)
 agent-permissions install         # Wire into ~/.claude/settings.json
 agent-permissions setup           # Write a starter ~/.agents/permissions.json
 agent-permissions check '<cmd>'   # Simulate the hook and explain the decision
+agent-permissions validate        # Report config problems (malformed entries, unknown rule/preset names)
 agent-permissions presets list    # Show all presets, grouped by enabled/disabled state
+agent-permissions rules list      # List built-in rules as 'id - description'
 ```
 
 To enable or disable a preset, edit `~/.agents/permissions.json`

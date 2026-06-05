@@ -14,7 +14,7 @@ catastrophic mistakes, lenient about routine operations.
 
 * `cmd/agent-permissions/` — binary entrypoint and subcommand
   implementations (`claude-hook`, `check`, `setup`, `install`,
-  `validate`, and the `presets list` group).
+  `validate`, and the `presets list` / `rules list` groups).
 * `internal/breakdown/` — bash AST parsing and recursive command
   extraction.
 * `internal/perms/` — source-priority resolution and pattern matching.
