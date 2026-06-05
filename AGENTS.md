@@ -283,9 +283,13 @@ turns on the rules for its topic. Shape:
 ```
 
 Entries are pattern → reason maps. Reason text surfaces in hook
-output as `<pattern> - <reason>  (from <source>)`; an empty
-string (`""`) omits the dash and reason — fine when the pattern
-is self-explanatory.
+output as `<pattern> - <reason>  (from <source>)`. Preset entries
+carry a terse reason naming the blast radius that justifies the
+tier — for Allow that is one of `Read-only`, `Local changes`,
+`Shell built-in`, or `Build toolchain`; the riskier tiers name
+the specific hazard (`deletes files`, `rewrites history`). A
+user's own config may leave a reason empty, but presets must
+carry one, enforced by `test/test-presets.sh`.
 
 ### Command pattern syntax
 

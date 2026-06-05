@@ -11,6 +11,9 @@
 #   3. Every Deny.Commands entry uses the `:*` form.
 #   4. No single tier holds both `cmd` and `cmd *` for
 #      the same command — collapse to `cmd:*`.
+#   5. Every Commands/EnvVars entry carries a non-empty
+#      reason — presets must document each entry (a user's
+#      own config may leave reasons empty; presets may not).
 #
 # Can be sourced by test/test.sh or run standalone.
 
@@ -166,6 +169,39 @@ else
     done <<<"$uncollapsed"
     fail_count=$(echo "$uncollapsed" | wc -l)
     echo "FAIL: $fail_count tier(s) with uncollapsed bare+starred pairs"
+    failed=$((failed + 1))
+fi
+
+# =========================================================
+# 5. Every entry carries a non-empty reason
+# =========================================================
+echo ""
+echo "=== Presets: every entry has a non-empty reason ==="
+section_ok=0
+section_fail=0
+for f in "$PRESETS_DIR"/*.json; do
+    empties=$(jq -r --argjson tiers "$TIER_NAMES" '
+        to_entries[]
+        | select(.key as $k | $tiers | index($k)) as $t
+        | (["Commands","EnvVars"][]) as $axis
+        | ($t.value[$axis] // {}) | to_entries[]
+        | select(.value == "")
+        | "\($t.key).\($axis): \(.key)"
+    ' "$f")
+    if [[ -z "$empties" ]]; then
+        section_ok=$((section_ok + 1))
+    else
+        while IFS= read -r line; do
+            echo "  $(basename "$f") $line"
+        done <<<"$empties"
+        section_fail=$((section_fail + 1))
+    fi
+done
+if [[ $section_fail -eq 0 ]]; then
+    echo "PASS: $section_ok preset files, no empty reasons"
+    passed=$((passed + 1))
+else
+    echo "FAIL: $section_fail preset file(s) with empty reasons"
     failed=$((failed + 1))
 fi
 
