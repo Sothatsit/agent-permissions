@@ -64,9 +64,9 @@ func Resolve(
 			"resolve home directory: %v", err)
 	}
 
-	globalAgent, err := agentconfig.Load(
-		filepath.Join(
-			home, ".agents", "permissions.json"))
+	homeAgentPath := filepath.Join(
+		home, ".agents", "permissions.json")
+	globalAgent, err := agentconfig.Load(homeAgentPath)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"global agent config: %v", err)
@@ -74,12 +74,24 @@ func Resolve(
 
 	var projectAgent *agentconfig.Config
 	if cwd != "" {
-		projectAgent, err = agentconfig.Load(
-			filepath.Join(
-				cwd, ".agents", "permissions.json"))
-		if err != nil {
-			return nil, fmt.Errorf(
-				"project agent config: %v", err)
+		projectAgentPath := filepath.Join(
+			cwd, ".agents", "permissions.json")
+		if projectAgentPath == homeAgentPath {
+			// cwd is the home directory, so the project
+			// and global agent configs are the same file.
+			// Keep it once as the higher-precedence
+			// project source: otherwise the file's entries
+			// load twice — harmless to decisions (identical
+			// patterns) but double-counted by `validate`.
+			projectAgent = globalAgent
+			globalAgent = nil
+		} else {
+			projectAgent, err = agentconfig.Load(
+				projectAgentPath)
+			if err != nil {
+				return nil, fmt.Errorf(
+					"project agent config: %v", err)
+			}
 		}
 	}
 
