@@ -1,1 +1,4 @@
 /bin/
+
+# Project-local personal permission override (not shared).
+.agents/permissions.local.json

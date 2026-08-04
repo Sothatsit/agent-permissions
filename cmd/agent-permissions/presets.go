@@ -61,8 +61,13 @@ func presetsList(args []string) error {
 	if err != nil {
 		return err
 	}
+	local, localPath, err := loadAgentConfig(
+		localConfigPath)
+	if err != nil {
+		return err
+	}
 
-	selecting := pickPresetSelector(global, project)
+	selecting := pickPresetSelector(global, project, local)
 
 	// Header — show which config files were consulted
 	// and which one is authoritative for preset
@@ -76,6 +81,9 @@ func presetsList(args []string) error {
 	fmt.Printf(
 		"  cwd: %s\n",
 		describeConfig(projectPath, project))
+	fmt.Printf(
+		"  cwd-local: %s\n",
+		describeConfig(localPath, local))
 	if selecting == nil {
 		fmt.Println(
 			"  Preset selection: (none — all " +
@@ -146,12 +154,17 @@ func printPresetGroup(
 }
 
 // pickPresetSelector returns the agentconfig that owns
-// preset selection: project if it specifies either field,
-// otherwise global if it does, otherwise nil (= default,
-// all enabled).
+// preset selection: the most-specific config that specifies
+// either field — local, else project, else global —
+// otherwise nil (= default, all enabled). Mirrors
+// SelectPresets in the resolver so `presets list` reports
+// the same effective state the hook applies.
 func pickPresetSelector(
-	global, project *agentconfig.Config,
+	global, project, local *agentconfig.Config,
 ) *agentconfig.Config {
+	if local.HasPresetSelection() {
+		return local
+	}
 	if project.HasPresetSelection() {
 		return project
 	}
@@ -228,6 +241,18 @@ func projectConfigPath() (string, error) {
 	}
 	return filepath.Join(
 		cwd, ".agents", "permissions.json"), nil
+}
+
+// localConfigPath is the project-scoped override that sits
+// above the committed project config; project-only, with no
+// global counterpart (mirroring Claude's settings.local.json).
+func localConfigPath() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("cwd: %v", err)
+	}
+	return filepath.Join(
+		cwd, ".agents", "permissions.local.json"), nil
 }
 
 func describeConfig(

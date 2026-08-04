@@ -263,11 +263,18 @@ Source priority, highest to lowest:
    overrides.
 2. `<project>/.claude/settings.json` — Claude Code project settings.
 3. `~/.claude/settings.json` — Claude Code user settings.
-4. `<project>/.agents/permissions.json` — per-project overrides.
-5. `~/.agents/permissions.json` — your global overrides.
-6. Embedded presets (filtered by `enabled-presets` /
-   `disabled-presets` from the most-specific `.agents/permissions.json`
-   that specifies either field; project beats global).
+4. `<project>/.agents/permissions.local.json` — project-local
+   personal overrides (typically gitignored).
+5. `<project>/.agents/permissions.json` — per-project overrides.
+6. `~/.agents/permissions.json` — your global overrides.
+7. Embedded presets (filtered by `enabled-presets` /
+   `disabled-presets` from the most-specific `.agents` config —
+   local, then project, then global — that specifies either field).
+
+`permissions.local.json` mirrors Claude Code's
+`settings.local.json`: a project-scoped personal override that sits
+above the committed project config and has no global counterpart.
+It uses the same shape as `permissions.json` (described below).
 
 **Within one source**, tier precedence applies in this order:
 `Deny > Ask > Allow > SoftAsk`.
@@ -324,14 +331,17 @@ to see the valid names.
 `Rules` overrides Rules-layer rule config by ID. Presets enable
 the rules for their topic; set `Enabled: false` here to turn one
 off, or `Enabled: true` to turn on a rule no active preset
-enables. Project `.agents` beats global `.agents` beats presets,
-and a rule mentioned nowhere stays off. Run `agent-permissions
-rules list` to see every rule ID and what it guards;
-`agent-permissions validate` flags a rule ID you've typo'd.
+enables. Local `.agents` beats project `.agents` beats global
+`.agents` beats presets, and a rule mentioned nowhere stays off.
+Run `agent-permissions rules list` to see every rule ID and what
+it guards; `agent-permissions validate` flags a rule ID you've
+typo'd.
 
-Project-level `<cwd>/.agents/permissions.json` overrides the
-global file for preset selection: if the project file specifies
-either field, that's the authoritative list for that project.
+The most-specific `.agents` config with a preset selection wins:
+`<cwd>/.agents/permissions.local.json`, then
+`<cwd>/.agents/permissions.json`, then the global file. If a file
+specifies either field, that's the authoritative list for that
+project.
 
 ## Install
 

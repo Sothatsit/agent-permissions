@@ -142,12 +142,14 @@ func printUnknownRefs(
 
 // forEachUserAgentConfig invokes fn for each user .agents
 // config that exists, in perms.Resolve's precedence order
-// (project before global) and with the same source label
-// Resolve attaches — the global file gets the "~/..." literal
-// rather than its expanded path. When cwd is the home
-// directory the two paths resolve to one file; it is visited
-// once, as the higher-precedence project source, matching the
-// dedup in Resolve so validate doesn't double-count it.
+// (local before project before global) and with the same
+// source label Resolve attaches — the global file gets the
+// "~/..." literal rather than its expanded path. When cwd is
+// the home directory the project and global permissions.json
+// paths resolve to one file; it is visited once, as the
+// higher-precedence project source, matching the dedup in
+// Resolve so validate doesn't double-count it. The local
+// override has a distinct filename, so it never collides.
 func forEachUserAgentConfig(
 	fn func(cfg *agentconfig.Config, source string),
 ) error {
@@ -155,6 +157,7 @@ func forEachUserAgentConfig(
 		pathFn func() (string, error)
 		label  string // "" => use the resolved path
 	}{
+		{localConfigPath, ""},
 		{projectConfigPath, ""},
 		{globalConfigPath, "~/.agents/permissions.json"},
 	}

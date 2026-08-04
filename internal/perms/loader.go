@@ -44,11 +44,19 @@ type Resolved struct {
 //  1. <cwd>/.claude/settings.local.json
 //  2. <cwd>/.claude/settings.json
 //  3. <configDir>/settings.json (Claude Code user)
-//  4. <cwd>/.agents/permissions.json (explicit entries)
-//  5. ~/.agents/permissions.json (explicit entries)
-//  6. Embedded presets, filtered by enabled-/disabled-
+//  4. <cwd>/.agents/permissions.local.json (explicit)
+//  5. <cwd>/.agents/permissions.json (explicit entries)
+//  6. ~/.agents/permissions.json (explicit entries)
+//  7. Embedded presets, filtered by enabled-/disabled-
 //     presets from the most-specific .agents config
-//     that specifies either field (project beats global)
+//     that specifies either field (local beats project
+//     beats global)
+//
+// permissions.local.json mirrors Claude Code's
+// settings.local.json: a project-scoped, typically
+// gitignored personal override that sits above the
+// committed project config. There is no global local
+// variant, again matching Claude Code.
 func Resolve(
 	configDir, cwd string,
 ) (*Resolved, error) {
@@ -95,7 +103,22 @@ func Resolve(
 		}
 	}
 
-	selected := SelectPresets(globalAgent, projectAgent)
+	// The project-local override is project-scoped only, so
+	// it loads from cwd just like the committed project
+	// config but with no global counterpart.
+	var localAgent *agentconfig.Config
+	if cwd != "" {
+		localAgentPath := filepath.Join(
+			cwd, ".agents", "permissions.local.json")
+		localAgent, err = agentconfig.Load(localAgentPath)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"local agent config: %v", err)
+		}
+	}
+
+	selected := SelectPresets(
+		globalAgent, projectAgent, localAgent)
 
 	// Build sources highest → lowest priority. Each
 	// source-load may return ConfigWarnings for malformed
@@ -136,6 +159,12 @@ func Resolve(
 		}
 	}
 
+	if localAgent != nil {
+		src, w := fromAgentConfig(
+			localAgent.Path, localAgent)
+		sources = append(sources, src)
+		warnings = append(warnings, w...)
+	}
 	if projectAgent != nil {
 		src, w := fromAgentConfig(
 			projectAgent.Path, projectAgent)
@@ -157,7 +186,8 @@ func Resolve(
 
 	return &Resolved{
 		RuleConfig: resolveRuleConfig(
-			projectAgent, globalAgent, selected),
+			projectAgent, globalAgent, localAgent,
+			selected),
 		Permissions: &Permissions{
 			Sources:  sources,
 			Warnings: warnings,
@@ -192,19 +222,24 @@ func parsePathDirs(path string) map[string]struct{} {
 }
 
 // SelectPresets returns the embedded presets selected by
-// the project agent config if it specifies preset
-// selection, otherwise by the global agent config,
-// otherwise all presets. `enabled-presets` narrows to a
-// whitelist; `disabled-presets` then filters out names
-// from whatever remains.
+// the most-specific agent config that specifies preset
+// selection — local, else project, else global — otherwise
+// all presets. `enabled-presets` narrows to a whitelist;
+// `disabled-presets` then filters out names from whatever
+// remains.
 func SelectPresets(
-	global, project *agentconfig.Config,
+	global, project, local *agentconfig.Config,
 ) []*presets.Preset {
 	all := presets.MustEmbedded()
 
+	// Checked least- to most-specific so the most-specific
+	// config that has an opinion is the one left in cfg.
 	cfg := global
 	if project.HasPresetSelection() {
 		cfg = project
+	}
+	if local.HasPresetSelection() {
+		cfg = local
 	}
 
 	if cfg == nil || !cfg.HasPresetSelection() {
@@ -227,13 +262,14 @@ func SelectPresets(
 // rule absent from every source stays disabled; presets are
 // the enable base and .agents overrides win. Sources are
 // applied lowest priority first so later writes win: presets,
-// then global .agents, then project .agents. No two presets
-// own the same rule, so the preset layer is an unambiguous
-// union. Claude settings.json does not participate — rule
-// config is an agent-permissions concept kept in the shared
-// layers, which is what makes it identical across harnesses.
+// then global .agents, then project .agents, then the
+// project-local .agents override. No two presets own the
+// same rule, so the preset layer is an unambiguous union.
+// Claude settings.json does not participate — rule config is
+// an agent-permissions concept kept in the shared layers,
+// which is what makes it identical across harnesses.
 func resolveRuleConfig(
-	project, global *agentconfig.Config,
+	project, global, local *agentconfig.Config,
 	selected []*presets.Preset,
 ) model.RuleConfigs {
 	out := model.RuleConfigs{}
@@ -249,6 +285,11 @@ func resolveRuleConfig(
 	}
 	if project != nil {
 		for id, cfg := range project.Rules {
+			out[id] = cfg
+		}
+	}
+	if local != nil {
+		for id, cfg := range local.Rules {
 			out[id] = cfg
 		}
 	}

@@ -63,7 +63,7 @@ func TestEveryRuleOwnedByExactlyOnePreset(t *testing.T) {
 // behaviour before rules were configurable.
 func TestDefaultInstallEnablesEveryRule(t *testing.T) {
 	rc := resolveRuleConfig(
-		nil, nil, presets.MustEmbedded())
+		nil, nil, nil, presets.MustEmbedded())
 	for _, def := range rules.AllRules() {
 		if !rc.For(def).Enabled {
 			t.Errorf(
@@ -74,7 +74,7 @@ func TestDefaultInstallEnablesEveryRule(t *testing.T) {
 }
 
 // A user .agents override wins over the preset that enabled
-// the rule, and project beats global.
+// the rule, and the precedence runs local > project > global.
 func TestRuleConfigOverridePrecedence(t *testing.T) {
 	all := presets.MustEmbedded()
 	const id = "git.branch-writes"
@@ -85,7 +85,8 @@ func TestRuleConfigOverridePrecedence(t *testing.T) {
 			id: {Enabled: false},
 		},
 	}
-	if resolveRuleConfig(nil, global, all).For(def).Enabled {
+	if resolveRuleConfig(
+		nil, global, nil, all).For(def).Enabled {
 		t.Error("global .agents Enabled:false should " +
 			"override the preset enable")
 	}
@@ -96,7 +97,19 @@ func TestRuleConfigOverridePrecedence(t *testing.T) {
 		},
 	}
 	if !resolveRuleConfig(
-		project, global, all).For(def).Enabled {
+		project, global, nil, all).For(def).Enabled {
 		t.Error("project .agents should override global")
+	}
+
+	// The project-local override is the most-specific source
+	// and wins over the project config above it.
+	local := &agentconfig.Config{
+		Rules: map[string]model.RuleConfig{
+			id: {Enabled: false},
+		},
+	}
+	if resolveRuleConfig(
+		project, global, local, all).For(def).Enabled {
+		t.Error("local .agents should override project")
 	}
 }

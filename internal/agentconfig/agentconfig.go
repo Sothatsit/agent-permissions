@@ -1,5 +1,6 @@
 // Package agentconfig reads agent-permissions config files
-// (~/.agents/permissions.json and <project>/.agents/permissions.json).
+// (~/.agents/permissions.json, <project>/.agents/permissions.json,
+// and the project-local <project>/.agents/permissions.local.json).
 //
 // The schema is four tier objects, each holding entries by
 // tool axis (Commands, EnvVars). Within each axis, entries

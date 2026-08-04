@@ -21,9 +21,10 @@ catastrophic mistakes, lenient about routine operations.
   Builds an ordered list of `SourcePerms` (highest priority first) and
   walks them per axis (Commands, EnvVars) on every check; within an
   axis, the first source with any matching pattern decides.
-* `internal/agentconfig/` — reader for `~/.agents/permissions.json` and
-  `<project>/.agents/permissions.json` (the agent-permissions config
-  file format).
+* `internal/agentconfig/` — reader for `~/.agents/permissions.json`,
+  `<project>/.agents/permissions.json`, and the project-local
+  `<project>/.agents/permissions.local.json` (the agent-permissions
+  config file format).
 * `internal/harness/` — `Harness` interface for harness-specific
   output text. `ClaudeCode` is the live implementation;
   `Placeholder` is used by dev tools to mark harness-bound
@@ -185,8 +186,12 @@ all must agree to allow.
    that axis. Sources (highest to lowest):
    `<project>/.claude/settings.local.json` →
    `<project>/.claude/settings.json` → `~/.claude/settings.json` →
+   `<project>/.agents/permissions.local.json` →
    `<project>/.agents/permissions.json` →
    `~/.agents/permissions.json` → embedded presets.
+   `permissions.local.json` is a project-scoped, typically
+   gitignored personal override mirroring Claude's
+   `settings.local.json`; it is project-only.
 
    Output text that varies per agent harness (e.g. Claude
    Code's `/permissions` reference) goes through

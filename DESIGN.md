@@ -50,10 +50,14 @@ or from its own location?**
 > standard place to put things except for the arrogant harnesses
 > like Claude Code.
 
-`~/.agents/permissions.json` and `<project>/.agents/permissions.json`
-are the agent-permissions config locations. The hook also reads
-Claude Code's `settings.json` so Claude Code-native rules continue
-to work.
+`~/.agents/permissions.json`, `<project>/.agents/permissions.json`,
+and the project-local `<project>/.agents/permissions.local.json`
+are the agent-permissions config locations. The local file is a
+project-scoped, typically gitignored personal override that sits
+above the committed project config — mirroring Claude Code's
+`settings.local.json` (project-only, no global counterpart). The
+hook also reads Claude Code's `settings.json` so Claude
+Code-native rules continue to work.
 
 ### Modifying settings.json
 
@@ -77,13 +81,23 @@ automatic modifications.
 
 Highest to lowest priority:
 
-1. `<project>/.claude/settings.json`
-2. `~/.claude/settings.json`
-3. `<project>/.agents/permissions.json` (explicit entries)
-4. `~/.agents/permissions.json` (explicit entries)
-5. Embedded presets (selected by the most-specific
-   `.agents/permissions.json` that specifies `enabled-presets` or
-   `disabled-presets`)
+1. `<project>/.claude/settings.local.json`
+2. `<project>/.claude/settings.json`
+3. `~/.claude/settings.json`
+4. `<project>/.agents/permissions.local.json` (explicit
+   entries; project-scoped personal override)
+5. `<project>/.agents/permissions.json` (explicit entries)
+6. `~/.agents/permissions.json` (explicit entries)
+7. Embedded presets (selected by the most-specific `.agents`
+   config — local, then project, then global — that specifies
+   `enabled-presets` or `disabled-presets`)
+
+The two `.local.json` files (Claude's `settings.local.json` and
+the agents `permissions.local.json`) are project-scoped personal
+overrides that sit above their committed counterparts, mirroring
+Claude Code's convention. Both are project-only — there is no
+global `~/.claude/settings.local.json` or
+`~/.agents/permissions.local.json`.
 
 ### Within-source tier precedence
 

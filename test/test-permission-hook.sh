@@ -110,7 +110,16 @@ _write_agent_config() {
     echo "$1" > "$_bp_tmpdir/project/.agents/permissions.json"
 }
 
-# _clear_agent_config removes the project .agents config.
+# _write_local_agent_config writes the project-local override
+# .agents/permissions.local.json (highest-priority .agents
+# source; mirrors Claude's settings.local.json).
+_write_local_agent_config() {
+    mkdir -p "$_bp_tmpdir/project/.agents"
+    echo "$1" > "$_bp_tmpdir/project/.agents/permissions.local.json"
+}
+
+# _clear_agent_config removes the project .agents config
+# (both permissions.json and permissions.local.json).
 _clear_agent_config() {
     rm -rf "$_bp_tmpdir/project/.agents"
 }
@@ -2069,6 +2078,27 @@ _write_agent_config \
 out=$(_run_hook 'eval "$CMD"')
 assert_not_contains "rule-config: disabled eval.unverified no longer denies" \
     "$(_decision "$out")" "deny"
+_clear_agent_config
+
+# --- Local .agents override: permissions.local.json wins ---
+#
+# permissions.local.json is the highest-priority .agents source
+# (project-scoped personal override, mirroring Claude's
+# settings.local.json). Source-priority resolution lets a local
+# Allow override the committed project config's Deny on the same
+# command.
+_write_agent_config \
+    '{"Deny":{"Commands":{"mytool:*":"denied by project"}}}'
+out=$(_run_hook 'mytool run')
+assert_contains "local-config: project deny applies without local override" \
+    "$(_decision "$out")" "deny"
+
+_write_local_agent_config \
+    '{"Allow":{"Commands":{"mytool:*":"allowed locally"}}}'
+out=$(_run_hook 'mytool run')
+assert_contains "local-config: permissions.local.json overrides project deny" \
+    "$(_decision "$out")" "allow"
+
 _clear_agent_config
 
 # xargs in a pipe — common real-world pattern.
