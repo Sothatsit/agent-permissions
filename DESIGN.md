@@ -675,3 +675,39 @@ and is denied; `flock FILE -c STR` re-parses STR as code).
 `runuser`, `setpriv`, and `setarch` have shell-string, interactive,
 and ambiguous-positional forms that defeat simple parsing, so they
 fail closed (deny) rather than risk masking the inner command.
+
+### External presets are a source layer, not config edits
+
+`AGENT_PERMISSIONS_PRESET_DIRS` (colon-separated directories of
+preset JSON) exists so an organisation can ship site-wide policy
+alongside its own tooling. The rejected alternative was having a
+site installer write entries into users' `.agents/permissions.json`
+or Claude settings — that makes the installer own a file the user
+also edits, and every upgrade has to merge, migrate, and clean up
+after itself. Delivering policy as a read-only directory the
+launcher points an env var at keeps ownership clean: the site owns
+its directory, the user owns their config files, and an upgrade is
+just a new directory path.
+
+An env var rather than a hook-command flag because the hook is not
+the only consumer: `check`, `validate`, and `presets list` resolve
+through the same loader, and a flag baked into the installed hook
+command would make manual `check` runs disagree with the live hook.
+
+Precedence encodes "more specific wins": external presets outrank
+embedded ones (site policy may override shipped defaults) but rank
+below every user config source, so a user can still override any
+single site entry from their own files. External presets are
+otherwise ordinary presets — `enabled-presets`/`disabled-presets`
+and preset `Rules` blocks apply by name; in the rule-config union
+they are applied above embedded presets, mirroring the source
+order.
+
+Failure handling is fail-closed on principle: a missing directory,
+malformed file, or duplicate preset name is a hard error that
+blocks commands (hook exit 2) rather than a warning. The failure
+mode being prevented is site policy silently vanishing — an agent
+running with weaker policy and nobody noticing. Duplicate names
+error rather than shadow because external presets already outrank
+embedded ones entry-by-entry; replacing a whole preset by filename
+would only ever happen by accident.

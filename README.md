@@ -267,14 +267,38 @@ Source priority, highest to lowest:
    personal overrides (typically gitignored).
 5. `<project>/.agents/permissions.json` — per-project overrides.
 6. `~/.agents/permissions.json` — your global overrides.
-7. Embedded presets (filtered by `enabled-presets` /
-   `disabled-presets` from the most-specific `.agents` config —
-   local, then project, then global — that specifies either field).
+7. External presets from `AGENT_PERMISSIONS_PRESET_DIRS` —
+   site-wide policy shipped by an organisation.
+8. Embedded presets.
+
+Both preset layers are filtered by `enabled-presets` /
+`disabled-presets` from the most-specific `.agents` config —
+local, then project, then global — that specifies either field.
 
 `permissions.local.json` mirrors Claude Code's
 `settings.local.json`: a project-scoped personal override that sits
 above the committed project config and has no global counterpart.
 It uses the same shape as `permissions.json` (described below).
+
+### External presets: `AGENT_PERMISSIONS_PRESET_DIRS`
+
+`AGENT_PERMISSIONS_PRESET_DIRS` is a colon-separated list of
+directories of preset JSON files, for organisations that want to
+ship site-wide policy alongside their own tooling instead of
+editing users' config files. Each file uses the preset shape
+above; the filename stem is the preset name. External presets
+outrank the embedded set (site policy can override shipped
+defaults) but rank below every user config source, and they
+participate in `enabled-presets` / `disabled-presets` by name
+like any other preset.
+
+Load failures fail closed: a missing directory, a malformed
+file, or a name colliding with another preset is a hard error,
+and the hook blocks commands until it is fixed. Site policy
+silently vanishing must not weaken the running policy. Give
+external presets distinct names (e.g. an org prefix like
+`dug-slurm`) — they already win on priority, so a collision with
+an embedded name is only ever an accident.
 
 **Within one source**, tier precedence applies in this order:
 `Deny > Ask > Allow > SoftAsk`.

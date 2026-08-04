@@ -84,6 +84,11 @@ func presetsList(args []string) error {
 	fmt.Printf(
 		"  cwd-local: %s\n",
 		describeConfig(localPath, local))
+	if dirs := os.Getenv(
+		presets.PresetDirsEnv); dirs != "" {
+		fmt.Printf(
+			"  %s: %s\n", presets.PresetDirsEnv, dirs)
+	}
 	if selecting == nil {
 		fmt.Println(
 			"  Preset selection: (none — all " +
@@ -95,12 +100,17 @@ func presetsList(args []string) error {
 	}
 	fmt.Println()
 
-	// Classify every embedded preset.
-	all := presets.MustEmbedded()
+	// Classify every active preset — external presets
+	// (from AGENT_PERMISSIONS_PRESET_DIRS) and embedded.
+	all, err := presets.All()
+	if err != nil {
+		return err
+	}
 	rows := make([]classifiedPreset, 0, len(all))
 	for _, p := range all {
 		rows = append(rows, classifiedPreset{
 			name:        p.Name,
+			dir:         p.Dir,
 			description: p.Description,
 			state:       classify(p.Name, selecting),
 		})
@@ -118,6 +128,7 @@ func presetsList(args []string) error {
 
 type classifiedPreset struct {
 	name        string
+	dir         string
 	description string
 	state       presetState
 }
@@ -149,6 +160,9 @@ func printPresetGroup(
 		fmt.Printf(
 			"  %-22s%s\n", r.name, reason)
 		fmt.Printf("    %s\n", r.description)
+		if r.dir != "" {
+			fmt.Printf("    from: %s\n", r.dir)
+		}
 	}
 	fmt.Println()
 }

@@ -193,10 +193,15 @@ all must agree to allow.
    `<project>/.claude/settings.json` → `~/.claude/settings.json` →
    `<project>/.agents/permissions.local.json` →
    `<project>/.agents/permissions.json` →
-   `~/.agents/permissions.json` → embedded presets.
+   `~/.agents/permissions.json` → external presets
+   (`AGENT_PERMISSIONS_PRESET_DIRS`, colon-separated dirs of
+   preset JSON) → embedded presets.
    `permissions.local.json` is a project-scoped, typically
    gitignored personal override mirroring Claude's
-   `settings.local.json`; it is project-only.
+   `settings.local.json`; it is project-only. External presets
+   are site-shipped policy: they outrank embedded presets,
+   rank below all user config, load fail-closed, and must not
+   reuse an existing preset name.
 
    Output text that varies per agent harness (e.g. Claude
    Code's `/permissions` reference) goes through

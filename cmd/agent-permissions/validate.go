@@ -207,17 +207,26 @@ func collectUnknownRules() ([]unknownRef, error) {
 
 // collectUnknownPresets returns preset names referenced by
 // enabled-presets / disabled-presets in the user .agents
-// configs that don't match any embedded preset. A typo there
-// silently no-ops (filterByName just never matches it) — the
-// same failure mode collectUnknownRules guards for rule IDs.
+// configs that don't match any active preset (embedded or
+// external). A typo there silently no-ops (filterByName
+// just never matches it) — the same failure mode
+// collectUnknownRules guards for rule IDs.
 func collectUnknownPresets() ([]unknownRef, error) {
+	all, err := presets.All()
+	if err != nil {
+		return nil, err
+	}
+	known := map[string]bool{}
+	for _, p := range all {
+		known[p.Name] = true
+	}
 	var out []unknownRef
-	err := forEachUserAgentConfig(
+	err = forEachUserAgentConfig(
 		func(cfg *agentconfig.Config, source string) {
 			names := presetSelectionNames(cfg)
 			sort.Strings(names)
 			for _, name := range names {
-				if presets.ByName(name) == nil {
+				if !known[name] {
 					out = append(out, unknownRef{
 						source: source, value: name,
 					})

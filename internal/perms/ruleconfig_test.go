@@ -113,3 +113,27 @@ func TestRuleConfigOverridePrecedence(t *testing.T) {
 		t.Error("local .agents should override project")
 	}
 }
+
+// selected is in priority order (external presets before
+// embedded), and resolveRuleConfig walks it in reverse, so
+// an external preset that mentions a rule an embedded
+// preset owns overrides the embedded config.
+func TestRuleConfigExternalPresetOverridesEmbedded(t *testing.T) {
+	const id = "git.branch-writes"
+	def := &model.RuleDef{ID: id}
+	external := &presets.Preset{
+		Name: "dug-test",
+		Dir:  "/site/presets",
+		Rules: map[string]model.RuleConfig{
+			id: {Enabled: false},
+		},
+	}
+	selected := append(
+		[]*presets.Preset{external},
+		presets.MustEmbedded()...)
+	rc := resolveRuleConfig(nil, nil, nil, selected)
+	if rc.For(def).Enabled {
+		t.Error("external preset Enabled:false should " +
+			"override the embedded preset enable")
+	}
+}

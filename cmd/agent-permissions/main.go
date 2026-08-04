@@ -9,7 +9,8 @@
 //	               informational note (exit 0)
 //	setup          Write a starter ~/.agents/permissions.json
 //	install        Wire the hook into known harness configs
-//	presets list   Show embedded presets, grouped by
+//	presets list   Show active presets (embedded and
+//	               external), grouped by
 //	               enabled/disabled state
 //	rules list     List built-in rules as 'id - description'
 //
@@ -89,7 +90,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  check '<cmd>'     Simulate the hook on a command and print the decision")
 	fmt.Fprintln(w, "  validate          Report config problems (malformed entries, unknown rule/preset names)")
 	fmt.Fprintln(w, "  setup             Write a starter ~/.agents/permissions.json")
-	fmt.Fprintln(w, "  presets list      List embedded presets, grouped by enabled/disabled state")
+	fmt.Fprintln(w, "  presets list      List active presets (embedded + external), grouped by enabled/disabled state")
 	fmt.Fprintln(w, "  rules list        List built-in rules as 'id - description'")
 	fmt.Fprintln(w, "  install           Wire the hook into known harness configs (e.g. ~/.claude/settings.json)")
 	fmt.Fprintln(w, "  --version         Print version")

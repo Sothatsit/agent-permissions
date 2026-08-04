@@ -56,12 +56,15 @@ _hook_input() {
 }
 
 # _run_hook calls the hook with a bash command. Passes
-# CLAUDE_CONFIG_DIR pointing at our fake settings.
+# CLAUDE_CONFIG_DIR pointing at our fake settings, and pins
+# AGENT_PERMISSIONS_PRESET_DIRS (default empty) so a
+# developer's real site presets can't leak into tests.
 # Optional second arg sets permission_mode.
 _run_hook() {
     local cmd="$1" mode="${2:-}"
     _hook_input "$cmd" "$mode" \
         | CLAUDE_CONFIG_DIR="$_bp_tmpdir/config" \
+            AGENT_PERMISSIONS_PRESET_DIRS="${_bp_preset_dirs:-}" \
             "$HOOK" claude-hook 2>/dev/null
 }
 
@@ -72,6 +75,7 @@ _run_hook_rc() {
     local rc=0
     _hook_input "$cmd" \
         | CLAUDE_CONFIG_DIR="$_bp_tmpdir/config" \
+            AGENT_PERMISSIONS_PRESET_DIRS="${_bp_preset_dirs:-}" \
             "$HOOK" claude-hook >/dev/null 2>&1 || rc=$?
     echo "$rc"
 }
@@ -122,6 +126,23 @@ _write_local_agent_config() {
 # (both permissions.json and permissions.local.json).
 _clear_agent_config() {
     rm -rf "$_bp_tmpdir/project/.agents"
+}
+
+# _write_external_preset writes a preset JSON file into the
+# external preset dir and points
+# AGENT_PERMISSIONS_PRESET_DIRS at it (site-policy
+# delivery). First arg is the filename, second the JSON.
+_write_external_preset() {
+    mkdir -p "$_bp_tmpdir/preset-dir"
+    echo "$2" > "$_bp_tmpdir/preset-dir/$1"
+    _bp_preset_dirs="$_bp_tmpdir/preset-dir"
+}
+
+# _clear_external_presets removes the external preset dir
+# and unsets the env var override.
+_clear_external_presets() {
+    rm -rf "$_bp_tmpdir/preset-dir"
+    _bp_preset_dirs=""
 }
 
 # Isolate HOME so the test runner's real ~/.agents/
@@ -2183,6 +2204,72 @@ assert_contains "local-config: permissions.local.json overrides project deny" \
     "$(_decision "$out")" "allow"
 
 _clear_agent_config
+
+# --- External presets: AGENT_PERMISSIONS_PRESET_DIRS ---
+#
+# Site-policy delivery: directories of preset JSON files
+# named by the env var load like embedded presets, but with
+# higher priority (external outranks embedded, user config
+# outranks both). Load failures fail closed (exit 2).
+
+# An external preset's Allow applies to an otherwise
+# unknown command.
+_write_external_preset dug-test.json \
+    '{"Allow":{"Commands":{"mytool:*":"site tool"}}}'
+out=$(_run_hook 'mytool run')
+assert_contains "external-preset: allow applies" \
+    "$(_decision "$out")" "allow"
+
+# External presets outrank embedded ones: a site Deny on rg
+# beats the embedded standard-commands Allow.
+_write_external_preset dug-test.json \
+    '{"Deny":{"Commands":{"rg:*":"site denies rg"}}}'
+out=$(_run_hook 'rg pattern')
+assert_contains "external-preset: deny outranks embedded allow" \
+    "$(_decision "$out")" "deny"
+
+# User .agents config outranks external presets.
+_write_agent_config \
+    '{"Allow":{"Commands":{"rg:*":"user allows rg"}}}'
+out=$(_run_hook 'rg pattern')
+assert_contains "external-preset: user .agents outranks external" \
+    "$(_decision "$out")" "allow"
+_clear_agent_config
+
+# disabled-presets drops an external preset by name, same
+# as an embedded one.
+_write_external_preset dug-test.json \
+    '{"Allow":{"Commands":{"mytool:*":"site tool"}}}'
+_write_agent_config '{"disabled-presets":["dug-test"]}'
+out=$(_run_hook 'mytool run')
+assert_not_contains "external-preset: disabled by name" \
+    "$(_decision "$out")" "allow"
+_clear_agent_config
+
+# A name collision with an embedded preset fails closed.
+_write_external_preset git.json \
+    '{"Allow":{"Commands":{"mytool:*":"collides"}}}'
+rc=$(_run_hook_rc 'git status')
+assert_contains "external-preset: duplicate name exits 2" "$rc" "2"
+_clear_external_presets
+
+# A malformed external preset fails closed.
+_write_external_preset dug-test.json '{not json'
+rc=$(_run_hook_rc 'git status')
+assert_contains "external-preset: malformed JSON exits 2" "$rc" "2"
+_clear_external_presets
+
+# A missing preset directory fails closed — site policy
+# silently vanishing must not weaken the running policy.
+_bp_preset_dirs="$_bp_tmpdir/no-such-preset-dir"
+rc=$(_run_hook_rc 'git status')
+assert_contains "external-preset: missing dir exits 2" "$rc" "2"
+_bp_preset_dirs=""
+
+# With the env var empty again, embedded defaults are back.
+out=$(_run_hook 'rg pattern')
+assert_contains "external-preset: cleared env restores embedded allow" \
+    "$(_decision "$out")" "allow"
 
 # xargs in a pipe — common real-world pattern.
 out=$(_run_hook 'echo hello | xargs echo')

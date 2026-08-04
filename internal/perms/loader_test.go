@@ -25,7 +25,7 @@ func contains(s []string, want string) bool {
 }
 
 func TestSelectPresetsAllByDefault(t *testing.T) {
-	got := SelectPresets(nil, nil, nil)
+	got := SelectPresets(presets.MustEmbedded(), nil, nil, nil)
 	all := presets.MustEmbedded()
 	if len(got) != len(all) {
 		t.Errorf(
@@ -37,7 +37,7 @@ func TestSelectPresetsAllByDefault(t *testing.T) {
 func TestSelectPresetsEnabledWhitelist(t *testing.T) {
 	enabled := []string{"git", "languages"}
 	c := &agentconfig.Config{EnabledPresets: &enabled}
-	got := presetNames(SelectPresets(c, nil, nil))
+	got := presetNames(SelectPresets(presets.MustEmbedded(), c, nil, nil))
 	if len(got) != 2 ||
 		!contains(got, "git") ||
 		!contains(got, "languages") {
@@ -49,7 +49,7 @@ func TestSelectPresetsEnabledWhitelist(t *testing.T) {
 func TestSelectPresetsDisabledBlacklist(t *testing.T) {
 	disabled := []string{"git"}
 	c := &agentconfig.Config{DisabledPresets: &disabled}
-	got := presetNames(SelectPresets(c, nil, nil))
+	got := presetNames(SelectPresets(presets.MustEmbedded(), c, nil, nil))
 	if contains(got, "git") {
 		t.Errorf("expected git to be excluded; got %v", got)
 	}
@@ -68,7 +68,7 @@ func TestSelectPresetsBothFields(t *testing.T) {
 		EnabledPresets:  &enabled,
 		DisabledPresets: &disabled,
 	}
-	got := presetNames(SelectPresets(c, nil, nil))
+	got := presetNames(SelectPresets(presets.MustEmbedded(), c, nil, nil))
 	if len(got) != 2 ||
 		!contains(got, "git") ||
 		!contains(got, "languages") {
@@ -86,7 +86,7 @@ func TestSelectPresetsProjectOverridesGlobal(t *testing.T) {
 	project := &agentconfig.Config{
 		EnabledPresets: &projectEnabled,
 	}
-	got := presetNames(SelectPresets(global, project, nil))
+	got := presetNames(SelectPresets(presets.MustEmbedded(), global, project, nil))
 	if contains(got, "git") {
 		t.Errorf(
 			"project should have overridden global; "+
@@ -114,7 +114,7 @@ func TestSelectPresetsLocalOverridesProject(t *testing.T) {
 	local := &agentconfig.Config{
 		EnabledPresets: &localEnabled,
 	}
-	got := presetNames(SelectPresets(global, project, local))
+	got := presetNames(SelectPresets(presets.MustEmbedded(), global, project, local))
 	if len(got) != 1 || !contains(got, "containers") {
 		t.Errorf(
 			"local should have won; got %v", got)
@@ -133,7 +133,7 @@ func TestSelectPresetsLocalFallthroughWhenSilent(t *testing.T) {
 			Commands: map[string]string{"some-cmd:*": ""},
 		},
 	}
-	got := presetNames(SelectPresets(nil, project, local))
+	got := presetNames(SelectPresets(presets.MustEmbedded(), nil, project, local))
 	if len(got) != 1 || !contains(got, "languages") {
 		t.Errorf(
 			"expected project selection (languages), got %v",
@@ -155,10 +155,37 @@ func TestSelectPresetsProjectFallthroughWhenSilent(t *testing.T) {
 			},
 		},
 	}
-	got := presetNames(SelectPresets(global, project, nil))
+	got := presetNames(SelectPresets(presets.MustEmbedded(), global, project, nil))
 	if len(got) != 1 || !contains(got, "git") {
 		t.Errorf(
 			"expected global selection (git), got %v",
 			got)
+	}
+}
+
+func TestSelectPresetsIncludesExternal(t *testing.T) {
+	// External presets are part of the pool and are
+	// selected (and disabled) by name exactly like
+	// embedded ones.
+	pool := append(
+		[]*presets.Preset{{Name: "dug-test"}},
+		presets.MustEmbedded()...)
+
+	got := presetNames(SelectPresets(pool, nil, nil, nil))
+	if !contains(got, "dug-test") {
+		t.Errorf(
+			"external preset missing from default "+
+				"selection: %v", got)
+	}
+
+	disabled := []string{"dug-test"}
+	c := &agentconfig.Config{
+		DisabledPresets: &disabled,
+	}
+	got = presetNames(SelectPresets(pool, c, nil, nil))
+	if contains(got, "dug-test") {
+		t.Errorf(
+			"disabled-presets should drop the external "+
+				"preset: %v", got)
 	}
 }

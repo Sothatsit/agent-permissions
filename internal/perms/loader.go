@@ -117,8 +117,15 @@ func Resolve(
 		}
 	}
 
+	pool, err := presets.All()
+	if err != nil {
+		// Fail closed: a broken external preset source
+		// means site policy has silently vanished, so
+		// deny rather than run with weaker policy.
+		return nil, fmt.Errorf("presets: %v", err)
+	}
 	selected := SelectPresets(
-		globalAgent, projectAgent, localAgent)
+		pool, globalAgent, projectAgent, localAgent)
 
 	// Build sources highest → lowest priority. Each
 	// source-load may return ConfigWarnings for malformed
@@ -221,17 +228,19 @@ func parsePathDirs(path string) map[string]struct{} {
 	return dirs
 }
 
-// SelectPresets returns the embedded presets selected by
-// the most-specific agent config that specifies preset
-// selection — local, else project, else global — otherwise
-// all presets. `enabled-presets` narrows to a whitelist;
+// SelectPresets returns the presets from all (kept in the
+// given priority order) selected by the most-specific agent
+// config that specifies preset selection — local, else
+// project, else global — otherwise every preset.
+// `enabled-presets` narrows to a whitelist;
 // `disabled-presets` then filters out names from whatever
-// remains.
+// remains. Selection applies to external and embedded
+// presets alike — a site preset is disabled by name the
+// same way a shipped one is.
 func SelectPresets(
+	all []*presets.Preset,
 	global, project, local *agentconfig.Config,
 ) []*presets.Preset {
-	all := presets.MustEmbedded()
-
 	// Checked least- to most-specific so the most-specific
 	// config that has an opinion is the one left in cfg.
 	cfg := global
@@ -263,18 +272,21 @@ func SelectPresets(
 // the enable base and .agents overrides win. Sources are
 // applied lowest priority first so later writes win: presets,
 // then global .agents, then project .agents, then the
-// project-local .agents override. No two presets own the
-// same rule, so the preset layer is an unambiguous union.
-// Claude settings.json does not participate — rule config is
-// an agent-permissions concept kept in the shared layers,
-// which is what makes it identical across harnesses.
+// project-local .agents override. selected is in priority
+// order (external presets before embedded), so it is walked
+// in reverse: embedded presets own their rules disjointly,
+// and an external preset that mentions the same rule ID
+// overrides them. Claude settings.json does not participate
+// — rule config is an agent-permissions concept kept in the
+// shared layers, which is what makes it identical across
+// harnesses.
 func resolveRuleConfig(
 	project, global, local *agentconfig.Config,
 	selected []*presets.Preset,
 ) model.RuleConfigs {
 	out := model.RuleConfigs{}
-	for _, p := range selected {
-		for id, cfg := range p.Rules {
+	for i := len(selected) - 1; i >= 0; i-- {
+		for id, cfg := range selected[i].Rules {
 			out[id] = cfg
 		}
 	}

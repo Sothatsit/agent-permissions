@@ -69,6 +69,15 @@ func setup(args []string) error {
 	fmt.Printf(
 		"Embedded presets active: %d\n",
 		len(presets.MustEmbedded()))
+	ext, err := presets.External()
+	if err != nil {
+		return fmt.Errorf("external presets: %v", err)
+	}
+	if len(ext) > 0 {
+		fmt.Printf(
+			"External presets active: %d (from %s)\n",
+			len(ext), presets.PresetDirsEnv)
+	}
 	fmt.Println(
 		"To narrow the active set, add `enabled-presets` " +
 			"or `disabled-presets` arrays.")
