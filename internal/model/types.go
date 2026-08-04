@@ -299,6 +299,17 @@ type UnwrapResult struct {
 	// where the Word's text representation includes
 	// quotes that shouldn't be in the code.
 	CodeStrings []string
+	// Assigns are environment-variable assignments the
+	// wrapper applies to its inner command (e.g.
+	// env NAME=val cmd). The framework records each name on
+	// the EnvVars deny axis and extracts command
+	// substitutions from each value — so a wrapper that sets
+	// env vars carries that execution-relevant part forward
+	// rather than dropping it. Exec-style wrappers (timeout,
+	// nohup, ...) leave this nil: they exec the inner command
+	// directly via execvp, so a leading NAME=val is the
+	// program name, not an assignment, and is not honoured.
+	Assigns []*syntax.Assign
 	// ScanFiles lists file paths to scan directly (e.g.
 	// bash script.sh). The framework handles isolation
 	// (new process state) and rootScript automatically.

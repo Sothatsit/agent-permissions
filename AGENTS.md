@@ -325,8 +325,9 @@ variables can be assigned, not what they're assigned to.
   invariant tests enforce this too.
 * **Rule-owned commands stay out of preset Command tiers.**
   Commands the Rules layer owns (`bash`, `sh`, `xargs`, `timeout`,
-  `git remote`/`branch`/`tag`, `gh api`, `eval`, etc.) must not
-  appear in `Allow`, `Ask`, or `Deny` Commands in any preset.
+  `env`, `nohup`, `chroot`, `git remote`/`branch`/`tag`, `gh api`,
+  `eval`, etc.) must not appear in `Allow`, `Ask`, or `Deny`
+  Commands in any preset.
   Claude Code ask/deny rules override hook allow decisions, so a
   duplicated entry breaks the hook's ability to auto-allow safe
   invocations decided by the rule. This is about the Command

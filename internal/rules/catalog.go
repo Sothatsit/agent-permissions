@@ -92,6 +92,16 @@ var (
 		"trap with code that can't be verified")
 	commandUnverified = defineRule("command.unverified",
 		"command builtin with flags that can't be verified")
+	envUnverified = defineRule("env.unverified",
+		"env -S/--split-string or flags that can't be verified")
+	chrootUnverified = defineRule("chroot.unverified",
+		"chroot with no command runs an interactive shell")
+	runuserUnverified = defineRule("runuser.unverified",
+		"runuser runs commands as another user")
+	setprivUnverified = defineRule("setpriv.unverified",
+		"setpriv alters process privileges before running")
+	setarchUnverified = defineRule("setarch.unverified",
+		"setarch sets the personality before running")
 )
 
 // AllRules returns the rule directory: every user-disableable

@@ -226,6 +226,23 @@ func (b *breaker) runBreakdown(
 		result.Safe = true
 	}
 
+	// Apply env-var assignments the wrapper sets on its inner
+	// command (e.g. env NAME=val cmd): record each name on the
+	// EnvVars deny axis and extract command substitutions from
+	// each value, exactly as a leading assignment on a top-level
+	// command would be handled.
+	for _, assign := range unwrapResult.Assigns {
+		if assign.Name != nil {
+			result.Assigns = append(
+				result.Assigns, assign.Name.Value)
+		}
+		subs, assignErr := b.processAssign(assign)
+		if assignErr != nil {
+			return model.BreakdownResult{}, true, assignErr
+		}
+		result.Commands = append(result.Commands, subs...)
+	}
+
 	// Process inner commands directly through the AST
 	// walker — no print→reparse round trip.
 	for _, words := range unwrapResult.Commands {
@@ -459,37 +476,22 @@ func (b *breaker) processCommand(
 		// (( ... )) — operands can contain command subs.
 		return b.extractSubsFromNode(c)
 	case *syntax.TimeClause:
-		// Bash's `time` keyword is a separate AST node,
-		// not a command — the parser puts the timed
-		// statement in TimeClause.Stmt. External
-		// /usr/bin/time appears as a normal CallExpr
-		// and is handled by the `time` wrapper in the
-		// registry.
-		//
-		// We transform the keyword form into a
-		// synthetic CallExpr with "time" prepended so
-		// it routes through processCallExpr and the
-		// registry's `time` BreakdownFunc. This lets
-		// both forms share the same flag parsing and
-		// inner-command extraction logic — without it
-		// we'd need to duplicate the flag table here.
-		//
-		// Bare `time` or `time` with no inner CallExpr
-		// is a safe no-op.
+		// Bash's `time` keyword is a separate AST node, not a
+		// command — the parser puts the timed statement in
+		// TimeClause.Stmt. That statement carries its own
+		// redirections and assignments; the keyword's only
+		// option, -p, is absorbed into TimeClause.PosixFormat,
+		// so the statement holds no time flags. Process the
+		// statement directly through processStmt so its
+		// redirections (e.g. > /dev/tcp/...) and the command
+		// substitutions in their targets are checked — a
+		// reconstructed bare CallExpr would silently drop them.
+		// External /usr/bin/time is a normal CallExpr handled
+		// by the `time` wrapper. Bare `time` is a safe no-op.
 		if c.Stmt == nil {
 			return model.BreakdownResult{Safe: true}, nil
 		}
-		inner, ok := c.Stmt.Cmd.(*syntax.CallExpr)
-		if !ok || len(inner.Args) == 0 {
-			return b.processStmt(c.Stmt, depth)
-		}
-		timeLit := &syntax.Word{Parts: []syntax.WordPart{
-			&syntax.Lit{Value: "time"},
-		}}
-		synthetic := *inner
-		synthetic.Args = append(
-			[]*syntax.Word{timeLit}, inner.Args...)
-		return b.processCallExpr(&synthetic, depth)
+		return b.processStmt(c.Stmt, depth)
 	case *syntax.FuncDecl:
 		// Record the function name at unconditional scope
 		// so calls to it can be recognised.

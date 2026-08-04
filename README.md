@@ -194,7 +194,7 @@ time so `go install` alone is enough to get a working policy:
 | `containers` | Daemonless runtimes Allow; Docker SoftAsk. |
 | `process-control` | `kill`, `killall`, `dd`. SoftAsk. |
 | `mpi` | MPI launchers. SoftAsk. |
-| `escape-hatches` | Commands that can escape or bypass the permission model (sudo, ssh, su, env, exec, alias, etc.). Deny. |
+| `escape-hatches` | Commands that can escape or bypass the permission model (sudo, ssh, su, alias, busybox, etc.). Deny. Transparent exec wrappers (`env`, `nohup`, `setsid`, `nice`, `exec`) are handled by the Rules layer instead, which unwraps and re-checks the inner command. |
 
 Each file has the shape:
 

@@ -1537,8 +1537,11 @@ assert_contains "deny: backtick in cmd position denied" "$(_decision "$out")" "d
 out=$(_run_hook '/usr/bin/ssh evil')
 assert_contains "deny: absolute path /usr/bin/ssh denied" "$(_decision "$out")" "deny"
 
+# env is PathAllow (so /usr/bin/env python3 script still unwraps
+# and scans the inner interpreter), but the inner command is
+# still checked — a denied inner is denied.
 out=$(_run_hook '/usr/bin/env ssh evil')
-assert_contains "deny: absolute path /usr/bin/env denied" "$(_decision "$out")" "deny"
+assert_contains "deny: /usr/bin/env unwraps to denied ssh" "$(_decision "$out")" "deny"
 
 # Absolute path to allowed command. Allow/Ask/SoftAsk
 # match by basename only when the path's directory is in
@@ -1621,11 +1624,14 @@ out=$(_run_hook 'command -v ssh')
 assert_contains "allow: command -v read-only lookup" \
     "$(_decision "$out")" "allow"
 
+# exec is an exec wrapper: it unwraps to the inner command,
+# whose policy governs (exec replaces the shell, but the inner
+# command is what runs).
 out=$(_run_hook 'exec git status')
-assert_contains "deny: exec denied" "$(_decision "$out")" "deny"
+assert_contains "allow: exec unwraps to git status" "$(_decision "$out")" "allow"
 
 out=$(_run_hook 'exec ssh evil')
-assert_contains "deny: exec with denied inner denied" "$(_decision "$out")" "deny"
+assert_contains "deny: exec unwraps to denied ssh" "$(_decision "$out")" "deny"
 
 out=$(_run_hook 'builtin echo hello')
 assert_contains "deny: builtin denied" "$(_decision "$out")" "deny"
@@ -1640,21 +1646,19 @@ assert_contains "deny: alias denied" "$(_decision "$out")" "deny"
 out=$(_run_hook 'alias')
 assert_contains "deny: bare alias denied" "$(_decision "$out")" "deny"
 
-# nohup is in the Deny tier; agents should not persist
-# commands.
+# nohup/nice are exec wrappers: they unwrap to the inner
+# command, whose policy governs.
 out=$(_run_hook 'nohup git status')
-assert_contains "deny: nohup denied" "$(_decision "$out")" "deny"
+assert_contains "allow: nohup unwraps to git status" "$(_decision "$out")" "allow"
 
 out=$(_run_hook 'nohup ssh evil')
-assert_contains "deny: nohup with denied inner still denied" "$(_decision "$out")" "deny"
+assert_contains "deny: nohup unwraps to denied ssh" "$(_decision "$out")" "deny"
 
-# nice is in the Deny tier; agents don't need scheduling
-# priority.
 out=$(_run_hook 'nice git status')
-assert_contains "deny: nice denied" "$(_decision "$out")" "deny"
+assert_contains "allow: nice unwraps to git status" "$(_decision "$out")" "allow"
 
 out=$(_run_hook 'nice ssh evil')
-assert_contains "deny: nice with denied inner denied" "$(_decision "$out")" "deny"
+assert_contains "deny: nice unwraps to denied ssh" "$(_decision "$out")" "deny"
 
 # strace with allowed inner is safe.
 out=$(_run_hook 'strace git status')
@@ -1670,35 +1674,33 @@ assert_contains "allow: time allowed inner" "$(_decision "$out")" "allow"
 out=$(_run_hook 'time ssh evil')
 assert_contains "deny: time denied inner" "$(_decision "$out")" "deny"
 
-# time with output/format flags.
-out=$(_run_hook 'time -o /tmp/out git status')
-assert_contains "allow: time -o allowed" "$(_decision "$out")" "allow"
-
-out=$(_run_hook 'time -f "%e seconds" git status')
-assert_contains "allow: time -f allowed" "$(_decision "$out")" "allow"
-
-out=$(_run_hook 'time --format="%e" git status')
-assert_contains "allow: time --format= allowed" "$(_decision "$out")" "allow"
-
-out=$(_run_hook 'time -v git status')
-assert_contains "allow: time -v allowed" "$(_decision "$out")" "allow"
-
+# The bash `time` keyword accepts only -p. Any other flag
+# becomes the timed command itself — bash runs `-o`/`-v`/
+# `--bogus` and reports "command not found", so the real
+# command never runs. The hook faithfully treats the flag as
+# the command (soft-ask on an unknown name), rather than
+# assuming external /usr/bin/time semantics.
 out=$(_run_hook 'time -p git status')
 assert_contains "allow: time -p allowed" "$(_decision "$out")" "allow"
 
-out=$(_run_hook 'time --append -o /tmp/out git status')
-assert_contains "allow: time --append -o allowed" "$(_decision "$out")" "allow"
+out=$(_run_hook 'time -v git status')
+assert_contains "ask: time -v runs -v as the command" \
+    "$(_decision "$out")" "ask"
 
-# time with denied inner despite flags.
-out=$(_run_hook 'time -v ssh evil')
-assert_contains "deny: time -v denied inner" "$(_decision "$out")" "deny"
+out=$(_run_hook 'time -o /tmp/out git status')
+assert_contains "ask: time -o runs -o as the command" \
+    "$(_decision "$out")" "ask"
 
-out=$(_run_hook 'time -o /tmp/out -f "%e" ssh evil')
-assert_contains "deny: time -o -f denied inner" "$(_decision "$out")" "deny"
+# External /usr/bin/time flags (-o/-v/-f) are handled when time
+# is invoked as a command, not the keyword — e.g. via `command
+# time`, which routes through the external time wrapper.
+out=$(_run_hook 'command time -v git status')
+assert_contains "allow: command time -v unwraps to git" \
+    "$(_decision "$out")" "allow"
 
-# time with unrecognised flag.
-out=$(_run_hook 'time --bogus git status')
-assert_contains "deny: time --bogus unrecognised" "$(_decision "$out")" "deny"
+out=$(_run_hook 'command time -v ssh evil')
+assert_contains "deny: command time -v unwraps to denied ssh" \
+    "$(_decision "$out")" "deny"
 
 # time stacked with timeout.
 out=$(_run_hook 'time timeout 5 git status')
@@ -1760,6 +1762,84 @@ assert_contains "allow: stdbuf allowed inner allowed" "$(_decision "$out")" "all
 out=$(_run_hook 'stdbuf -o L ssh evil')
 assert_contains "deny: stdbuf denied inner denied" "$(_decision "$out")" "deny"
 
+# --- env wrapper (honours NAME=val assignments) ---
+
+# env unwraps to its inner command, whose policy governs.
+out=$(_run_hook 'env git status')
+assert_contains "allow: env unwraps to git status" "$(_decision "$out")" "allow"
+
+out=$(_run_hook 'env ssh evil')
+assert_contains "deny: env unwraps to denied ssh" "$(_decision "$out")" "deny"
+
+# env NAME=val really sets the variable, so the name reaches the
+# EnvVars deny axis — env BASH_ENV=/x cmd is a real injection.
+out=$(_run_hook 'env BASH_ENV=/evil git status')
+assert_contains "deny: env BASH_ENV reaches EnvVars deny axis" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'env LD_PRELOAD=/x.so git status')
+assert_contains "deny: env LD_PRELOAD denied" "$(_decision "$out")" "deny"
+
+# env wrapping an interpreter still scans the inline code.
+out=$(_run_hook 'env python3 -c "import subprocess"')
+assert_contains "deny: env python3 -c scanned" "$(_decision "$out")" "deny"
+
+# env -S runs env's own string splitter, not the shell — can't
+# be verified, so it is denied.
+out=$(_run_hook 'env -S "git status"')
+assert_contains "deny: env -S denied" "$(_decision "$out")" "deny"
+
+# Bare env (no command) prints the environment — safe.
+out=$(_run_hook 'env')
+assert_contains "allow: bare env" "$(_decision "$out")" "allow"
+
+# --- Other exec wrappers ---
+
+out=$(_run_hook 'setsid -f git status')
+assert_contains "allow: setsid unwraps to git" "$(_decision "$out")" "allow"
+
+out=$(_run_hook 'ionice -c2 git status')
+assert_contains "allow: ionice unwraps to git" "$(_decision "$out")" "allow"
+
+# ionice -p retunes an existing process — no command to run.
+out=$(_run_hook 'ionice -p 123')
+assert_contains "allow: ionice -p no command" "$(_decision "$out")" "allow"
+
+# --- chroot (skip NEWROOT) ---
+
+out=$(_run_hook 'chroot /mnt git status')
+assert_contains "allow: chroot unwraps to git" "$(_decision "$out")" "allow"
+
+# chroot with only a directory runs an interactive $SHELL.
+out=$(_run_hook 'chroot /mnt')
+assert_contains "deny: chroot with no command denied" "$(_decision "$out")" "deny"
+
+# --- flock (skip the lock file; -c runs a shell string) ---
+
+out=$(_run_hook 'flock /tmp/lock git status')
+assert_contains "allow: flock unwraps to git" "$(_decision "$out")" "allow"
+
+out=$(_run_hook 'flock /tmp/lock ssh evil')
+assert_contains "deny: flock unwraps to denied ssh" "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'flock /tmp/lock -c "ssh evil"')
+assert_contains "deny: flock -c runs denied ssh" "$(_decision "$out")" "deny"
+
+# A lock file with no command runs nothing — safe.
+out=$(_run_hook 'flock /tmp/lock')
+assert_contains "allow: flock file-only" "$(_decision "$out")" "allow"
+
+# --- Privilege/personality wrappers: denied (unmodellable) ---
+
+out=$(_run_hook 'runuser -u user git status')
+assert_contains "deny: runuser denied" "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'setpriv --reuid 1 git status')
+assert_contains "deny: setpriv denied" "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'setarch x86_64 git status')
+assert_contains "deny: setarch denied" "$(_decision "$out")" "deny"
+
 # --- Wrapper command flag edge cases ---
 
 # command -V is a read-only description lookup → allow.
@@ -1815,30 +1895,33 @@ out=$(_run_hook 'command -- git status')
 assert_contains "allow: command -- unwraps to git status" \
     "$(_decision "$out")" "allow"
 
+# exec flag variants: exec parses -a/-c/-l, then the inner
+# command's policy governs.
 out=$(_run_hook 'exec -a myname ssh evil')
-assert_contains "deny: exec -a denied" "$(_decision "$out")" "deny"
+assert_contains "deny: exec -a unwraps to denied ssh" "$(_decision "$out")" "deny"
 
 out=$(_run_hook 'exec -a myname git status')
-assert_contains "deny: exec -a git denied" "$(_decision "$out")" "deny"
+assert_contains "allow: exec -a unwraps to git status" "$(_decision "$out")" "allow"
 
 out=$(_run_hook 'exec -l ssh evil')
-assert_contains "deny: exec -l denied" "$(_decision "$out")" "deny"
+assert_contains "deny: exec -l denied inner" "$(_decision "$out")" "deny"
 
 out=$(_run_hook 'exec -c ssh evil')
-assert_contains "deny: exec -c denied" "$(_decision "$out")" "deny"
+assert_contains "deny: exec -c denied inner" "$(_decision "$out")" "deny"
 
 out=$(_run_hook 'exec -cla myname ssh evil')
-assert_contains "deny: exec -cla denied" "$(_decision "$out")" "deny"
+assert_contains "deny: exec -cla denied inner" "$(_decision "$out")" "deny"
 
-# nice flag variants: all denied (nice is in the Deny tier).
+# nice flag variants: nice parses -n/--adjustment, then the
+# inner command's policy governs.
 out=$(_run_hook 'nice -n 10 ssh evil')
-assert_contains "deny: nice -n denied" "$(_decision "$out")" "deny"
+assert_contains "deny: nice -n denied inner" "$(_decision "$out")" "deny"
 
 out=$(_run_hook 'nice -n 10 git status')
-assert_contains "deny: nice -n git denied" "$(_decision "$out")" "deny"
+assert_contains "allow: nice -n unwraps to git status" "$(_decision "$out")" "allow"
 
 out=$(_run_hook 'nice --adjustment=10 ssh evil')
-assert_contains "deny: nice --adjustment denied" "$(_decision "$out")" "deny"
+assert_contains "deny: nice --adjustment denied inner" "$(_decision "$out")" "deny"
 
 # timeout with extra flags before duration.
 out=$(_run_hook 'timeout -k 5 10 ssh evil')
@@ -2116,29 +2199,26 @@ assert_contains "xargs rm reason shows Soft-ask header" \
 # Wrappers can be composed. The implementation must recurse
 # through all wrapper layers to find the actual command.
 
-# nice is denied outright — nice wrapping anything is denied.
+# Stacked exec wrappers compose: the innermost command governs.
 out=$(_run_hook 'nice nohup ssh evil')
-assert_contains "deny: nice+nohup denied" "$(_decision "$out")" "deny"
+assert_contains "deny: nice+nohup unwraps to denied ssh" "$(_decision "$out")" "deny"
 
-# timeout unwraps nice, nice is denied.
 out=$(_run_hook 'timeout 5 nice nohup ssh evil')
-assert_contains "deny: timeout+nice+nohup denied" "$(_decision "$out")" "deny"
+assert_contains "deny: timeout+nice+nohup denied ssh" "$(_decision "$out")" "deny"
 
-# nice is denied regardless of inner command.
 out=$(_run_hook 'nice timeout 5 ssh evil')
-assert_contains "deny: nice+timeout denied" "$(_decision "$out")" "deny"
+assert_contains "deny: nice+timeout denied ssh" "$(_decision "$out")" "deny"
 
 out=$(_run_hook 'nice timeout 5 git status')
-assert_contains "deny: nice+timeout git denied" "$(_decision "$out")" "deny"
+assert_contains "allow: nice+timeout unwraps to git" "$(_decision "$out")" "allow"
 
-# command unwraps to nice — nice is denied.
+# command unwraps to nice, which unwraps to its inner command.
 out=$(_run_hook 'command nice git status')
-assert_contains "deny: command+nice denied (nice is blocked)" \
-    "$(_decision "$out")" "deny"
+assert_contains "allow: command+nice unwraps to git" \
+    "$(_decision "$out")" "allow"
 
-# nohup is denied outright — nohup wrapping anything is denied.
 out=$(_run_hook 'nohup timeout 5 git status')
-assert_contains "deny: nohup+timeout denied (nohup is blocked)" "$(_decision "$out")" "deny"
+assert_contains "allow: nohup+timeout unwraps to git" "$(_decision "$out")" "allow"
 
 # Stacked wrappers that are all transparent (timeout+stdbuf).
 out=$(_run_hook 'timeout 10 stdbuf -o L git status')
@@ -2168,12 +2248,11 @@ out=$(_run_hook 'timeout 1 timeout 1 timeout 1 timeout 1 timeout 1 timeout 1 tim
 assert_contains "deny: 11 nested timeout wrappers denied" "$(_decision "$out")" "deny"
 
 # Wrapper around bash -c — both unwrapping layers compose.
-# nohup is denied outright, so nohup+bash-c is always denied.
 out=$(_run_hook 'nohup bash -c "git status"')
-assert_contains "deny: nohup+bash-c denied (nohup blocked)" "$(_decision "$out")" "deny"
+assert_contains "allow: nohup+bash-c unwraps to git" "$(_decision "$out")" "allow"
 
 out=$(_run_hook 'nohup bash -c "ssh evil"')
-assert_contains "deny: nohup+bash-c denied" "$(_decision "$out")" "deny"
+assert_contains "deny: nohup+bash-c denied ssh" "$(_decision "$out")" "deny"
 
 # command unwraps to bash -c — inner command checked.
 out=$(_run_hook 'command bash -c "git status"')

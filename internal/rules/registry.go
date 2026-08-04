@@ -311,6 +311,64 @@ func Registry() (
 		Unverified: xargsUnverified,
 	}
 
+	// --- Exec wrappers ---
+	// Run an inner command after consuming their own args.
+	// Like timeout/strace, the inner command is re-analysed.
+	// They exec directly (execvp), so a leading NAME=val is
+	// the program name, not an assignment — except env, which
+	// honours assignments and feeds them to the EnvVars axis.
+
+	// env: parse env's flags, split leading NAME=val into
+	// honoured assignments (-> EnvVars deny axis + value
+	// cmd-subs), extract the inner command. -S/--split-string
+	// is denied (env's splitter is not the shell). PathAllow so
+	// /usr/bin/env python3 (shebang style) still unwraps and
+	// scans the inner interpreter.
+	r["env"] = &model.CommandRules{
+		Parser:     envParser,
+		Breakdown:  breakdownEnv,
+		PathMode:   model.PathAllow,
+		Unverified: envUnverified,
+	}
+
+	// nohup/setsid/nice/ionice/exec: transparent exec wrappers.
+	// Skip own flags, extract the inner command; empty inner is
+	// safe (e.g. ionice -p PID, exec > log).
+	r["nohup"] = &model.CommandRules{
+		Parser: nohupParser, Breakdown: breakdownNohup}
+	r["setsid"] = &model.CommandRules{
+		Parser: setsidParser, Breakdown: breakdownSetsid}
+	r["nice"] = &model.CommandRules{
+		Parser: niceParser, Breakdown: breakdownNice}
+	r["ionice"] = &model.CommandRules{
+		Parser: ioniceParser, Breakdown: breakdownIonice}
+	r["exec"] = &model.CommandRules{
+		Parser: execParser, Breakdown: breakdownExec}
+
+	// chroot: skip NEWROOT, extract inner command. With no
+	// command it runs an interactive $SHELL — denied via
+	// chroot.unverified.
+	r["chroot"] = &model.CommandRules{
+		Parser:     chrootParser,
+		Breakdown:  breakdownChroot,
+		Unverified: chrootUnverified,
+	}
+
+	// flock: skip the lock file, extract the inner command;
+	// flock FILE -c STR runs STR via a shell, re-parsed as code.
+	r["flock"] = &model.CommandRules{
+		Parser:    flockParser,
+		Breakdown: breakdownFlock,
+	}
+
+	// runuser/setpriv/setarch: privilege/personality wrappers
+	// with shell-string, interactive, and ambiguous-positional
+	// forms we cannot model safely. Deny outright (suppressed,
+	// falling through to permissions, when their rule is off).
+	r["runuser"] = &model.CommandRules{Breakdown: breakdownRunuser}
+	r["setpriv"] = &model.CommandRules{Breakdown: breakdownSetpriv}
+	r["setarch"] = &model.CommandRules{Breakdown: breakdownSetarch}
+
 	// --- Shell builtins ---
 
 	// eval: join args and re-parse as code. All args
