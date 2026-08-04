@@ -137,9 +137,7 @@ func Parse(path string, data []byte) (*Config, error) {
 		if len(v) > 0 && v[0] == '[' {
 			return nil, fmt.Errorf(
 				"%s: %q must be an object with "+
-					"Commands/EnvVars keys, got an "+
-					"array (see README for the "+
-					"current schema)",
+					"Commands/EnvVars keys, got an array",
 				path, k)
 		}
 	}

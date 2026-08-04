@@ -168,9 +168,7 @@ func parseOne(
 		if len(v) > 0 && v[0] == '[' {
 			return nil, fmt.Errorf(
 				"%s: %q must be an object with "+
-					"Commands/EnvVars keys, got an "+
-					"array (preset schema "+
-					"reshape — see DESIGN.md)",
+					"Commands/EnvVars keys, got an array",
 				filename, k)
 		}
 	}
