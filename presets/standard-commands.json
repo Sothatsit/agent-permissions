@@ -72,8 +72,6 @@
       "rg:*": "Read-only",
       "find:*": "Read-only",
       "tree:*": "Read-only",
-      "sed:*": "Read-only",
-      "awk:*": "Read-only",
       "col:*": "Read-only",
       "column:*": "Read-only",
       "cut:*": "Read-only",

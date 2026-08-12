@@ -41,6 +41,8 @@ const (
 	LangPerl   = "perl"
 	LangRuby   = "ruby"
 	LangNode   = "node"
+	LangSed    = "sed"
+	LangAwk    = "awk"
 )
 
 // Action is a decision with a human-readable reason.
@@ -321,6 +323,12 @@ type UnwrapResult struct {
 	// transfers these to BreakdownResult for the
 	// orchestrator to scan.
 	CodeSnippets []CodeSnippet
+	// ShellWords contains words that the outer shell still expands before a
+	// handled wrapper runs. The framework extracts command and process
+	// substitutions even though the outer command itself is replaced. Language
+	// wrappers use this for program sources and data. Either can run shell code
+	// before the language runtime sees it.
+	ShellWords []*syntax.Word
 	// KeepOuter preserves the outer command alongside
 	// the extracted inner commands. When false (default),
 	// the inner commands replace the outer command. When

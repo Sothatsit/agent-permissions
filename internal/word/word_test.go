@@ -145,6 +145,31 @@ func TestStatic(t *testing.T) {
 	}
 }
 
+func TestHasUnquotedGlob(t *testing.T) {
+	tests := []struct {
+		name string
+		word *syntax.Word
+		want bool
+	}{
+		{"star", litWord("*.txt"), true},
+		{"question", litWord("file?.txt"), true},
+		{"class", litWord("file[0-9]"), true},
+		{"escaped", litWord(`file\*.txt`), false},
+		{"single quoted", &syntax.Word{Parts: []syntax.WordPart{
+			&syntax.SglQuoted{Value: "*.txt"},
+		}}, false},
+		{"double quoted", dblQuotedWord(
+			&syntax.Lit{Value: "*.txt"}), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := HasUnquotedGlob(tt.word); got != tt.want {
+				t.Errorf("HasUnquotedGlob() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 // --- OpaqueReason ---
 
 func TestOpaqueReason(t *testing.T) {

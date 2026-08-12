@@ -8,29 +8,21 @@ import (
 	"github.com/sothatsit/agent-permissions/internal/model"
 )
 
-// FilterByConfig is the registry filter: it makes the
-// declarative layers honour per-rule config by removing
-// everything a disabled rule governs, before any evaluation
-// runs. Three edits, all in place — Registry() returns fresh
-// structures on every call, so there is nothing shared to
-// corrupt:
+// FilterByConfig makes the declarative layers honour per-rule config by
+// removing everything a disabled rule governs before evaluation. Registry()
+// returns fresh structures on every call, so these four edits do not change
+// shared state in the caller:
 //
-//   - Prune any rule-tree node whose Def is disabled, taking
-//     its whole subtree (the matcher, action, hook, and
-//     children all vanish).
-//   - Nil a command's Default when its Unverified rule is
-//     disabled — that Default is the command's fail-closed
-//     denial.
-//   - Drop a SnippetLang whose Def is disabled, so the
-//     permissions layer scans nothing for that language.
+//   - Prune a rule-tree node whose Def is disabled, taking its whole subtree.
+//   - Nil a command's fail-closed Default when Unverified is disabled.
+//   - Remove a Breakdown governed wholly by a disabled BreakdownDef.
+//   - Drop a disabled SnippetLang so that language is no longer scanned.
 //
-// The imperative breakdown funcs are not touched here: they
-// receive State.RuleConfig and gate themselves at runtime
-// (wrappers, xargs), or return a RuleError that runBreakdown
-// suppresses when the rule is off. So after this filter the
-// permissions layer needs no rule config of its own — a
-// pruned node never matches, a nil'd Default never fires, and
-// a dropped language scans clean.
+// Other imperative breakdown funcs receive State.RuleConfig and gate
+// themselves at runtime, or return a RuleError that runBreakdown suppresses
+// when the rule is off. After this filter the permissions layer needs no rule
+// config of its own. A pruned node never matches and a nil Default never fires.
+// A dropped language scans clean.
 func FilterByConfig(
 	registry map[string]*model.CommandRules,
 	snippets map[string]*model.SnippetLang,
@@ -40,6 +32,10 @@ func FilterByConfig(
 		if cr.Unverified != nil &&
 			!rc.For(cr.Unverified).Enabled {
 			cr.Default = nil
+		}
+		if cr.BreakdownDef != nil &&
+			!rc.For(cr.BreakdownDef).Enabled {
+			cr.Breakdown = nil
 		}
 		cr.Rules = filterRules(cr.Rules, rc)
 	}

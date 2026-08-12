@@ -104,11 +104,17 @@ command denies just those forms. Examples:
   flags pipe archive contents into an arbitrary external
   command, turning a normally-safe extraction into command
   execution.
-- `sed` with the `e` flag inside a substitution (`s/.../.../e`)
-  or the standalone `e` command. Both execute shell commands as
-  part of the substitution.
-- `awk` programs containing `system()`, shell pipes inside
-  `{ ... | ... }`, or `getline` from a pipe. All execute shell.
+- `sed` program text from the first operand, `-e`, or `-f` is scanned for the
+  `e` command and `s///e` flag. Input filenames are data. A dynamic filename
+  needs `--` or a definite `/`, `./`, or `../` prefix so it cannot become a
+  sed option. Dynamic program text requires GNU `sed --sandbox`. It blocks
+  commands that execute programs or access extra files.
+- `awk` program text from the first operand or portable `-f` files is scanned
+  for `system()`, command pipes, and code loading. Values passed through `-v`
+  or `-F`, trailing assignments, and input filenames are data. After `-f`, a
+  dynamic input needs `--` or a definite path prefix so it cannot become an
+  option. Options outside the portable interface fail closed because their
+  meaning varies by platform.
 - `man --html` and `man --pager`. Both launch the configured
   browser or pager, which the user controls via environment
   variables and which can execute arbitrary code.

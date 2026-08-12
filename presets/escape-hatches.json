@@ -32,6 +32,8 @@
       "PERL5OPT": "applies to every Perl process",
       "PERL5LIB": "redirects Perl module lookup",
       "RUBYOPT": "applies to every Ruby process",
+      "AWKPATH": "redirects awk source-file lookup",
+      "AWKLIBPATH": "redirects awk native-extension lookup",
       "LESSOPEN": "runs on file open in less",
       "LESSCLOSE": "runs on file close in less"
     }

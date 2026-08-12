@@ -59,7 +59,7 @@ var (
 	sedCommandExec = defineRule("sed.command-execution",
 		"sed e command/modifier runs shell commands")
 	awkCommandExec = defineRule("awk.command-execution",
-		"awk system()/pipe/getline run shell commands")
+		"awk programs can run shell commands or load code")
 	findInteractive = defineRule("find.interactive",
 		"find -ok/-okdir prompt interactively")
 	xargsInteractive = defineRule("xargs.interactive",

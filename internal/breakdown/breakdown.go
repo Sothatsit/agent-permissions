@@ -12,6 +12,7 @@ import (
 	"github.com/sothatsit/agent-permissions/internal/model"
 	"github.com/sothatsit/agent-permissions/internal/word"
 
+	"mvdan.cc/sh/v3/expand"
 	"mvdan.cc/sh/v3/syntax"
 )
 
@@ -236,7 +237,8 @@ func (b *breaker) runBreakdown(
 			result.Assigns = append(
 				result.Assigns, assign.Name.Value)
 		}
-		inner, assignErr := b.processAssign(assign)
+		inner, assignErr := b.processAssign(
+			assign, quotedTextArithmetic)
 		if assignErr != nil {
 			return model.BreakdownResult{}, true, assignErr
 		}
@@ -280,6 +282,18 @@ func (b *breaker) runBreakdown(
 	result.CodeSnippets = append(
 		result.CodeSnippets,
 		unwrapResult.CodeSnippets...)
+
+	// A handled wrapper replaces its outer command, so its raw shell words do
+	// not reach processCallExpr's normal substitution scan. Check them without
+	// turning flags, program sources, or data into commands of their own.
+	for _, shellWord := range unwrapResult.ShellWords {
+		inner, shellErr := b.extractSubsFromWord(shellWord)
+		if shellErr != nil {
+			return model.BreakdownResult{}, true, shellErr
+		}
+
+		result.Merge(inner)
+	}
 
 	// Scan files with automatic isolation.
 	for _, path := range unwrapResult.ScanFiles {
@@ -473,10 +487,23 @@ func (b *breaker) processCommand(
 		return b.processCaseClause(c, depth)
 	case *syntax.TestClause:
 		// [[ ... ]] — operands can contain command subs.
-		return b.extractSubsFromNode(c)
+		result, err := b.extractSubsFromNode(c, quotedTextLiteral)
+		if err != nil {
+			return model.BreakdownResult{}, err
+		}
+
+		result.Safe = true
+		return result, nil
 	case *syntax.ArithmCmd:
 		// (( ... )) — operands can contain command subs.
-		return b.extractSubsFromNode(c)
+		result, err := b.extractSubsFromNode(
+			c, quotedTextArithmetic)
+		if err != nil {
+			return model.BreakdownResult{}, err
+		}
+
+		result.Safe = true
+		return result, nil
 	case *syntax.TimeClause:
 		// Bash's `time` keyword is a separate AST node, not a
 		// command — the parser puts the timed statement in
@@ -522,7 +549,8 @@ func (b *breaker) processCallExpr(
 	// Collect findings from assignment substitutions
 	// (e.g. FOO=$(evil) cmd -> extract "evil" for checking).
 	for _, assign := range ce.Assigns {
-		inner, err := b.processAssign(assign)
+		inner, err := b.processAssign(
+			assign, quotedTextArithmetic)
 		if err != nil {
 			return model.BreakdownResult{}, err
 		}
@@ -543,6 +571,14 @@ func (b *breaker) processCallExpr(
 
 	baseName := filepath.Base(cmdName)
 	hasPath := strings.Contains(cmdName, "/")
+	if !hasPath {
+		inner, err := b.extractBuiltinArithmeticSubs(
+			baseName, ce.Args[1:])
+		if err != nil {
+			return model.BreakdownResult{}, err
+		}
+		result.Merge(inner)
+	}
 
 	// --- BreakdownFunc dispatch ---
 	//
@@ -645,6 +681,137 @@ func (b *breaker) processCallExpr(
 	result.Commands = append(result.Commands, cmd)
 
 	return result, nil
+}
+
+func (b *breaker) extractBuiltinArithmeticSubs(
+	name string,
+	args []*syntax.Word,
+) (model.BreakdownResult, error) {
+	var targets []*syntax.Word
+	switch name {
+	case "printf":
+		if len(args) == 0 ||
+			word.DefinitelyEqual(args[0], "--") {
+			break
+		}
+		option, attached := word.SplitPrefix(args[0], 2)
+		if option == "-v" {
+			if attached != nil {
+				targets = append(targets, attached)
+			} else if len(args) > 1 {
+				targets = append(targets, args[1])
+			}
+		}
+	case "unset":
+		for _, arg := range args {
+			if word.DefinitelyEqual(arg, "--") {
+				continue
+			}
+			if word.DefinitelyHasPrefix(arg, "-") {
+				continue
+			}
+			targets = append(targets, arg)
+		}
+	case "read":
+		targets = readBuiltinArithmeticTargets(args)
+	default:
+		return model.BreakdownResult{}, nil
+	}
+
+	var result model.BreakdownResult
+	for _, target := range targets {
+		text, err := arithmeticWordText(target)
+		if err != nil {
+			return model.BreakdownResult{}, err
+		}
+		if !hasArithmeticSubstitution(text) {
+			continue
+		}
+		inner, err := b.extractArithmeticText(text)
+		if err != nil {
+			return model.BreakdownResult{}, err
+		}
+		result.Merge(inner)
+	}
+	return result, nil
+}
+
+func arithmeticWordText(
+	w *syntax.Word,
+) (string, error) {
+	var text strings.Builder
+	for _, part := range w.Parts {
+		if err := appendArithmeticWordPart(&text, part); err != nil {
+			return "", err
+		}
+	}
+	return text.String(), nil
+}
+
+func appendArithmeticWordPart(
+	text *strings.Builder,
+	part syntax.WordPart,
+) error {
+	switch part := part.(type) {
+	case *syntax.Lit:
+		text.WriteString(word.UnescapeBackslashes(part.Value))
+	case *syntax.SglQuoted:
+		value := part.Value
+		if part.Dollar {
+			var err error
+			value, _, err = expand.Format(nil, value, nil)
+			if err != nil {
+				return err
+			}
+			value = strings.SplitN(value, "\x00", 2)[0]
+		}
+		text.WriteString(value)
+	case *syntax.DblQuoted:
+		for _, inner := range part.Parts {
+			if err := appendArithmeticWordPart(text, inner); err != nil {
+				return err
+			}
+		}
+	default:
+		// Runtime values can affect arithmetic, but tracking their contents
+		// needs shell data flow. A neutral operand preserves explicit syntax
+		// in the surrounding source without guessing the runtime value.
+		text.WriteByte('0')
+	}
+	return nil
+}
+
+func readBuiltinArithmeticTargets(args []*syntax.Word) []*syntax.Word {
+	var targets []*syntax.Word
+	options := true
+	for i := 0; i < len(args); i++ {
+		if options && word.DefinitelyEqual(args[i], "--") {
+			options = false
+			continue
+		}
+		if options && readBuiltinOptionTakesValue(args[i]) {
+			i++
+			continue
+		}
+		if options && word.DefinitelyHasPrefix(args[i], "-") {
+			continue
+		}
+		options = false
+		targets = append(targets, args[i:]...)
+		break
+	}
+	return targets
+}
+
+func readBuiltinOptionTakesValue(arg *syntax.Word) bool {
+	for _, option := range []string{
+		"-a", "-d", "-i", "-n", "-N", "-p", "-t", "-u",
+	} {
+		if word.DefinitelyEqual(arg, option) {
+			return true
+		}
+	}
+	return false
 }
 
 func (b *breaker) processBinaryCmd(
@@ -794,9 +961,17 @@ func (b *breaker) processForClause(
 			result.Merge(inner)
 		}
 	}
-	// CStyleLoop is pure arithmetic — no commands to
-	// extract. Body is conditional (may not execute if
-	// list is empty).
+	if loop, ok := fc.Loop.(*syntax.CStyleLoop); ok {
+		inner, err := b.extractSubsFromNode(
+			loop, quotedTextArithmetic)
+		if err != nil {
+			return model.BreakdownResult{}, err
+		}
+
+		result.Merge(inner)
+	}
+
+	// The body is conditional because the loop may not run.
 	b.ConditionalDepth++
 	body, err := b.processStmts(fc.Do, depth)
 	b.ConditionalDepth--
@@ -842,21 +1017,70 @@ func (b *breaker) processCaseClause(
 	return result, nil
 }
 
-// extractSubsFromNode walks an AST node looking for command
-// substitutions. Used for nodes that don't contain commands
-// themselves but whose operands can (TestClause, ArithmCmd).
-// Returns Safe=true when no executable content is found.
+// Some arithmetic contexts reparse text that the shell parser represented as a
+// literal quote.
+type quotedTextMode int
+
+const (
+	quotedTextLiteral quotedTextMode = iota
+	quotedTextArithmetic
+)
+
+// extractSubsFromNode walks an AST node for command and process substitutions.
+// Callers decide whether the surrounding construct is safe when none exist.
 func (b *breaker) extractSubsFromNode(
 	node syntax.Node,
+	quoteMode quotedTextMode,
 ) (model.BreakdownResult, error) {
 	var result model.BreakdownResult
-	result.Safe = true
 	var walkErr error
 	syntax.Walk(node, func(n syntax.Node) bool {
 		if walkErr != nil {
 			return false
 		}
 		switch c := n.(type) {
+		case *syntax.ArithmExp:
+			if quoteMode == quotedTextArithmetic {
+				return true
+			}
+			inner, err := b.extractSubsFromNode(
+				c, quotedTextArithmetic)
+			if err != nil {
+				walkErr = err
+				return false
+			}
+			result.Merge(inner)
+			return false
+		case *syntax.ParamExp:
+			inner, err := b.extractSubsFromParamExp(c)
+			if err != nil {
+				walkErr = err
+				return false
+			}
+			result.Merge(inner)
+			return false
+		case *syntax.Word:
+			if quoteMode != quotedTextArithmetic {
+				return true
+			}
+			text, err := arithmeticWordText(c)
+			if err != nil {
+				walkErr = err
+				return false
+			}
+			if hasArithmeticSubstitution(text) {
+				inner, err := b.extractArithmeticText(text)
+				if err != nil {
+					walkErr = err
+					return false
+				}
+				result.Merge(inner)
+			}
+			return true
+		case *syntax.SglQuoted:
+			// Arithmetic Words are scanned as one runtime string so adjacent
+			// quotes cannot split a substitution token across AST parts.
+			return false
 		case *syntax.CmdSubst:
 			// Command substitutions run in a subshell —
 			// cd doesn't propagate out.
@@ -890,27 +1114,252 @@ func (b *breaker) extractSubsFromNode(
 	return result, nil
 }
 
+func hasArithmeticSubstitution(text string) bool {
+	return strings.Contains(text, "$(") ||
+		strings.Contains(text, "`") ||
+		strings.Contains(text, "<(") ||
+		strings.Contains(text, ">(")
+}
+
+func (b *breaker) extractArithmeticText(
+	text string,
+) (model.BreakdownResult, error) {
+	file, err := b.parser.Parse(strings.NewReader(
+		"(( "+text+" ))"), "")
+	if err != nil {
+		return model.BreakdownResult{}, fmt.Errorf(
+			"cannot verify quoted arithmetic: %v", err)
+	}
+	return b.extractSubsFromNode(file, quotedTextArithmetic)
+}
+
 func (b *breaker) processDeclClause(
 	dc *syntax.DeclClause,
 ) (model.BreakdownResult, error) {
-	// export, local, declare, readonly — treat like
-	// assignments.
+	// Bash reparses values assigned under the integer attribute as arithmetic,
+	// even when shell quotes hid executable syntax from the first parse.
 	var result model.BreakdownResult
+	integerValues := false
+	associativeValues := false
+	variant := ""
+	if dc.Variant != nil {
+		variant = dc.Variant.Value
+	}
+	reparsesAssignments := variant == "declare" ||
+		variant == "local" || variant == "typeset"
+	assignmentMode := reparsesAssignments
+	options := true
 	for _, assign := range dc.Args {
-		inner, err := b.processAssign(assign)
+		if options && assign.Naked && assign.Value != nil &&
+			word.Static(assign.Value) {
+			option := word.Text(assign.Value)
+			if option == "--" {
+				options = false
+				continue
+			}
+			if len(option) > 1 &&
+				(option[0] == '-' || option[0] == '+') {
+				if strings.ContainsAny(option[1:], "fF") {
+					assignmentMode = false
+				}
+				if variant != "local" &&
+					strings.Contains(option[1:], "p") {
+					assignmentMode = false
+				}
+				if reparsesAssignments &&
+					strings.Contains(option[1:], "i") {
+					integerValues = option[0] == '-'
+				}
+				if strings.Contains(option[1:], "A") {
+					associativeValues = option[0] == '-'
+				} else if strings.Contains(option[1:], "a") {
+					associativeValues = false
+				}
+				continue
+			}
+		}
+		options = false
+		indexMode := quotedTextLiteral
+		if assignmentMode && !associativeValues {
+			indexMode = quotedTextArithmetic
+		}
+		inner, err := b.processAssign(assign, indexMode)
+		if err != nil {
+			return model.BreakdownResult{}, err
+		}
+
+		result.Merge(inner)
+		if assignmentMode && associativeValues &&
+			assign.Index != nil {
+			inner, err = b.extractSubsFromNode(
+				assign.Index, quotedTextArithmetic)
+			if err != nil {
+				return model.BreakdownResult{}, err
+			}
+			result.Merge(inner)
+		}
+		if assignmentMode && assign.Naked &&
+			assign.Value != nil {
+			inner, err = b.extractRuntimeDeclAssignmentSubs(
+				assign.Value, integerValues)
+			if err != nil {
+				return model.BreakdownResult{}, err
+			}
+			result.Merge(inner)
+		}
+		if assignmentMode && integerValues && !assign.Naked &&
+			assign.Value != nil {
+			text, textErr := arithmeticWordText(assign.Value)
+			if textErr != nil {
+				return model.BreakdownResult{}, textErr
+			}
+			inner, err = b.extractArithmeticText(text)
+			if err != nil {
+				return model.BreakdownResult{}, err
+			}
+			result.Merge(inner)
+		}
+	}
+	return result, nil
+}
+
+func (b *breaker) extractRuntimeDeclAssignmentSubs(
+	value *syntax.Word,
+	integerValue bool,
+) (model.BreakdownResult, error) {
+	text, err := arithmeticWordText(value)
+	if err != nil {
+		return model.BreakdownResult{}, err
+	}
+	assign, lhs, rhs, assigned := parseRuntimeDeclAssignment(
+		b.parser, text)
+	if !assigned {
+		return model.BreakdownResult{}, nil
+	}
+
+	var result model.BreakdownResult
+	if assign != nil && assign.Index != nil {
+		inner, err := b.extractSubsFromNode(
+			assign.Index, quotedTextArithmetic)
+		if err != nil {
+			return model.BreakdownResult{}, err
+		}
+		result.Merge(inner)
+	} else if assign == nil && hasArithmeticSubstitution(lhs) {
+		return model.BreakdownResult{}, fmt.Errorf(
+			"cannot verify quoted declaration assignment index")
+	}
+	if integerValue && hasArithmeticSubstitution(rhs) {
+		inner, err := b.extractArithmeticText(rhs)
+		if err != nil {
+			return model.BreakdownResult{}, err
+		}
+		result.Merge(inner)
+	}
+	return result, nil
+}
+
+func parseRuntimeDeclAssignment(
+	parser *syntax.Parser,
+	text string,
+) (*syntax.Assign, string, string, bool) {
+	for offset := 0; offset < len(text); {
+		relative := strings.IndexByte(text[offset:], '=')
+		if relative < 0 {
+			break
+		}
+		assignAt := offset + relative
+		lhs := text[:assignAt]
+		if strings.HasSuffix(lhs, "+") {
+			lhs = strings.TrimSuffix(lhs, "+")
+		}
+		file, err := parser.Parse(strings.NewReader(
+			"x"+lhs+"=0"), "")
+		if err == nil && len(file.Stmts) == 1 {
+			call, ok := file.Stmts[0].Cmd.(*syntax.CallExpr)
+			if ok && len(call.Assigns) == 1 &&
+				len(call.Args) == 0 {
+				return call.Assigns[0], lhs,
+					text[assignAt+1:], true
+			}
+		}
+		offset = assignAt + 1
+	}
+	assignAt := runtimeDeclAssignmentSeparator(text)
+	if assignAt < 0 {
+		return nil, "", "", false
+	}
+	lhs := text[:assignAt]
+	if strings.HasSuffix(lhs, "+") {
+		lhs = strings.TrimSuffix(lhs, "+")
+	}
+	return nil, lhs, text[assignAt+1:], true
+}
+
+func runtimeDeclAssignmentSeparator(text string) int {
+	brackets := 0
+	parentheses := 0
+	var quote byte
+	escaped := false
+	for i := 0; i < len(text); i++ {
+		char := text[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if char == '\\' {
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			if char == quote {
+				quote = 0
+			}
+			continue
+		}
+		if char == '\'' || char == '"' || char == '`' {
+			quote = char
+			continue
+		}
+		switch char {
+		case '(':
+			parentheses++
+		case ')':
+			if parentheses > 0 {
+				parentheses--
+			}
+		case '[':
+			if parentheses == 0 {
+				brackets++
+			}
+		case ']':
+			if parentheses == 0 && brackets > 0 {
+				brackets--
+			}
+		case '=':
+			if parentheses == 0 && brackets == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+func (b *breaker) processAssign(
+	assign *syntax.Assign,
+	indexMode quotedTextMode,
+) (model.BreakdownResult, error) {
+	var result model.BreakdownResult
+	if assign.Index != nil {
+		inner, err := b.extractSubsFromNode(
+			assign.Index, indexMode)
 		if err != nil {
 			return model.BreakdownResult{}, err
 		}
 
 		result.Merge(inner)
 	}
-	return result, nil
-}
 
-func (b *breaker) processAssign(
-	assign *syntax.Assign,
-) (model.BreakdownResult, error) {
-	var result model.BreakdownResult
 	if assign.Value != nil {
 		inner, err := b.extractSubsFromWord(
 			assign.Value)
@@ -923,6 +1372,16 @@ func (b *breaker) processAssign(
 
 	if assign.Array != nil {
 		for _, elem := range assign.Array.Elems {
+			if elem.Index != nil {
+				inner, err := b.extractSubsFromNode(
+					elem.Index, indexMode)
+				if err != nil {
+					return model.BreakdownResult{}, err
+				}
+
+				result.Merge(inner)
+			}
+
 			if elem.Value != nil {
 				inner, err :=
 					b.extractSubsFromWord(
@@ -1105,10 +1564,9 @@ func (b *breaker) extractSubsFromPart(
 
 		return innerResult, nil
 	case *syntax.ParamExp:
-		return b.walkParamExpForSubs(p)
+		return b.extractSubsFromParamExp(p)
 	case *syntax.ArithmExp:
-		return model.BreakdownResult{}, unsupported(
-			"arithmetic expansion $(())")
+		return b.extractSubsFromNode(p, quotedTextArithmetic)
 	case *syntax.ProcSubst:
 		restoreCwd := b.saveCwd()
 		innerResult, err := b.processStmts(
@@ -1131,44 +1589,75 @@ func (b *breaker) extractSubsFromPart(
 	}
 }
 
-// walkParamExpForSubs walks a ParamExp's sub-expressions
-// looking for CmdSubst and returns their breakdown findings.
-func (b *breaker) walkParamExpForSubs(
-	pe *syntax.ParamExp,
+func (b *breaker) extractSubsFromParamExp(
+	param *syntax.ParamExp,
 ) (model.BreakdownResult, error) {
 	var result model.BreakdownResult
-
-	// Walk all child nodes looking for CmdSubst.
-	var walkErr error
-	syntax.Walk(pe, func(node syntax.Node) bool {
-		if walkErr != nil {
-			return false
+	if param.NestedParam != nil {
+		inner, err := b.extractSubsFromPart(param.NestedParam)
+		if err != nil {
+			return model.BreakdownResult{}, err
 		}
-		switch n := node.(type) {
-		case *syntax.CmdSubst:
-			restoreCwd := b.saveCwd()
-			innerResult, err := b.processStmts(
-				n.Stmts, 0)
-			restoreCwd()
-			if err != nil {
-				walkErr = err
-				return false
-			}
-			result.Merge(innerResult)
-			return false
-		case *syntax.ArithmExp:
-			walkErr = unsupported(
-				"arithmetic expansion inside " +
-					"parameter expansion")
-			return false
-		}
-		return true
-	})
-
-	if walkErr != nil {
-		return model.BreakdownResult{}, walkErr
+		result.Merge(inner)
 	}
+	if param.Index != nil {
+		inner, err := b.extractSubsFromNode(
+			param.Index, quotedTextArithmetic)
+		if err != nil {
+			return model.BreakdownResult{}, err
+		}
+		result.Merge(inner)
+	}
+	if param.Slice != nil {
+		if param.Slice.Offset != nil {
+			inner, err := b.extractSubsFromNode(
+				param.Slice.Offset, quotedTextArithmetic)
+			if err != nil {
+				return model.BreakdownResult{}, err
+			}
+			result.Merge(inner)
+		}
+		if param.Slice.Length != nil {
+			inner, err := b.extractSubsFromNode(
+				param.Slice.Length, quotedTextArithmetic)
+			if err != nil {
+				return model.BreakdownResult{}, err
+			}
+			result.Merge(inner)
+		}
+	}
+	if param.Repl != nil {
+		inner, err := b.extractSubsFromWords(
+			param.Repl.Orig, param.Repl.With)
+		if err != nil {
+			return model.BreakdownResult{}, err
+		}
+		result.Merge(inner)
+	}
+	if param.Exp != nil && param.Exp.Word != nil {
+		inner, err := b.extractSubsFromWord(param.Exp.Word)
+		if err != nil {
+			return model.BreakdownResult{}, err
+		}
+		result.Merge(inner)
+	}
+	return result, nil
+}
 
+func (b *breaker) extractSubsFromWords(
+	words ...*syntax.Word,
+) (model.BreakdownResult, error) {
+	var result model.BreakdownResult
+	for _, current := range words {
+		if current == nil {
+			continue
+		}
+		inner, err := b.extractSubsFromWord(current)
+		if err != nil {
+			return model.BreakdownResult{}, err
+		}
+		result.Merge(inner)
+	}
 	return result, nil
 }
 

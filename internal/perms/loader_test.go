@@ -295,10 +295,12 @@ func TestValidateExternalPresetsRejectsRuleOwnedPatterns(
 		{"trailing root", "git *", "git branch"},
 		{"argument glob", "git rem*:*", "git remote"},
 		{"command glob", "*git rem*:*", "git remote"},
-		{"catch all", "*", "bash"},
+		{"catch all", "*", ""},
 		{"wildcard path", "/opt/*/git remote:*", "git remote"},
 		{"other command", "gh api:*", "gh api"},
 		{"path-allow bare root", "env:*", "env"},
+		{"sed language wrapper", "sed:*", "sed"},
+		{"awk language wrapper", "awk:*", "awk"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -316,7 +318,11 @@ func TestValidateExternalPresetsRejectsRuleOwnedPatterns(
 			if err == nil {
 				t.Fatal("expected rule-owned pattern error")
 			}
-			for _, want := range []string{tt.pattern, tt.owner} {
+			wants := []string{tt.pattern}
+			if tt.owner != "" {
+				wants = append(wants, tt.owner)
+			}
+			for _, want := range wants {
 				if !strings.Contains(err.Error(), want) {
 					t.Errorf("error %q missing %q", err, want)
 				}

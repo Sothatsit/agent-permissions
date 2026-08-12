@@ -181,20 +181,27 @@ func Registry() (
 		},
 	}
 
-	// sed: deny scripts containing e (execute) command.
+	// sed: classify program sources separately from input files, then scan
+	// programs for shell execution. GNU --sandbox is the explicit path for safe
+	// dynamic code.
 	r["sed"] = &model.CommandRules{
-		Rules: []model.Rule{
-			model.Always().WithRuleDef(sedCommandExec).
-				Hook(hookCheckSed),
-		},
+		OwnsAllPatterns: true,
+		Parser:          rawParser{},
+		Breakdown:       breakdownSed,
+		BreakdownDef:    sedCommandExec,
+		PathMode:        model.PathAllow,
+		Unverified:      sedCommandExec,
 	}
 
-	// awk: deny programs using system() or shell pipes.
+	// awk: classify programs, variable values, and input files, then scan only
+	// the program sources for shell execution and native code loading.
 	r["awk"] = &model.CommandRules{
-		Rules: []model.Rule{
-			model.Always().WithRuleDef(awkCommandExec).
-				Hook(hookCheckAwk),
-		},
+		OwnsAllPatterns: true,
+		Parser:          rawParser{},
+		Breakdown:       breakdownAwk,
+		BreakdownDef:    awkCommandExec,
+		PathMode:        model.PathAllow,
+		Unverified:      awkCommandExec,
 	}
 
 	// --- Guarded with breakdown ---
@@ -474,6 +481,20 @@ func Registry() (
 	// =========================================================
 
 	s := map[string]*model.SnippetLang{
+		model.LangSed: snippetLang(
+			sedCommandExec,
+			nil,
+			sedCommandExecution().Deny(
+				"shell command execution"),
+		),
+
+		model.LangAwk: snippetLang(
+			awkCommandExec,
+			nil,
+			awkCommandExecution().Deny(
+				"shell command execution or code loading"),
+		),
+
 		model.LangPython: snippetLang(
 			pythonCommandExec,
 			syntaxPython.stripComments,

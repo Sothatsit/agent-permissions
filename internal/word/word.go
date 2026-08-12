@@ -128,6 +128,28 @@ func Static(w *syntax.Word) bool {
 	return true
 }
 
+// HasUnquotedGlob reports pathname expansion syntax in unquoted literal parts.
+// Quoted literal parts cannot expand paths and therefore do not count.
+func HasUnquotedGlob(w *syntax.Word) bool {
+	for _, part := range w.Parts {
+		lit, ok := part.(*syntax.Lit)
+		if !ok {
+			continue
+		}
+		for i := 0; i < len(lit.Value); i++ {
+			if lit.Value[i] == '\\' && i+1 < len(lit.Value) {
+				i++
+				continue
+			}
+			if lit.Value[i] == '*' || lit.Value[i] == '?' ||
+				lit.Value[i] == '[' {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func partStatic(part syntax.WordPart) bool {
 	switch p := part.(type) {
 	case *syntax.Lit:

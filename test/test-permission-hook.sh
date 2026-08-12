@@ -600,10 +600,27 @@ out=$(_run_hook 'for f in $(ssh host ls); do echo "$f"; done')
 assert_contains "deny: for-in with denied cmd sub in list" \
     "$(_decision "$out")" "deny"
 
-# C-style for loop with allowed body — arithmetic header is safe.
+# C-style for loop with an arithmetic header and allowed body.
 out=$(_run_hook 'for ((i=0; i<10; i++)); do echo "$i"; done')
 assert_contains "allow: c-style for with allowed body" \
     "$(_decision "$out")" "allow"
+
+# Every expression in a C-style header can contain a command
+# substitution and must be walked before the loop is allowed.
+out=$(_run_hook \
+    'for ((i=$(ssh host); i<1; i++)); do echo "$i"; done')
+assert_contains "deny: c-style for substitution in init" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    'for ((i=0; $(ssh host); i++)); do echo "$i"; done')
+assert_contains "deny: c-style for substitution in condition" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    'for ((i=0; i<1; i+=$(ssh host))); do echo "$i"; done')
+assert_contains "deny: c-style for substitution in update" \
+    "$(_decision "$out")" "deny"
 
 # C-style for loop with denied body.
 out=$(_run_hook 'for ((i=0; i<3; i++)); do ssh host; done')
@@ -898,7 +915,7 @@ out=$(_run_hook '[[ -f "$(ssh host)" ]]')
 assert_contains "deny: test unary with denied cmd sub" \
     "$(_decision "$out")" "deny"
 
-# (( )) arithmetic command — pure arithmetic, no commands.
+# Arithmetic commands are allowed after their syntax is scanned.
 out=$(_run_hook '(( x = 1 + 2 ))')
 assert_contains "allow: arithmetic command" \
     "$(_decision "$out")" "allow"
@@ -907,6 +924,175 @@ assert_contains "allow: arithmetic command" \
 out=$(_run_hook '(( x = $(ssh host) ))')
 assert_contains "deny: arithmetic with denied cmd sub" \
     "$(_decision "$out")" "deny"
+
+# Arithmetic expansions use the same recursive scan.
+out=$(_run_hook 'echo $((1 + 2))')
+assert_contains "allow: arithmetic expansion" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook 'echo $((1 + $(ssh host)))')
+assert_contains "deny: arithmetic expansion with command" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'echo "${array[$((1 + 2))]}"')
+assert_contains "allow: arithmetic in parameter subscript" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook \
+    "echo \"\${array[\$'\$(ssh host)0']}\"")
+assert_contains "deny: quoted command in parameter subscript" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    "echo \"\${value: \$'\$(ssh host)0':1}\"")
+assert_contains "deny: quoted command in parameter slice" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "(( array['\$(ssh host)0'] = 1 ))")
+assert_contains "deny: quoted command in arithmetic command" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "echo \$(( array['\$(ssh host)0'] ))")
+assert_contains "deny: quoted command in arithmetic expansion" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "(( array['\`ssh host\`0'] = 1 ))")
+assert_contains "deny: quoted backticks in arithmetic" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "(( array[\$'\$(ssh host)0'] = 1 ))")
+assert_contains "deny: ANSI-quoted command in arithmetic" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "(( array[\$'\\x24(ssh host)0'] = 1 ))")
+assert_contains "deny: encoded command in ANSI arithmetic" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "(( array['<(ssh host)'] = 1 ))")
+assert_contains "deny: quoted process substitution in arithmetic" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "(( array[\$'\\x3c(ssh host)'] = 1 ))")
+assert_contains "deny: encoded process substitution in arithmetic" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "(( array['\$''(ssh host)0'] = 1 ))")
+assert_contains "deny: command split across arithmetic quotes" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "(( array['<''(ssh host)'] = 1 ))")
+assert_contains "deny: process split across arithmetic quotes" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    "echo \"\${value:-\$((array['\$(ssh host)0']))}\"")
+assert_contains "deny: quoted command in nested arithmetic" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    'echo "${array[$((other['\''$(ssh host)0'\'']))]}"')
+assert_contains "deny: nested arithmetic in parameter index" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "declare -i value='array[\$(ssh host)0]'")
+assert_contains "deny: integer declaration reparses quoted value" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    "declare -i x='array[\$(ssh host)0]' +i y=1")
+assert_contains "deny: integer option applies before assignment" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "declare 'array[\$(ssh host)0]=value'")
+assert_contains "deny: quoted declaration assignment index" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "typeset -A 'values[\$(ssh host)]=value'")
+assert_contains "deny: quoted associative declaration index" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    "f() { local 'array[\$(ssh host)0]=value'; }; f")
+assert_contains "deny: quoted local assignment index" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    "declare -i 'value=array[\$(ssh host)0]'")
+assert_contains "deny: quoted integer declaration assignment" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    "declare \"\$NAME\"'[\$(ssh host)0]=value'")
+assert_contains "deny: declaration with dynamic name" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    "declare 'array[<(ssh host)]=value'")
+assert_contains "deny: declaration index process substitution" \
+    "$(_decision "$out")" "deny"
+
+# Query modes do not assign or re-evaluate quoted names.
+out=$(_run_hook \
+    "declare -p 'array[\$(ssh host)0]=value'; echo ok")
+assert_contains "allow: declare query leaves quoted name literal" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook \
+    "readonly 'array[\$(ssh host)0]=value'; echo ok")
+assert_contains "allow: readonly rejects quoted array name" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook "printf -v 'array[\$(ssh host)0]' value")
+assert_contains "deny: printf variable subscript is arithmetic" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "printf -v 'array[<(ssh host)]' value")
+assert_contains "deny: printf target process substitution" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "printf -v'array[\$(ssh host)0]' value")
+assert_contains "deny: attached printf variable target" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    "printf -v \$'array[\\x24(ssh host)0]' value")
+assert_contains "deny: encoded printf variable subscript" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "printf '%s' -v 'array[\$(ssh host)0]'")
+assert_contains "allow: printf option text after format is data" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook "read 'array[\$(ssh host)0]' <<< value")
+assert_contains "deny: read variable subscript is arithmetic" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "unset 'array[\$(ssh host)0]'")
+assert_contains "deny: unset variable subscript is arithmetic" \
+    "$(_decision "$out")" "deny"
+
+# Assignment indices are arithmetic contexts too.
+out=$(_run_hook 'array[$(ssh host)0]=value')
+assert_contains "deny: command in assignment index" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'array=([$(ssh host)0]=value)')
+assert_contains "deny: command in array element index" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    "declare -A values=(['\$(ssh host)']=value); echo ok")
+assert_contains "allow: quoted associative key stays data" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook \
+    "readonly -A values=(['\$(ssh host)']=value); echo ok")
+assert_contains "allow: readonly associative key stays data" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook "[[ '\$(ssh host)' == literal ]]")
+assert_contains "allow: quoted test operand stays literal" \
+    "$(_decision "$out")" "allow"
 
 echo ""
 echo "=== bash permissions: control flow edge cases ==="
@@ -2242,6 +2428,19 @@ assert_contains "rule-config: disabled python.command-execution allows" \
     "$(_decision "$out")" "allow"
 _clear_agent_config
 
+# A language wrapper and its snippet scanner share one rule.
+# Disabling it must restore the outer command instead of
+# treating a missing snippet language as an allow.
+out=$(_run_hook "sed 'e ssh evil' file.txt")
+assert_contains "rule-config: sed.command-execution on denies" \
+    "$(_decision "$out")" "deny"
+_write_agent_config \
+    '{"Rules":{"sed.command-execution":{"Enabled":false}}}'
+out=$(_run_hook "sed 'e ssh evil' file.txt")
+assert_contains "rule-config: disabled sed wrapper asks" \
+    "$(_decision "$out")" "ask"
+_clear_agent_config
+
 # Imperative "cannot verify" denials (eval of a variable) now
 # attribute to their .unverified rule, and disabling it makes
 # the breakdown fall through to the permissions layer instead
@@ -2802,6 +3001,199 @@ assert_contains "deny: awk system() denied" "$(_decision "$out")" "deny"
 out=$(_run_hook 'awk '"'"'BEGIN{print "ssh evil" | "/bin/sh"}'"'"'')
 assert_contains "deny: awk pipe to shell denied" "$(_decision "$out")" "deny"
 
+# Awk values and input paths are data, not program text.
+out=$(_run_hook 'awk -v value="$VALUE" '\''{print value}'\'' "$FILE"')
+assert_contains "allow: awk variable and input values" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook 'awk '\''{print value}'\'' value="$VALUE" "$FILE"')
+assert_contains "allow: awk trailing assignment and input" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook 'awk -F "$SEPARATOR" '\''{print $1}'\'' file.txt')
+assert_contains "allow: awk dynamic field separator" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook \
+    'awk -F "$(printf :)" '\''{print $1}'\'' file.txt')
+assert_contains "allow: awk quoted command separator stays one value" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook 'awk -vvalue="$VALUE" '\''{print value}'\'' file.txt')
+assert_contains "allow: awk attached variable assignment" \
+    "$(_decision "$out")" "allow"
+
+# Unquoted expansion can add argv elements after an option value. A later -f
+# would turn data into another program source, so only one-field values pass.
+out=$(_run_hook \
+    'awk -F $(printf '\''x -f /dev/stdin'\'') '\''{print}'\'' file.txt')
+assert_contains "deny: awk unquoted separator can inject option" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'awk -v value=$VALUE '\''{print}'\'' file.txt')
+assert_contains "deny: awk unquoted variable value can split" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'awk -F * '\''{print}'\'' file.txt')
+assert_contains "deny: awk option value pathname expansion" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'awk -F {x,y} '\''{print}'\'' file.txt')
+assert_contains "deny: awk option value brace expansion" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'awk -F \{x,y\} '\''{print}'\'' file.txt')
+assert_contains "allow: awk escaped braces stay one value" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook 'awk -F "$@" '\''{print}'\'' file.txt')
+assert_contains "deny: awk quoted at can produce many values" \
+    "$(_decision "$out")" "deny"
+
+# An empty attached option value changes which following word awk consumes.
+out=$(_run_hook \
+    'awk -F"$SEPARATOR" '\''{print $1}'\'' '\''BEGIN{system("ssh evil")}'\''')
+assert_contains "deny: awk attached field separator may be empty" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    'awk -v value="$(ssh host)" '\''{print value}'\'' file.txt')
+assert_contains "deny: awk command substitution in value" \
+    "$(_decision "$out")" "deny"
+
+# Inline program sources remain code and cannot be opaque.
+out=$(_run_hook 'awk "$PROGRAM" file.txt')
+assert_contains "deny: awk dynamic program" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    'awk --source='\''BEGIN{system ("ssh evil")}'\'' file.txt')
+assert_contains "deny: awk long source with spaced system call" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'awk --load extension '\''{print $1}'\'' file.txt')
+assert_contains "deny: awk native extension" \
+    "$(_decision "$out")" "deny"
+
+mkdir -p "$_bp_tmpdir/project"
+printf '%s\n' '{print $1}' \
+    > "$_bp_tmpdir/project/safe.awk"
+printf '%s\n' 'BEGIN{system("ssh evil")}' \
+    > "$_bp_tmpdir/project/dangerous.awk"
+printf '%s' 'BEGIN{sys' \
+    > "$_bp_tmpdir/project/awk-program-part-one"
+printf '%s' 'tem("ssh evil")}' \
+    > "$_bp_tmpdir/project/awk-program-part-two"
+
+out=$(_run_hook 'awk -f ./safe.awk file.txt')
+assert_contains "allow: awk safe program file" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook 'awk -f ./dangerous.awk file.txt')
+assert_contains "ask: awk dangerous program file" \
+    "$(_decision "$out")" "ask"
+
+out=$(_run_hook \
+    'awk -i ./safe.awk '\''BEGIN{system("ssh evil")}'\''')
+assert_contains "deny: awk include still requires main program" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'awk -f safe.awk file.txt')
+assert_contains "deny: awk bare program path uses AWKPATH" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'awk -f - file.txt')
+assert_contains "deny: awk program from stdin" \
+    "$(_decision "$out")" "deny"
+
+# Awk keeps parsing options after -f until a definite input operand. Dynamic
+# input needs -- or a path prefix so it cannot become a program-source option.
+out=$(_run_hook 'awk -f ./safe.awk "$FILE"')
+assert_contains "deny: awk dynamic first input can become option" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'awk -f ./safe.awk -- "$FILE"')
+assert_contains "allow: awk dynamic input after separator" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook 'awk -f ./safe.awk ./"$FILE"')
+assert_contains "allow: awk dynamic input with path prefix" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook 'awk -f ./safe.awk file.txt "$FILE"')
+assert_contains "allow: awk dynamic input after definite input" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook 'awk -f ./safe.awk *.txt')
+assert_contains "deny: awk input glob can become option" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'awk -f ./*.awk file.txt')
+assert_contains "deny: awk program-file glob" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    'awk -f ./safe.awk -v value="$VALUE" -- "$FILE"')
+assert_contains "allow: awk value after program file" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook 'awk -- '\''{print $1}'\'' "$FILE"')
+assert_contains "allow: awk separator before inline program" \
+    "$(_decision "$out")" "allow"
+
+# GNU-only source flags are not portable: One True Awk may ignore an unknown
+# option and reinterpret a following word as the inline program.
+out=$(_run_hook 'awk -E ./safe.awk file.txt')
+assert_contains "deny: awk GNU exec source flag" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'awk --source='\''{print $1}'\'' file.txt')
+assert_contains "deny: awk GNU inline source flag" \
+    "$(_decision "$out")" "deny"
+
+# One True Awk reads consecutive -f files as one program without inserting a
+# separator, so a dangerous token can cross the file boundary.
+out=$(_run_hook \
+    'awk -f ./awk-program-part-one -f ./awk-program-part-two file.txt')
+assert_contains "ask: awk command split across program files" \
+    "$(_decision "$out")" "ask"
+
+# Strings and regular expressions may contain scanner trigger text without
+# executing anything.
+out=$(_run_hook 'awk '\''{if ($1 ~ /error|warning/) print}'\'' file.txt')
+assert_contains "allow: awk regex alternation in action" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook 'awk '\''/[]/|]/ {print}'\'' file.txt')
+assert_contains "allow: awk slash and pipe in bracket expression" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook 'awk '\''/[[:alpha:]/|]/ {print}'\'' file.txt')
+assert_contains "allow: awk POSIX class with slash and pipe" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook 'awk '\''BEGIN{print "system("}'\''')
+assert_contains "allow: awk system text in string" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook \
+    'awk '\''BEGIN{extension("plugin.so", "dlload")}'\''')
+assert_contains "deny: awk legacy native extension call" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'awk '\''BEGIN{fn="system"; @fn("ssh evil")}'\''')
+assert_contains "deny: awk indirect function call" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook $'awk \'BEGIN{sys\\\ntem("ssh evil")}\'')
+assert_contains "deny: awk call split by escaped newline" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    $'awk \'BEGIN{print 1 # comment\\\nsystem("ssh evil")}\'')
+assert_contains "deny: awk escaped newline ends comment" \
+    "$(_decision "$out")" "deny"
+
 # tar without dangerous flags is safe.
 out=$(_run_hook 'tar cf archive.tar dir/')
 assert_contains "allow: tar without dangerous flags allowed" "$(_decision "$out")" "allow"
@@ -2846,6 +3238,260 @@ assert_contains "deny: sed backtick in flags denied" "$(_decision "$out")" "deny
 # sed with variable expansion — can't verify program safety.
 out=$(_run_hook 'sed "s/$OLD/$NEW/g" file.txt')
 assert_contains "deny: sed var in pattern denied" "$(_decision "$out")" "deny"
+
+# Dynamic input paths need an option boundary because GNU sed continues parsing
+# options after its first program.
+out=$(_run_hook 'sed '\''s/foo/bar/'\'' "$FILE"')
+assert_contains "deny: sed dynamic input before option boundary" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'sed -e '\''s/foo/bar/'\'' -- "$FILE"')
+assert_contains "allow: sed -e dynamic input path" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook 'sed '\''s/foo/bar/'\'' ./"$FILE"')
+assert_contains "allow: sed quoted prefixed dynamic input" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook 'sed '\''s/foo/bar/'\'' ./file.txt')
+assert_contains "allow: sed static prefixed input path" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook \
+    'sed p ./$(printf '\''missing -e e id'\'')')
+assert_contains "deny: sed unquoted prefixed input expansion" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'sed '\''s/foo/bar/'\'' *')
+assert_contains "deny: sed glob can inject an option" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'sed *')
+assert_contains "deny: sed implicit program glob" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'sed -e * -- file.txt')
+assert_contains "deny: sed expression glob" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'sed -f * -- file.txt')
+assert_contains "deny: sed program-file glob" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'sed -e '\''s/foo/bar/'\'' -- *')
+assert_contains "allow: sed glob after option boundary" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook 'sed '\''s/foo/bar/'\'' "$(ssh host)"')
+assert_contains "deny: sed command substitution in input" \
+    "$(_decision "$out")" "deny"
+
+# GNU sandbox mode is the explicit safe path for a dynamic sed program. The
+# installed sed need not support the option. Unsupported versions reject it
+# before evaluating the script.
+out=$(_run_hook 'sed --sandbox "s/foo/$VALUE/" "$FILE"')
+assert_contains "deny: sandbox still needs an option boundary" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'sed --sandbox "s/foo/$VALUE/" -- "$FILE"')
+assert_contains "allow: sandboxed dynamic sed program" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook \
+    'sed --sandbox "s/foo/$(ssh host)/" -- "$FILE"')
+assert_contains "deny: sandbox does not hide shell substitution" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'sed "$PROGRAM" --sandbox file.txt')
+assert_contains "deny: late sandbox does not protect dynamic program" \
+    "$(_decision "$out")" "deny"
+
+# Address prefixes and attached option values must not hide executable sed
+# syntax.
+out=$(_run_hook "sed '/foo/e ssh evil' file.txt")
+assert_contains "deny: addressed sed e command" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "sed -e's/foo/ssh evil/e' file.txt")
+assert_contains "deny: attached sed expression" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "sed '-es/foo/bar/' file.txt")
+assert_contains "allow: quoted attached sed expression" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook "sed --expression='1s/foo/ssh evil/e' file.txt")
+assert_contains "deny: long sed expression" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "sed 's/a\\/x/replacement/' file.txt")
+assert_contains "allow: sed escaped delimiter" \
+    "$(_decision "$out")" "allow"
+
+# POSIX bracket constructs have their own closing bracket. It
+# must not expose the address delimiter as a command boundary.
+out=$(_run_hook \
+    "sed '/[[:alpha:]/]/e printf SEDCLASS >&2' file.txt")
+assert_contains "deny: sed POSIX class address" \
+    "$(_decision "$out")" "deny"
+
+# These arguments end at the physical newline even when a
+# backslash precedes it. Escaped semicolons also end labels.
+out=$(_run_hook "sed ':x\\;e ssh evil' file.txt")
+assert_contains "deny: sed escaped label semicolon" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook $'sed \':x\\\ne ssh evil\' file.txt')
+assert_contains "deny: sed escaped label newline" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook $'sed \'# comment\\\ne ssh evil\' file.txt')
+assert_contains "deny: sed escaped comment newline" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook $'sed \'r /dev/null\\\ne ssh evil\' file.txt')
+assert_contains "deny: sed escaped read-file newline" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    $'sed \'s/x/y/w /dev/null\\\ne ssh evil\' file.txt')
+assert_contains "deny: sed escaped write-file newline" \
+    "$(_decision "$out")" "deny"
+
+# BSD sed consumes an operand after -i and gives -l no operand. Check both GNU
+# and BSD interpretations so a Darwin invocation cannot move executable text
+# into data.
+out=$(_run_hook "sed -i '' 's/foo/bar/' file.txt")
+assert_contains "allow: safe BSD sed in-place form" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook "sed -i '' 'e ssh evil' file.txt")
+assert_contains "deny: BSD sed in-place program execution" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "sed -l 'e ssh evil' file.txt")
+assert_contains "deny: BSD sed line-buffered program execution" \
+    "$(_decision "$out")" "deny"
+
+# BSD consumes the next argument after -i/-I. GNU treats a
+# bare -i as complete, so safety flags can become BSD suffixes.
+out=$(_run_hook "sed -i --sandbox 'e ssh evil' file.txt")
+assert_contains "deny: BSD sed consumes sandbox as suffix" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "sed -i --help 'e ssh evil' file.txt")
+assert_contains "deny: BSD sed consumes help as suffix" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "sed -i --version 'e ssh evil' file.txt")
+assert_contains "deny: BSD sed consumes version as suffix" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "sed -I .bak 'e ssh evil' file.txt")
+assert_contains "deny: BSD sed separate in-place suffix" \
+    "$(_decision "$out")" "deny"
+
+# Values consumed by ordinary options must remain one argv field. Otherwise a
+# split or globbed suffix can become the program while the rule scans the next
+# source-level word instead.
+out=$(_run_hook "sed -i\$SUFFIX 'p' file.txt")
+assert_contains "deny: sed attached in-place suffix can split" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "sed --in-place=\$SUFFIX 'p' file.txt")
+assert_contains "deny: sed long in-place suffix can split" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "sed -I \$SUFFIX 'p' file.txt")
+assert_contains "deny: BSD sed separate suffix can split" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "sed -l\$WIDTH 'p' file.txt")
+assert_contains "deny: GNU sed line length can split" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "sed -i*.bak 'p' file.txt")
+assert_contains "deny: sed option suffix can glob" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'sed -i"$@" '\''p'\'' file.txt')
+assert_contains "deny: quoted dollar-at can make many suffixes" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'sed -i"${SUFFIX:-$@}" '\''p'\'' file.txt')
+assert_contains "deny: nested dollar-at can make many suffixes" \
+    "$(_decision "$out")" "deny"
+
+# Normal quoted dynamic values remain one field and are safe to consume.
+out=$(_run_hook "sed -i\"\$SUFFIX\" 'p' file.txt")
+assert_contains "allow: quoted attached in-place suffix" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook "sed --in-place=\"\$SUFFIX\" 'p' file.txt")
+assert_contains "allow: quoted long in-place suffix" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook "sed -I \"\$SUFFIX\" 'p' file.txt")
+assert_contains "allow: quoted BSD separate suffix" \
+    "$(_decision "$out")" "allow"
+
+# BSD parses -l as a boolean and continues through the cluster. GNU consumes
+# the remainder as -l's value.
+out=$(_run_hook "sed -lne'echo ssh evil' file.txt")
+assert_contains "deny: BSD sed clustered expression" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "sed -a -H 's/foo/bar/' file.txt")
+assert_contains "allow: BSD sed boolean options" \
+    "$(_decision "$out")" "allow"
+
+printf '%s\n' 's/foo/bar/' \
+    > "$_bp_tmpdir/project/safe.sed"
+printf '%s\n' '/foo/e ssh evil' \
+    > "$_bp_tmpdir/project/dangerous.sed"
+printf '%s' 's/x/y/' \
+    > "$_bp_tmpdir/project/split-start.sed"
+printf '%s' 'ge' \
+    > "$_bp_tmpdir/project/split-end.sed"
+
+out=$(_run_hook 'sed -f safe.sed file.txt')
+assert_contains "allow: sed safe program file" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook 'sed -f dangerous.sed file.txt')
+assert_contains "ask: sed dangerous program file" \
+    "$(_decision "$out")" "ask"
+
+# GNU in POSIX mode and BSD stop parsing options at the
+# first positional. GNU's default mode still permutes them.
+out=$(_run_hook \
+    "POSIXLY_CORRECT=1 sed 'e ssh evil' -e p file.txt")
+assert_contains "deny: sed late expression option" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    "POSIXLY_CORRECT=1 sed 'e ssh evil' -f safe.sed file.txt")
+assert_contains "deny: sed late program-file option" \
+    "$(_decision "$out")" "deny"
+
+# Sed concatenates sources in option order. A preceding -e inserts a newline. A
+# preceding -f does not.
+out=$(_run_hook \
+    'sed -f split-start.sed -f split-end.sed file.txt')
+assert_contains "ask: sed execution split across files" \
+    "$(_decision "$out")" "ask"
+
+out=$(_run_hook 'sed -f split-start.sed -e ge file.txt')
+assert_contains "deny: sed execution split into inline code" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'sed -lnfdangerous.sed file.txt')
+assert_contains "ask: BSD sed clustered program file" \
+    "$(_decision "$out")" "ask"
+
+out=$(_run_hook 'sed -f - file.txt')
+assert_contains "deny: sed program from stdin" \
+    "$(_decision "$out")" "deny"
 
 # man without dangerous flags is safe.
 out=$(_run_hook 'man git')
@@ -3249,13 +3895,15 @@ assert_contains "allow: awk -F pipe separator allowed" "$(_decision "$out")" "al
 out=$(_run_hook "awk '/error|warning/' file.log")
 assert_contains "allow: awk regex OR pipe allowed" "$(_decision "$out")" "allow"
 
-# awk with backtick in program text — could hide system() or pipe.
+# Backticks and a quoted $() are ordinary awk source text. They are not awk
+# shell-execution syntax, and the shell does not expand them in these forms.
 out=$(_run_hook "awk '{print \`cmd\`}' file.txt")
-assert_contains "deny: awk backtick in program denied" "$(_decision "$out")" "deny"
+assert_contains "allow: awk backtick source text" \
+    "$(_decision "$out")" "allow"
 
-# awk with $( command substitution in program text.
 out=$(_run_hook 'awk "{print \$(cmd)}" file.txt')
-assert_contains "deny: awk cmd sub in program denied" "$(_decision "$out")" "deny"
+assert_contains "allow: awk escaped dollar-paren source text" \
+    "$(_decision "$out")" "allow"
 
 # awk without dangerous patterns in program text is safe.
 out=$(_run_hook "awk '{print \$1, \$2}' file.txt")
@@ -5967,6 +6615,17 @@ out=$(_run_hook 'python3 -c "print(42)"')
 assert_contains "python: clean -c allow" \
     "$(_decision "$out")" "allow"
 
+# Shell substitutions run before the interpreter sees its program or arguments
+# and must survive snippet extraction.
+out=$(_run_hook 'python3 -c "print($(ssh host))"')
+assert_contains "python: command substitution in code denied" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    'python3 -c '\''print(42)'\'' "$(ssh host)"')
+assert_contains "python: command substitution in arg denied" \
+    "$(_decision "$out")" "deny"
+
 out=$(_run_hook \
     'python3 -c "import subprocess; subprocess.run([\"ls\"])"')
 assert_contains "python: subprocess -c deny" \
@@ -6218,6 +6877,10 @@ out=$(_run_hook \
 assert_contains \
     "python: clean script with args allow" \
     "$(_decision "$out")" "allow"
+
+out=$(_run_hook 'python3 clean.py "$(ssh host)"')
+assert_contains "python: file arg command substitution denied" \
+    "$(_decision "$out")" "deny"
 
 # Explicit -- before the script: args after are still
 # positional.

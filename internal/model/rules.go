@@ -132,6 +132,10 @@ type CommandRules struct {
 	// inner commands, scanning files, or mutating
 	// breakdown state. Nil means no unwrapping.
 	Breakdown BreakdownFunc
+	// BreakdownDef governs the whole Breakdown. The registry filter removes
+	// that function when the rule is disabled. Leave nil when useful work in the
+	// breakdown belongs to more than one rule.
+	BreakdownDef *RuleDef
 	// PathMode controls what happens when a command with
 	// a Breakdown is invoked via a path (./cmd,
 	// /usr/bin/cmd). Zero value is PathDeny.
