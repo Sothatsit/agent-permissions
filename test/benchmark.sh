@@ -44,10 +44,11 @@ mkdir -p "$_bm_tmpdir/config" "$_bm_tmpdir/home" \
 echo '{}' > "$_bm_tmpdir/config/settings.json"
 export CLAUDE_CONFIG_DIR="$_bm_tmpdir/config"
 # Policy comes from the embedded presets. Pin HOME and the
-# preset-dirs env var so the runner's real ~/.agents config
-# or site presets can't skew the timings.
+# preset-dir environment variables so the runner's real
+# ~/.agents config or site policy can't skew the timings.
 export HOME="$_bm_tmpdir/home"
 export AGENT_PERMISSIONS_PRESET_DIRS=""
+export AGENT_PERMISSIONS_ENFORCED_PRESET_DIRS=""
 
 # Pre-generate hook input JSON for a command and write
 # it to a temp file. Returns the file path. jq runs

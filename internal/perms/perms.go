@@ -65,10 +65,10 @@ type TierEntries struct {
 }
 
 // SourcePerms holds one config source's entries, classified
-// by tier and tool axis. The hook checks sources in
-// priority order per axis; within a single source, the
-// strongest tier with a match wins
-// (Deny > Ask > Allow > SoftAsk).
+// by tier and tool axis. Normal sources resolve in priority
+// order, with Deny > Ask > Allow > SoftAsk inside one
+// source. Enforced sources aggregate every match using
+// decision strength: Deny > Ask > SoftAsk > Allow.
 type SourcePerms struct {
 	// Name is shown in `check` output and reasons —
 	// "preset:git", "~/.agents/permissions.json", etc.
@@ -90,12 +90,14 @@ type SourcePerms struct {
 }
 
 // Permissions holds parsed permission rules across every
-// config source consulted by the hook. Sources are
-// ordered highest priority first; checkOne walks them in
-// order and the first source with a matching pattern
-// decides.
+// config source consulted by the hook. Sources are normal
+// first-match config, ordered highest priority first.
+// EnforcedSources are organisation policy: every matching
+// entry participates and the strongest decision is combined
+// with normal resolution.
 type Permissions struct {
-	Sources []SourcePerms
+	Sources         []SourcePerms
+	EnforcedSources []SourcePerms
 
 	// Warnings collects malformed entries rejected at
 	// load time. Surfaced by the `check` and `validate`
@@ -203,6 +205,29 @@ type commandCheck struct {
 	// only for sourceNone (unknown commands) so the
 	// caller can compute a suggestion pattern.
 	args []string
+	// matches holds every reason at the winning tier when
+	// enforced policy and normal resolution produce equally
+	// strong decisions. Empty for the common single-match
+	// case. Each child is a complete, non-aggregate check.
+	matches []commandCheck
+}
+
+func (c commandCheck) reasons() []commandCheck {
+	if len(c.matches) > 0 {
+		return c.matches
+	}
+	return []commandCheck{c}
+}
+
+func (c commandCheck) withSubject(subject string) commandCheck {
+	if len(c.matches) == 0 {
+		c.subject = subject
+		return c
+	}
+	for i := range c.matches {
+		c.matches[i].subject = subject
+	}
+	return c
 }
 
 // labelCollector is a deduplicated ordered list of
@@ -360,22 +385,27 @@ func (p *Permissions) Check(
 	// participate in tier precedence with command and
 	// snippet decisions.
 	for _, name := range result.Assigns {
-		check := p.checkOneEnvVar(name)
+		check := p.checkOneEnvVar(name).withSubject(name)
 		// The Allow path doesn't bake the matched name
 		// into the commandCheck (Allow.EnvVars overrides
 		// don't surface in output), so plug the assigned
 		// name in for Deny/Ask/SoftAsk rendering.
-		check.subject = name
 		switch check.decision {
 		case model.Deny:
 			aggregate = model.Deny
-			denies.add(formatCheck(check, model.Command{}))
+			for _, reason := range check.reasons() {
+				denies.add(formatCheck(
+					reason, model.Command{}))
+			}
 		case model.Ask:
 			if aggregate == model.Deny {
 				continue
 			}
 			aggregate = model.Ask
-			asks.add(formatCheck(check, model.Command{}))
+			for _, reason := range check.reasons() {
+				asks.add(formatCheck(
+					reason, model.Command{}))
+			}
 		case model.SoftAsk:
 			if aggregate == model.Deny {
 				continue
@@ -383,8 +413,10 @@ func (p *Permissions) Check(
 			if aggregate != model.Ask {
 				aggregate = model.SoftAsk
 			}
-			softAsks.add(
-				formatCheck(check, model.Command{}))
+			for _, reason := range check.reasons() {
+				softAsks.add(formatCheck(
+					reason, model.Command{}))
+			}
 		}
 	}
 
@@ -408,7 +440,9 @@ func (p *Permissions) Check(
 		switch check.decision {
 		case model.Deny:
 			aggregate = model.Deny
-			denies.add(formatCheck(check, cmd))
+			for _, reason := range check.reasons() {
+				denies.add(formatCheck(reason, cmd))
+			}
 			if cmd.SourcePath != "" {
 				scripts.add(word.DirectPath(
 					cmd.RootScript))
@@ -420,7 +454,9 @@ func (p *Permissions) Check(
 				continue
 			}
 			aggregate = model.Ask
-			asks.add(formatCheck(check, cmd))
+			for _, reason := range check.reasons() {
+				asks.add(formatCheck(reason, cmd))
+			}
 		case model.SoftAsk:
 			if aggregate == model.Deny {
 				continue
@@ -428,7 +464,9 @@ func (p *Permissions) Check(
 			if aggregate != model.Ask {
 				aggregate = model.SoftAsk
 			}
-			softAsks.add(formatCheck(check, cmd))
+			for _, reason := range check.reasons() {
+				softAsks.add(formatCheck(reason, cmd))
+			}
 		case model.Undecided:
 			if aggregate == model.Deny {
 				continue
@@ -723,12 +761,11 @@ func (p *Permissions) checkOne(
 		}
 	}
 
-	// 2. Pattern matching across sources, highest
-	// priority first. The first source with any matching
-	// pattern decides via within-source tier precedence
-	// (Deny > Ask > Allow > SoftAsk). Lower-priority
-	// sources are never consulted for this command once
-	// a higher source has matched.
+	// 2. Pattern matching. Normal sources retain their
+	// first-source semantics. Enforced sources form a
+	// minimum policy: every matching entry participates,
+	// and their strongest decision combines with the
+	// normal result.
 	argTexts := word.Texts(cmd.Args)
 	var stripped []string
 	if strings.Contains(argTexts[0], "/") {
@@ -751,18 +788,41 @@ func (p *Permissions) checkOne(
 		}
 	}
 
-	for _, src := range p.Sources {
-		// Walk this source's tiers in deny > ask > allow >
-		// soft-ask precedence. Deny uniquely retries with
-		// the unconditional basename-stripped form so that
-		// an absolute-path invocation can't slip past a
-		// bare-name deny pattern — a safety net regardless
-		// of where the path points. Allow/Ask/SoftAsk use
-		// the PATH-gated form so an out-of-PATH binary at
-		// `/tmp/evil/curl` doesn't auto-match `curl:*`.
-		// Allow before SoftAsk: an explicit Allow opts out
-		// of a SoftAsk prompt for commands the user has
-		// trusted broadly.
+	normal := matchCommandSources(
+		p.Sources, argTexts, stripped, pathResolved)
+	enforced := matchEnforcedCommandSources(
+		p.EnforcedSources, argTexts, stripped, pathResolved)
+	check := combinePolicyChecks(normal, enforced)
+	if check.decision != model.Undecided {
+		return check
+	}
+
+	// 3. Function call override — checked after all
+	// sources because an explicit deny anywhere should
+	// still win over the function-call escape hatch.
+	if cmd.CouldBeFuncCall {
+		return commandCheck{
+			decision: model.Allow,
+			source:   sourceNone,
+		}
+	}
+
+	// 4. Unknown command.
+	return commandCheck{
+		decision: model.Undecided,
+		source:   sourceNone,
+		args:     argTexts,
+	}
+}
+
+// matchCommandSources applies normal first-source
+// resolution. Within a source, an explicit Allow opts out
+// of SoftAsk, preserving the existing user-config contract.
+func matchCommandSources(
+	sources []SourcePerms,
+	argTexts, stripped, pathResolved []string,
+) commandCheck {
+	for _, src := range sources {
 		if check, ok := matchTier(
 			src, src.Deny.Commands, model.Deny,
 			argTexts, stripped,
@@ -788,22 +848,114 @@ func (p *Permissions) checkOne(
 			return check
 		}
 	}
-
-	// 3. Function call override — checked after all
-	// sources because an explicit deny anywhere should
-	// still win over the function-call escape hatch.
-	if cmd.CouldBeFuncCall {
-		return commandCheck{
-			decision: model.Allow,
-			source:   sourceNone,
-		}
-	}
-
-	// 4. Unknown command.
 	return commandCheck{
 		decision: model.Undecided,
 		source:   sourceNone,
-		args:     argTexts,
+	}
+}
+
+// matchEnforcedCommandSources treats every enforced entry
+// as an independent minimum constraint. Source and directory
+// order cannot let a weaker match hide a stronger one.
+func matchEnforcedCommandSources(
+	sources []SourcePerms,
+	argTexts, stripped, pathResolved []string,
+) commandCheck {
+	var matches []commandCheck
+	strongest := model.Undecided
+	for _, src := range sources {
+		tiers := []struct {
+			patterns []Pattern
+			decision model.Decision
+			stripped []string
+		}{
+			{src.Deny.Commands, model.Deny, stripped},
+			{src.Ask.Commands, model.Ask, pathResolved},
+			{src.SoftAsk.Commands, model.SoftAsk,
+				pathResolved},
+			{src.Allow.Commands, model.Allow,
+				pathResolved},
+		}
+		for _, tier := range tiers {
+			tierMatches := matchTierAll(
+				src, tier.patterns, tier.decision,
+				argTexts, tier.stripped)
+			if len(tierMatches) == 0 ||
+				tier.decision < strongest {
+				continue
+			}
+			if tier.decision > strongest {
+				strongest = tier.decision
+				matches = matches[:0]
+			}
+			matches = append(matches, tierMatches...)
+		}
+	}
+	return aggregateChecks(matches)
+}
+
+// combineDecision folds the enforced plane's verdict into the
+// normal one. Keeping the stronger tier is what makes enforced
+// policy a minimum the user cannot weaken.
+//
+// SoftAsk is the one exception. It means "nudge unless the user
+// has already allowed this", so an explicit Allow is the answer
+// to it, not something it outranks — enforcing a SoftAsk over
+// an Allow would make the tier stricter than an Ask, which no
+// user config can silence either. The reverse does not hold: an
+// enforced Allow still cannot talk a normal-lane SoftAsk down,
+// because the enforced plane only ever strengthens.
+func combineDecision(
+	normal, enforced model.Decision,
+) model.Decision {
+	if enforced == model.SoftAsk &&
+		normal == model.Allow {
+		return model.Allow
+	}
+	if normal > enforced {
+		return normal
+	}
+	return enforced
+}
+
+func combinePolicyChecks(
+	normal, enforced commandCheck,
+) commandCheck {
+	combined := combineDecision(
+		normal.decision, enforced.decision)
+	if combined != enforced.decision {
+		return normal
+	}
+	if combined != normal.decision {
+		return enforced
+	}
+	if normal.decision == model.Undecided ||
+		normal.decision == model.Allow {
+		if normal.source != sourceNone {
+			return normal
+		}
+		return enforced
+	}
+	matches := append(
+		append([]commandCheck{}, normal.reasons()...),
+		enforced.reasons()...)
+	return aggregateChecks(matches)
+}
+
+func aggregateChecks(matches []commandCheck) commandCheck {
+	if len(matches) == 0 {
+		return commandCheck{
+			decision: model.Undecided,
+			source:   sourceNone,
+		}
+	}
+	if len(matches) == 1 {
+		return matches[0]
+	}
+	return commandCheck{
+		decision: matches[0].decision,
+		source:   sourcePattern,
+		matches:  matches,
 	}
 }
 
@@ -847,6 +999,35 @@ func matchTier(
 	return commandCheck{}, false
 }
 
+// matchTierAll returns every matching pattern in one
+// enforced tier. A pattern that matches both the raw and
+// basename-stripped forms contributes one reason, preferring
+// the raw form just like matchTier.
+func matchTierAll(
+	src SourcePerms,
+	patterns []Pattern,
+	tier model.Decision,
+	argTexts, stripped []string,
+) []commandCheck {
+	var matches []commandCheck
+	for _, pat := range patterns {
+		if matchPattern(pat, argTexts) {
+			matches = append(matches,
+				commandCheckFromPattern(
+					src, pat, tier, ""))
+			continue
+		}
+		if stripped != nil && matchPattern(pat, stripped) {
+			via := fmt.Sprintf(
+				" (via %s)", argTexts[0])
+			matches = append(matches,
+				commandCheckFromPattern(
+					src, pat, tier, via))
+		}
+	}
+	return matches
+}
+
 // commandCheckFromPattern builds the commandCheck for a
 // pattern-layer match. Subject is the matched pattern;
 // description is the preset/config-supplied reason (may be
@@ -869,15 +1050,21 @@ func commandCheckFromPattern(
 	}
 }
 
-// checkOneEnvVar walks sources looking for an EnvVars match
-// for the given assigned name. Returns the strongest
-// match's commandCheck, or a commandCheck with decision ==
-// Undecided when no source has any opinion. Tier precedence
-// is Deny > Ask > Allow > SoftAsk, same as commands.
+// checkOneEnvVar resolves normal and enforced EnvVars policy
+// independently, then keeps the stronger result.
 func (p *Permissions) checkOneEnvVar(
 	name string,
 ) commandCheck {
-	for _, src := range p.Sources {
+	normal := matchEnvVarSources(p.Sources, name)
+	enforced := matchEnforcedEnvVarSources(
+		p.EnforcedSources, name)
+	return combinePolicyChecks(normal, enforced)
+}
+
+func matchEnvVarSources(
+	sources []SourcePerms, name string,
+) commandCheck {
+	for _, src := range sources {
 		if pat, ok := matchEnvVarFirst(
 			src.Deny.EnvVars, name,
 		); ok {
@@ -888,13 +1075,10 @@ func (p *Permissions) checkOneEnvVar(
 		); ok {
 			return envVarCheck(src, pat, model.Ask)
 		}
-		if _, ok := matchEnvVarFirst(
+		if pat, ok := matchEnvVarFirst(
 			src.Allow.EnvVars, name,
 		); ok {
-			return commandCheck{
-				decision: model.Allow,
-				source:   sourcePattern,
-			}
+			return envVarCheck(src, pat, model.Allow)
 		}
 		if pat, ok := matchEnvVarFirst(
 			src.SoftAsk.EnvVars, name,
@@ -906,6 +1090,42 @@ func (p *Permissions) checkOneEnvVar(
 		decision: model.Undecided,
 		source:   sourceNone,
 	}
+}
+
+func matchEnforcedEnvVarSources(
+	sources []SourcePerms, name string,
+) commandCheck {
+	var matches []commandCheck
+	strongest := model.Undecided
+	for _, src := range sources {
+		tiers := []struct {
+			patterns []EnvVarPattern
+			decision model.Decision
+		}{
+			{src.Deny.EnvVars, model.Deny},
+			{src.Ask.EnvVars, model.Ask},
+			{src.SoftAsk.EnvVars, model.SoftAsk},
+			{src.Allow.EnvVars, model.Allow},
+		}
+		for _, tier := range tiers {
+			tierMatches := matchEnvVarAll(
+				tier.patterns, name)
+			if len(tierMatches) == 0 ||
+				tier.decision < strongest {
+				continue
+			}
+			if tier.decision > strongest {
+				strongest = tier.decision
+				matches = matches[:0]
+			}
+			for _, pat := range tierMatches {
+				matches = append(matches,
+					envVarCheck(
+						src, pat, tier.decision))
+			}
+		}
+	}
+	return aggregateChecks(matches)
 }
 
 // envVarCheck builds the commandCheck for an env-var
@@ -937,6 +1157,18 @@ func matchEnvVarFirst(
 		}
 	}
 	return EnvVarPattern{}, false
+}
+
+func matchEnvVarAll(
+	patterns []EnvVarPattern, name string,
+) []EnvVarPattern {
+	var matches []EnvVarPattern
+	for _, pat := range patterns {
+		if pat.MatchEnvVar(name) {
+			matches = append(matches, pat)
+		}
+	}
+	return matches
 }
 
 func matchPattern(pat Pattern, args []string) bool {
@@ -1110,14 +1342,22 @@ func (p *Permissions) prefixKnown(
 		}
 	}
 
-	for _, src := range p.Sources {
-		for _, patterns := range [][]Pattern{
-			src.Allow.Commands, src.SoftAsk.Commands,
-			src.Ask.Commands, src.Deny.Commands,
-		} {
-			for _, pat := range patterns {
-				if patternSharesPrefix(pat, prefix) {
-					return true
+	for _, sources := range [][]SourcePerms{
+		p.EnforcedSources, p.Sources,
+	} {
+		for _, src := range sources {
+			for _, patterns := range [][]Pattern{
+				src.Allow.Commands,
+				src.SoftAsk.Commands,
+				src.Ask.Commands,
+				src.Deny.Commands,
+			} {
+				for _, pat := range patterns {
+					if patternSharesPrefix(
+						pat, prefix,
+					) {
+						return true
+					}
 				}
 			}
 		}

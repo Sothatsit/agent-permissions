@@ -18,9 +18,10 @@ catastrophic mistakes, lenient about routine operations.
 * `internal/breakdown/` — bash AST parsing and recursive command
   extraction.
 * `internal/perms/` — source-priority resolution and pattern matching.
-  Builds an ordered list of `SourcePerms` (highest priority first) and
-  walks them per axis (Commands, EnvVars) on every check; within an
-  axis, the first source with any matching pattern decides.
+  Normal sources use first-match resolution per axis (Commands,
+  EnvVars). Enforced sources form a separate minimum policy: every
+  match participates, and the strongest result combines with normal
+  resolution.
 * `internal/agentconfig/` — reader for `~/.agents/permissions.json`,
   `<project>/.agents/permissions.json`, and the project-local
   `<project>/.agents/permissions.local.json` (the agent-permissions
@@ -180,15 +181,10 @@ all must agree to allow.
    identified by registration in `internal/rules/registry.go`.
 3. **Permissions** (`internal/perms/`) — Pattern-based
    allow/ask/deny entries assembled from multiple sources. Each
-   tool axis (`Commands`, `EnvVars`) walks the source stack
-   independently: `checkOne` resolves Commands per source,
-   `checkOneEnvVar` resolves EnvVars per source, and the
-   aggregated decision picks the strongest tier across axes
-   via `Deny > Ask > Allow > SoftAsk`. Within a single source,
-   the same tier precedence breaks ties when more than one tier
-   matches on the same axis. Lower-priority sources are not
-   consulted for an axis once a higher source has matched on
-   that axis. Sources (highest to lowest):
+   tool axis (`Commands`, `EnvVars`) resolves independently. Normal
+   sources use first-match resolution; within one source, matching
+   tiers use `Deny > Ask > Allow > SoftAsk`. Sources (highest to
+   lowest):
    `<project>/.claude/settings.local.json` →
    `<project>/.claude/settings.json` → `~/.claude/settings.json` →
    `<project>/.agents/permissions.local.json` →
@@ -198,10 +194,25 @@ all must agree to allow.
    preset JSON) → embedded presets.
    `permissions.local.json` is a project-scoped, typically
    gitignored personal override mirroring Claude's
-   `settings.local.json`; it is project-only. External presets
-   are site-shipped policy: they outrank embedded presets,
-   rank below all user config, load fail-closed, and must not
-   reuse an existing preset name.
+   `settings.local.json`; it is project-only. Ordinary external
+   presets outrank embedded presets, rank below all user config,
+   and may be selected or disabled by name.
+
+   Enforced external presets come from
+   `AGENT_PERMISSIONS_ENFORCED_PRESET_DIRS`, and
+   `AGENT_PERMISSIONS_ENFORCED_PRESETS` (comma-separated names) moves
+   already-available presets — the embedded ones above all — into the
+   same plane. They sit outside the normal stack, cannot be disabled,
+   and combine all matching entries by strength. The enforced result
+   and normal result combine using
+   `Deny > Ask > SoftAsk > Allow > Undecided`, so user policy can
+   become stricter but not weaker. The exception is SoftAsk: an Allow
+   in normal resolution answers an enforced SoftAsk rather than losing
+   to it, because a soft-ask exists to be silenced by an explicit
+   allow. Enforced `Rules` entries must enable their rule and lock it
+   on. All external presets load and validate fail-closed. A preset
+   name supplied by two origins is not an error — both stay active,
+   and `validate` reports it.
 
    Output text that varies per agent harness (e.g. Claude
    Code's `/permissions` reference) goes through
@@ -336,22 +347,24 @@ variables can be assigned, not what they're assigned to.
 * **Rule-owned commands stay out of preset Command tiers.**
   Commands the Rules layer owns (`bash`, `sh`, `xargs`, `timeout`,
   `env`, `nohup`, `chroot`, `git remote`/`branch`/`tag`, `gh api`,
-  `eval`, etc.) must not appear in `Allow`, `Ask`, or `Deny`
-  Commands in any preset.
+  `eval`, etc.) must not appear in any preset Command tier.
   Claude Code ask/deny rules override hook allow decisions, so a
   duplicated entry breaks the hook's ability to auto-allow safe
   invocations decided by the rule. This is about the Command
   tiers only — a rule-owned command's *rules* are enabled via the
   preset's `Rules` axis (e.g. `bash.unverified` lives in
   `standard-commands`'s Rules without `bash` appearing in its
-  Commands).
-* **Every rule is owned by exactly one preset.** Rules ship
-  default-OFF, so a rule no preset enables ships permanently off,
-  and a rule two presets enable can't be cleanly disabled. The
-  Go invariant test (`internal/perms/ruleconfig_test.go`) enforces
-  one-preset ownership and that every preset rule ID is a real
-  catalog rule. When you add a rule to the catalog, add it to its
-  topic preset's `Rules` in the same change.
+  Commands). External preset loading rejects overlapping patterns, and
+  the embedded-preset invariant test prevents shipped presets from
+  drifting into an owned subtree.
+* **Every rule is owned by exactly one embedded preset.** Rules ship
+  default-OFF, so a rule with no embedded owner ships permanently off,
+  and duplicate embedded owners cannot be selected cleanly. The Go
+  invariant test (`internal/perms/ruleconfig_test.go`) enforces this and
+  checks that every embedded preset rule ID is real. External presets
+  may override an owned rule; enforced presets may lock it on. When you
+  add a rule to the catalog, add it to its topic preset's `Rules` in the
+  same change.
 * **Env-var policy lives in `escape-hatches.json`.** All preset-
   shipped EnvVar entries are bundled there: dangerous vars
   (BASH_ENV, LD_PRELOAD, etc.) under Deny.EnvVars, suspicious-

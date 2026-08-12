@@ -10,6 +10,7 @@
 package presets
 
 import (
+	"bytes"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -39,15 +40,19 @@ type TierEntries struct {
 // the JSON. A preset may populate any subset of the four
 // tier objects, and within each, any subset of the tool
 // axes. Dir is the directory an external preset was loaded
-// from; empty for embedded presets.
+// from; empty for embedded presets. Enforced marks external
+// policy that users may strengthen but cannot weaken or
+// disable through their config.
 //
 // Rules enables Rules-layer rules by ID (rule -> {Enabled}).
 // Rules ship default-OFF in code, so a preset listing a rule
-// with Enabled true is what turns it on. A preset owns the
-// rules for its topic; disabling the preset disables them.
+// with Enabled true turns it on. Embedded presets own the
+// rules for their topic. Ordinary presets follow selection;
+// enforced presets lock their enabled rules on.
 type Preset struct {
-	Name        string
-	Dir         string
+	Name        string                      `json:"-"`
+	Dir         string                      `json:"-"`
+	Enforced    bool                        `json:"-"`
 	Description string                      `json:"description"`
 	Allow       TierEntries                 `json:"Allow"`
 	SoftAsk     TierEntries                 `json:"SoftAsk"`
@@ -115,6 +120,23 @@ func Names() []string {
 // presets load like any other preset.
 const PresetDirsEnv = "AGENT_PERMISSIONS_PRESET_DIRS"
 
+// EnforcedPresetDirsEnv names extra preset directories whose
+// decisions form a minimum policy. Their decisions combine
+// with normal resolution by strength, they cannot be disabled
+// through preset selection, and rules they enable stay on.
+const EnforcedPresetDirsEnv = "AGENT_PERMISSIONS_ENFORCED_PRESET_DIRS"
+
+// EnforcedPresetsEnv names already-available presets to move
+// into the enforced plane, comma-separated. It exists for the
+// presets a site does not ship and so cannot place in an
+// enforced directory — the embedded topics above all. Naming
+// `escape-hatches` makes its denials a floor no user config can
+// weaken; naming a topic with Rules locks those rules on.
+//
+// Names, not paths, so the separator is a comma rather than the
+// colon its sibling directory variables use.
+const EnforcedPresetsEnv = "AGENT_PERMISSIONS_ENFORCED_PRESETS"
+
 // External loads the presets named by PresetDirsEnv. An
 // unset or empty variable yields nil. Errors are load
 // failures a user must fix, not conditions to skip past:
@@ -125,23 +147,51 @@ func External() ([]*Preset, error) {
 	return LoadDirs(os.Getenv(PresetDirsEnv))
 }
 
+// Enforced loads organisation policy named by
+// EnforcedPresetDirsEnv. The resolver treats these presets as
+// a minimum policy rather than another first-match source.
+func Enforced() ([]*Preset, error) {
+	return loadDirs(
+		os.Getenv(EnforcedPresetDirsEnv), true,
+		EnforcedPresetDirsEnv)
+}
+
 // LoadDirs loads presets from a colon-separated list of
 // directories. Presets are returned in list order, and in
 // filename order within each directory. Empty list entries
-// are skipped (PATH convention); anything else that fails
-// — unreadable directory, malformed or misnamed JSON — is
-// an error.
+// and repeats of a directory already loaded are skipped
+// (PATH convention); anything else that fails — unreadable
+// directory, malformed or misnamed JSON — is an error.
 func LoadDirs(list string) ([]*Preset, error) {
+	return loadDirs(list, false, PresetDirsEnv)
+}
+
+func loadDirs(
+	list string, enforced bool, envName string,
+) ([]*Preset, error) {
 	var out []*Preset
+	// Keyed by resolved path so a repeat spelled differently
+	// — a symlink, a trailing slash, "." segments — is still
+	// recognised as the same directory.
+	seen := map[string]bool{}
 	for _, dir := range strings.Split(list, ":") {
 		if dir == "" {
 			continue
 		}
+		key, err := filepath.EvalSymlinks(dir)
+		if err != nil {
+			key = filepath.Clean(dir)
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			return nil, fmt.Errorf(
 				"preset dir (from %s): %v",
-				PresetDirsEnv, err)
+				envName, err)
 		}
 		for _, e := range entries {
 			if e.IsDir() ||
@@ -160,45 +210,124 @@ func LoadDirs(list string) ([]*Preset, error) {
 					"%s: %v", dir, err)
 			}
 			p.Dir = dir
+			p.Enforced = enforced
 			out = append(out, p)
 		}
 	}
 	return out, nil
 }
 
-// All returns every active preset in priority order:
-// external presets (from PresetDirsEnv) first, then the
-// embedded set. External presets outrank embedded ones so
-// site policy can override shipped defaults, while user
-// config sources still outrank both. Duplicate names are
-// an error — external presets already win on priority, so
-// a name collision is only ever an accident.
+// All returns every available preset: enforced external
+// presets first, then ordinary external presets, then the
+// embedded set. The resolver keeps enforced presets in a
+// separate policy plane; the ordering here supplies normal
+// priority and stable enforced attribution.
+//
+// Two directories may supply the same preset name — a dev
+// checkout beside a deployed tree is the ordinary case — and
+// both stay active. Refusing to load would block every Bash
+// call over a name collision, which is a far worse failure
+// than the ambiguity it prevents: matching entries combine by
+// strength in the enforced plane and by list order in the
+// normal one, so keeping both can only preserve or strengthen
+// policy. The cost is that attribution names the preset, not
+// the directory it came from; `presets list` reports the
+// directories and `validate` reports the collision.
 func All() ([]*Preset, error) {
+	enforced, err := Enforced()
+	if err != nil {
+		return nil, err
+	}
 	ext, err := External()
 	if err != nil {
 		return nil, err
 	}
+	embedded := MustEmbedded()
 	all := make([]*Preset, 0,
-		len(ext)+len(MustEmbedded()))
+		len(enforced)+len(ext)+len(embedded))
+	all = append(all, enforced...)
 	all = append(all, ext...)
-	all = append(all, MustEmbedded()...)
+	// Copy the embedded presets: Embedded() hands out one
+	// cached slice per process, and EnforcedPresetsEnv marks
+	// presets in place, which would otherwise persist past
+	// this call.
+	for _, p := range embedded {
+		copied := *p
+		all = append(all, &copied)
+	}
 
+	if err := markEnforced(
+		all, os.Getenv(EnforcedPresetsEnv),
+	); err != nil {
+		return nil, err
+	}
+	return all, nil
+}
+
+// markEnforced moves the named presets into the enforced plane.
+// An unknown name is an error rather than a no-op: a site that
+// misspells one would otherwise believe policy is enforced
+// while it silently is not, which is the failure this whole
+// plane exists to prevent.
+func markEnforced(all []*Preset, list string) error {
+	for _, name := range strings.Split(list, ",") {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		var found bool
+		// Every preset with the name, since two origins may
+		// supply one name and enforcing only the first would
+		// be arbitrary.
+		for _, p := range all {
+			if p.Name == name {
+				p.Enforced = true
+				found = true
+			}
+		}
+		if !found {
+			return fmt.Errorf(
+				"%s names unknown preset %q",
+				EnforcedPresetsEnv, name)
+		}
+	}
+	return nil
+}
+
+// DuplicateName describes one preset name supplied by more
+// than one origin. Reported by validate; not an error.
+type DuplicateName struct {
+	Name    string
+	Origins []string
+}
+
+// DuplicateNames lists the names that more than one origin
+// supplies, in the order the names first appear.
+func DuplicateNames(all []*Preset) []DuplicateName {
 	origin := func(p *Preset) string {
 		if p.Dir == "" {
 			return "embedded"
 		}
 		return p.Dir
 	}
-	seen := map[string]*Preset{}
+	var order []string
+	byName := map[string][]string{}
 	for _, p := range all {
-		if prev, ok := seen[p.Name]; ok {
-			return nil, fmt.Errorf(
-				"duplicate preset name %q (%s and %s)",
-				p.Name, origin(prev), origin(p))
+		if _, ok := byName[p.Name]; !ok {
+			order = append(order, p.Name)
 		}
-		seen[p.Name] = p
+		byName[p.Name] = append(byName[p.Name], origin(p))
 	}
-	return all, nil
+	var out []DuplicateName
+	for _, name := range order {
+		if len(byName[name]) > 1 {
+			out = append(out, DuplicateName{
+				Name:    name,
+				Origins: byName[name],
+			})
+		}
+	}
+	return out
 }
 
 func parseAll() ([]*Preset, error) {
@@ -229,12 +358,10 @@ func parseAll() ([]*Preset, error) {
 	return presets, nil
 }
 
-// parseOne parses a single preset file. Validates that
-// every top-level key is known and that tier fields are
-// objects (the legacy flat-array shape errors with a
-// migration message). Per-axis structural checks belong
-// in test/test-presets.sh — those are invariants about the
-// shipped data, not the schema.
+// parseOne parses a single preset file. It rejects unknown
+// fields at every level and reports the legacy flat-array
+// tier shape with a migration hint. Shipped-data invariants
+// that go beyond the schema live in test/test-presets.sh.
 func parseOne(
 	filename string, data []byte,
 ) (*Preset, error) {
@@ -271,7 +398,9 @@ func parseOne(
 		}
 	}
 	var p Preset
-	if err := json.Unmarshal(data, &p); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&p); err != nil {
 		return nil, fmt.Errorf(
 			"decode %s: %v", filename, err)
 	}

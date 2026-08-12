@@ -110,6 +110,20 @@ const (
 )
 
 type CommandRules struct {
+	// OwnsAllPatterns marks commands whose intended breakdown
+	// or enabled Rules policy consumes every bare-name
+	// invocation before command patterns can apply. A
+	// path-invoked PathAllow command remains addressable.
+	// OwnedPatternPrefixes lists argument prefixes with that
+	// property when other invocations still fall through.
+	// Preset validation rejects overlaps rather than accept
+	// policy that runtime evaluation would ignore.
+	// PatternPrefixSkips lets preset validation mirror leading
+	// options that Breakdown removes before an owned
+	// subcommand reaches rule matching.
+	OwnsAllPatterns      bool
+	OwnedPatternPrefixes [][]string
+	PatternPrefixSkips   []PatternPrefixSkip
 	// Parser converts raw Word args into structured
 	// ParseResult. If nil, PossibleFlags are populated
 	// heuristically.
@@ -135,6 +149,14 @@ type CommandRules struct {
 	Unverified *RuleDef
 	// Rules are evaluated during the permissions phase.
 	Rules []Rule
+}
+
+// PatternPrefixSkip describes a repeatable leading option
+// removed by Breakdown and how many following words it
+// consumes.
+type PatternPrefixSkip struct {
+	Option    string
+	Arguments int
 }
 
 // Matcher tests whether a rule applies to the given input.

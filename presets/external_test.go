@@ -3,6 +3,7 @@ package presets
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -51,6 +52,9 @@ func TestLoadDirsSingleDir(t *testing.T) {
 	}
 	if p.Dir != dir {
 		t.Errorf("dir: got %q, want %q", p.Dir, dir)
+	}
+	if p.Enforced {
+		t.Error("ordinary external preset marked enforced")
 	}
 	if p.Allow.Commands["mytool:*"] != "site tool" {
 		t.Errorf("allow entry missing: %v",
@@ -117,8 +121,27 @@ func TestLoadDirsUnknownKeyErrors(t *testing.T) {
 	}
 }
 
+func TestLoadDirsUnknownTierAxisErrors(t *testing.T) {
+	dir := t.TempDir()
+	writePreset(t, dir, "bad.json",
+		`{"Allow": {"Command": {"mytool:*": "x"}}}`)
+	if _, err := LoadDirs(dir); err == nil {
+		t.Fatal("expected error for unknown tier axis")
+	}
+}
+
+func TestLoadDirsUnknownRuleConfigKeyErrors(t *testing.T) {
+	dir := t.TempDir()
+	writePreset(t, dir, "bad.json",
+		`{"Rules": {"git.branch-writes": {"Enable": true}}}`)
+	if _, err := LoadDirs(dir); err == nil {
+		t.Fatal("expected error for unknown rule config key")
+	}
+}
+
 func TestAllWithoutEnvIsEmbedded(t *testing.T) {
 	t.Setenv(PresetDirsEnv, "")
+	t.Setenv(EnforcedPresetDirsEnv, "")
 	got, err := All()
 	if err != nil {
 		t.Fatalf("All: %v", err)
@@ -133,6 +156,7 @@ func TestAllExternalFirst(t *testing.T) {
 	dir := t.TempDir()
 	writePreset(t, dir, "dug-test.json", minimalPreset)
 	t.Setenv(PresetDirsEnv, dir)
+	t.Setenv(EnforcedPresetDirsEnv, "")
 	got, err := All()
 	if err != nil {
 		t.Fatalf("All: %v", err)
@@ -147,26 +171,258 @@ func TestAllExternalFirst(t *testing.T) {
 	}
 }
 
-func TestAllDuplicateOfEmbeddedErrors(t *testing.T) {
-	dir := t.TempDir()
-	writePreset(t, dir, "git.json", minimalPreset)
-	t.Setenv(PresetDirsEnv, dir)
+// findPreset returns the first preset with the name, or nil.
+func findPreset(ps []*Preset, name string) *Preset {
+	for _, p := range ps {
+		if p.Name == name {
+			return p
+		}
+	}
+	return nil
+}
+
+func TestEnforcedPresetsEnvMarksEmbedded(t *testing.T) {
+	t.Setenv(PresetDirsEnv, "")
+	t.Setenv(EnforcedPresetDirsEnv, "")
+	t.Setenv(EnforcedPresetsEnv, "escape-hatches, git")
+	got, err := All()
+	if err != nil {
+		t.Fatalf("All: %v", err)
+	}
+	for _, name := range []string{"escape-hatches", "git"} {
+		p := findPreset(got, name)
+		if p == nil {
+			t.Fatalf("preset %q missing", name)
+		}
+		if !p.Enforced {
+			t.Errorf("preset %q not enforced", name)
+		}
+	}
+	if p := findPreset(got, "mpi"); p == nil || p.Enforced {
+		t.Error("unnamed preset should stay unenforced")
+	}
+}
+
+// Embedded() caches one slice per process, so marking must not
+// outlive the call that asked for it.
+func TestEnforcedPresetsEnvDoesNotLeak(t *testing.T) {
+	t.Setenv(PresetDirsEnv, "")
+	t.Setenv(EnforcedPresetDirsEnv, "")
+	t.Setenv(EnforcedPresetsEnv, "escape-hatches")
+	if _, err := All(); err != nil {
+		t.Fatalf("All: %v", err)
+	}
+
+	t.Setenv(EnforcedPresetsEnv, "")
+	got, err := All()
+	if err != nil {
+		t.Fatalf("All: %v", err)
+	}
+	if p := findPreset(got, "escape-hatches"); p.Enforced {
+		t.Error("marking leaked into a later load")
+	}
+	if p := findPreset(MustEmbedded(), "escape-hatches"); p.Enforced {
+		t.Error("marking leaked into the embedded cache")
+	}
+}
+
+// A misspelled name must fail closed: silently ignoring it
+// would leave a site believing policy is enforced when it is
+// not.
+func TestEnforcedPresetsEnvUnknownNameErrors(t *testing.T) {
+	t.Setenv(PresetDirsEnv, "")
+	t.Setenv(EnforcedPresetDirsEnv, "")
+	t.Setenv(EnforcedPresetsEnv, "escape-hatchs")
 	_, err := All()
-	if err == nil ||
-		!strings.Contains(err.Error(), "git") {
-		t.Fatalf(
-			"expected duplicate-name error naming git, "+
+	if err == nil {
+		t.Fatal("expected an error for an unknown name")
+	}
+	if !strings.Contains(err.Error(), "escape-hatchs") ||
+		!strings.Contains(err.Error(), EnforcedPresetsEnv) {
+		t.Errorf(
+			"error should name the preset and the variable, "+
 				"got %v", err)
 	}
 }
 
-func TestAllDuplicateAcrossDirsErrors(t *testing.T) {
+func TestEnforcedPresetsEnvMarksEveryOrigin(t *testing.T) {
+	dir := t.TempDir()
+	writePreset(t, dir, "git.json", minimalPreset)
+	t.Setenv(PresetDirsEnv, dir)
+	t.Setenv(EnforcedPresetDirsEnv, "")
+	t.Setenv(EnforcedPresetsEnv, "git")
+	got, err := All()
+	if err != nil {
+		t.Fatalf("All: %v", err)
+	}
+	var seen int
+	for _, p := range got {
+		if p.Name != "git" {
+			continue
+		}
+		seen++
+		if !p.Enforced {
+			t.Errorf("git from %q not enforced", p.Dir)
+		}
+	}
+	if seen != 2 {
+		t.Fatalf("want 2 presets named git, got %d", seen)
+	}
+}
+
+func TestEnforcedLoadsMarked(t *testing.T) {
+	dir := t.TempDir()
+	writePreset(t, dir, "dug-test.json", minimalPreset)
+	t.Setenv(EnforcedPresetDirsEnv, dir)
+	got, err := Enforced()
+	if err != nil {
+		t.Fatalf("Enforced: %v", err)
+	}
+	if len(got) != 1 || !got[0].Enforced {
+		t.Fatalf("expected one enforced preset, got %#v", got)
+	}
+}
+
+func TestAllEnforcedBeforeOrdinaryExternal(t *testing.T) {
+	enforcedDir := t.TempDir()
+	externalDir := t.TempDir()
+	writePreset(t, enforcedDir, "enforced.json", minimalPreset)
+	writePreset(t, externalDir, "external.json", minimalPreset)
+	t.Setenv(EnforcedPresetDirsEnv, enforcedDir)
+	t.Setenv(PresetDirsEnv, externalDir)
+	got, err := All()
+	if err != nil {
+		t.Fatalf("All: %v", err)
+	}
+	if len(got) < 2 || got[0].Name != "enforced" ||
+		got[1].Name != "external" {
+		t.Fatalf("unexpected preset order: %v", got)
+	}
+}
+
+func TestEnforcedMissingDirNamesEnv(t *testing.T) {
+	t.Setenv(EnforcedPresetDirsEnv, "/does/not/exist")
+	_, err := Enforced()
+	if err == nil || !strings.Contains(
+		err.Error(), EnforcedPresetDirsEnv,
+	) {
+		t.Fatalf("expected enforced env attribution, got %v", err)
+	}
+}
+
+// countName reports how many of the presets carry the name.
+func countName(ps []*Preset, name string) int {
+	var n int
+	for _, p := range ps {
+		if p.Name == name {
+			n++
+		}
+	}
+	return n
+}
+
+// A name collision must never stop the policy loading — that
+// would block every Bash call. Both presets stay active and
+// DuplicateNames reports the collision for validate.
+func TestAllKeepsDuplicateOfEmbedded(t *testing.T) {
+	dir := t.TempDir()
+	writePreset(t, dir, "git.json", minimalPreset)
+	t.Setenv(PresetDirsEnv, dir)
+	t.Setenv(EnforcedPresetDirsEnv, "")
+	got, err := All()
+	if err != nil {
+		t.Fatalf("All: %v", err)
+	}
+	if n := countName(got, "git"); n != 2 {
+		t.Fatalf("want 2 presets named git, got %d", n)
+	}
+	dupes := DuplicateNames(got)
+	if len(dupes) != 1 || dupes[0].Name != "git" {
+		t.Fatalf("want git reported duplicate, got %v", dupes)
+	}
+	if len(dupes[0].Origins) != 2 {
+		t.Fatalf("want 2 origins, got %v", dupes[0].Origins)
+	}
+}
+
+func TestAllKeepsDuplicateAcrossDirs(t *testing.T) {
 	dirA := t.TempDir()
 	dirB := t.TempDir()
 	writePreset(t, dirA, "dug-test.json", minimalPreset)
 	writePreset(t, dirB, "dug-test.json", minimalPreset)
 	t.Setenv(PresetDirsEnv, dirA+":"+dirB)
-	if _, err := All(); err == nil {
-		t.Fatal("expected duplicate-name error")
+	t.Setenv(EnforcedPresetDirsEnv, "")
+	got, err := All()
+	if err != nil {
+		t.Fatalf("All: %v", err)
+	}
+	if n := countName(got, "dug-test"); n != 2 {
+		t.Fatalf("want 2 dug-test presets, got %d", n)
+	}
+	dupes := DuplicateNames(got)
+	if len(dupes) != 1 ||
+		!slices.Contains(dupes[0].Origins, dirA) ||
+		!slices.Contains(dupes[0].Origins, dirB) {
+		t.Fatalf("want both dirs reported, got %v", dupes)
+	}
+}
+
+func TestAllKeepsDuplicateAcrossChannels(t *testing.T) {
+	enforcedDir := t.TempDir()
+	externalDir := t.TempDir()
+	writePreset(t, enforcedDir, "dug-test.json", minimalPreset)
+	writePreset(t, externalDir, "dug-test.json", minimalPreset)
+	t.Setenv(EnforcedPresetDirsEnv, enforcedDir)
+	t.Setenv(PresetDirsEnv, externalDir)
+	got, err := All()
+	if err != nil {
+		t.Fatalf("All: %v", err)
+	}
+	if n := countName(got, "dug-test"); n != 2 {
+		t.Fatalf("want 2 dug-test presets, got %d", n)
+	}
+	// The enforced copy must still be the enforced one, so a
+	// collision cannot demote org policy to a normal source.
+	var enforcedSeen bool
+	for _, p := range got {
+		if p.Name == "dug-test" && p.Enforced {
+			enforcedSeen = true
+		}
+	}
+	if !enforcedSeen {
+		t.Fatal("enforced copy lost its enforced flag")
+	}
+}
+
+// Repeating a directory is a no-op, as it is on PATH. The
+// same dir named twice must not double its presets.
+func TestLoadDirsSkipsRepeatedDir(t *testing.T) {
+	dir := t.TempDir()
+	writePreset(t, dir, "dug-test.json", minimalPreset)
+	t.Setenv(EnforcedPresetDirsEnv, "")
+	got, err := LoadDirs(dir + ":" + dir)
+	if err != nil {
+		t.Fatalf("LoadDirs: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("want 1 preset, got %d", len(got))
+	}
+}
+
+// A repeat spelled differently is still the same directory.
+func TestLoadDirsSkipsRepeatedDirViaSymlink(t *testing.T) {
+	dir := t.TempDir()
+	writePreset(t, dir, "dug-test.json", minimalPreset)
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	t.Setenv(EnforcedPresetDirsEnv, "")
+	got, err := LoadDirs(dir + ":" + link + ":" + dir + "/")
+	if err != nil {
+		t.Fatalf("LoadDirs: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("want 1 preset, got %d", len(got))
 	}
 }

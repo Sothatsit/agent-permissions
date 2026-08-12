@@ -9,15 +9,17 @@ import (
 	"path/filepath"
 
 	"github.com/sothatsit/agent-permissions/internal/atomicfile"
+	"github.com/sothatsit/agent-permissions/internal/perms"
 	"github.com/sothatsit/agent-permissions/presets"
 )
 
 // setup writes a populated ~/.agents/permissions.json so
 // the user has a starting point to customise. The file
 // includes empty tier arrays as placeholders and leaves
-// preset selection unspecified (which means "all presets
-// enabled" — new presets in future binary updates are
-// picked up automatically).
+// preset selection unspecified (which means "all ordinary
+// presets enabled" — new presets in future binary updates
+// are picked up automatically). Enforced presets sit outside
+// user selection and remain active.
 //
 // Refuses to overwrite an existing file unless --force is
 // passed. Any non-NotExist stat error is treated as a
@@ -58,6 +60,14 @@ func setup(args []string) error {
 			"stat %s: %v", path, err)
 	}
 
+	all, err := presets.All()
+	if err != nil {
+		return fmt.Errorf("presets: %v", err)
+	}
+	if err := perms.ValidateExternalPresets(all); err != nil {
+		return err
+	}
+
 	body := setupTemplate()
 	if err := atomicfile.Write(
 		path, body, 0o644,
@@ -66,21 +76,41 @@ func setup(args []string) error {
 	}
 
 	fmt.Printf("Wrote %s\n", path)
+	embeddedCount := 0
+	externalCount := 0
+	enforcedCount := 0
+	for _, p := range all {
+		switch {
+		case p.Enforced:
+			enforcedCount++
+		case p.Dir != "":
+			externalCount++
+		default:
+			embeddedCount++
+		}
+	}
 	fmt.Printf(
 		"Embedded presets active: %d\n",
-		len(presets.MustEmbedded()))
-	ext, err := presets.External()
-	if err != nil {
-		return fmt.Errorf("external presets: %v", err)
-	}
-	if len(ext) > 0 {
+		embeddedCount)
+	if externalCount > 0 {
 		fmt.Printf(
 			"External presets active: %d (from %s)\n",
-			len(ext), presets.PresetDirsEnv)
+			externalCount, presets.PresetDirsEnv)
+	}
+	if enforcedCount > 0 {
+		fmt.Printf(
+			"Enforced presets active: %d (from %s)\n",
+			enforcedCount, presets.EnforcedPresetDirsEnv)
 	}
 	fmt.Println(
-		"To narrow the active set, add `enabled-presets` " +
+		"To narrow the ordinary preset set, add " +
+			"`enabled-presets` " +
 			"or `disabled-presets` arrays.")
+	if enforcedCount > 0 {
+		fmt.Println(
+			"Enforced presets stay active regardless of " +
+				"preset selection.")
+	}
 	return nil
 }
 

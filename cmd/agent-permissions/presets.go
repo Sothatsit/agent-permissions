@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"github.com/sothatsit/agent-permissions/internal/agentconfig"
+	"github.com/sothatsit/agent-permissions/internal/perms"
 	"github.com/sothatsit/agent-permissions/presets"
 )
 
@@ -42,10 +43,9 @@ type presetState struct {
 	reason  string
 }
 
-// presetsList shows every embedded preset and the reason
-// it is enabled or disabled, considering both the global
-// and project-level permissions.json files (project beats
-// global, same as the hook).
+// presetsList shows every available preset and its state,
+// considering global, project, and local permissions.json
+// files with the same priority as the hook.
 func presetsList(args []string) error {
 	if len(args) != 0 {
 		return fmt.Errorf("usage: presets list")
@@ -89,6 +89,11 @@ func presetsList(args []string) error {
 		fmt.Printf(
 			"  %s: %s\n", presets.PresetDirsEnv, dirs)
 	}
+	if dirs := os.Getenv(
+		presets.EnforcedPresetDirsEnv); dirs != "" {
+		fmt.Printf("  %s: %s\n",
+			presets.EnforcedPresetDirsEnv, dirs)
+	}
 	if selecting == nil {
 		fmt.Println(
 			"  Preset selection: (none — all " +
@@ -100,10 +105,14 @@ func presetsList(args []string) error {
 	}
 	fmt.Println()
 
-	// Classify every active preset — external presets
-	// (from AGENT_PERMISSIONS_PRESET_DIRS) and embedded.
+	// Classify every available preset. Enforced presets are
+	// always active; ordinary external and embedded presets
+	// follow the user's selection.
 	all, err := presets.All()
 	if err != nil {
+		return err
+	}
+	if err := perms.ValidateExternalPresets(all); err != nil {
 		return err
 	}
 	rows := make([]classifiedPreset, 0, len(all))
@@ -111,24 +120,25 @@ func presetsList(args []string) error {
 		rows = append(rows, classifiedPreset{
 			name:        p.Name,
 			dir:         p.Dir,
+			enforced:    p.Enforced,
 			description: p.Description,
-			state:       classify(p.Name, selecting),
+			state:       classifyPreset(p, selecting),
 		})
 	}
 	sort.Slice(rows, func(i, j int) bool {
 		return rows[i].name < rows[j].name
 	})
 
-	// Two top-level groups (enabled / disabled), reason
-	// printed inline.
-	printPresetGroup("Enabled", rows, true)
-	printPresetGroup("Disabled", rows, false)
+	printPresetGroup("Enforced", rows, true, true)
+	printPresetGroup("Enabled", rows, false, true)
+	printPresetGroup("Disabled", rows, false, false)
 	return nil
 }
 
 type classifiedPreset struct {
 	name        string
 	dir         string
+	enforced    bool
 	description string
 	state       presetState
 }
@@ -136,11 +146,13 @@ type classifiedPreset struct {
 func printPresetGroup(
 	heading string,
 	rows []classifiedPreset,
+	enforced bool,
 	enabled bool,
 ) {
 	var any bool
 	for _, r := range rows {
-		if r.state.enabled == enabled {
+		if r.enforced == enforced &&
+			(enforced || r.state.enabled == enabled) {
 			any = true
 			break
 		}
@@ -150,7 +162,8 @@ func printPresetGroup(
 	}
 	fmt.Printf("%s:\n", heading)
 	for _, r := range rows {
-		if r.state.enabled != enabled {
+		if r.enforced != enforced ||
+			(!enforced && r.state.enabled != enabled) {
 			continue
 		}
 		reason := ""
@@ -165,6 +178,18 @@ func printPresetGroup(
 		}
 	}
 	fmt.Println()
+}
+
+func classifyPreset(
+	p *presets.Preset, sel *agentconfig.Config,
+) presetState {
+	if p.Enforced {
+		return presetState{
+			enabled: true,
+			reason:  "always active",
+		}
+	}
+	return classify(p.Name, sel)
 }
 
 // pickPresetSelector returns the agentconfig that owns

@@ -84,10 +84,12 @@ type RuleConfig struct {
 
 // RuleConfigs maps rule ID to resolved config. The loader
 // supplies a resolved map: each rule's entry comes from the
-// highest-priority source that mentions it (project .agents >
-// global .agents > presets); an ID mentioned nowhere is
-// absent and reads as the zero value, disabled. The map must
-// be populated before use — see For.
+// highest-priority ordinary source that mentions it (local
+// .agents > project .agents > global .agents > ordinary
+// presets), then enforced presets lock their enabled rules
+// on. An ID mentioned nowhere is absent and reads as the
+// zero value, disabled. The map must be populated before use
+// — see For.
 type RuleConfigs map[string]RuleConfig
 
 // For returns the resolved config for a rule. The map must be

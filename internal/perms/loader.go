@@ -13,13 +13,14 @@ import (
 	"github.com/sothatsit/agent-permissions/internal/agentconfig"
 	"github.com/sothatsit/agent-permissions/internal/harness"
 	"github.com/sothatsit/agent-permissions/internal/model"
+	"github.com/sothatsit/agent-permissions/internal/rules"
 	"github.com/sothatsit/agent-permissions/presets"
 )
 
-// Resolved is one harness's full resolution: the
-// Permissions to evaluate against (its ordered Sources,
-// highest priority first) plus the resolved per-rule config
-// the breakdown consults. RuleConfig is harness-agnostic —
+// Resolved is one harness's full resolution: the normal
+// source chain and enforced policy to evaluate, plus the
+// resolved per-rule config the breakdown consults.
+// RuleConfig is harness-agnostic —
 // it comes only from presets and .agents, never from a
 // harness's native settings — so when multi-harness support
 // lands each harness's Resolved shares the same RuleConfig
@@ -39,18 +40,24 @@ type Resolved struct {
 // cwd is the project directory. Either may be empty;
 // missing files are silently skipped.
 //
-// Priority, highest → lowest (the order Sources lands
-// in):
+// Normal-source priority, highest → lowest (the order
+// Permissions.Sources lands in):
 //  1. <cwd>/.claude/settings.local.json
 //  2. <cwd>/.claude/settings.json
 //  3. <configDir>/settings.json (Claude Code user)
 //  4. <cwd>/.agents/permissions.local.json (explicit)
 //  5. <cwd>/.agents/permissions.json (explicit entries)
 //  6. ~/.agents/permissions.json (explicit entries)
-//  7. Embedded presets, filtered by enabled-/disabled-
-//     presets from the most-specific .agents config
-//     that specifies either field (local beats project
-//     beats global)
+//  7. Ordinary external presets
+//  8. Embedded presets
+//
+// Ordinary and embedded presets are filtered by enabled-/
+// disabled-presets from the most-specific .agents config
+// that specifies either field (local beats project beats
+// global). Enforced external presets are always active and
+// resolve separately: all matching enforced entries combine
+// by strength, then that result combines with normal policy
+// by strength.
 //
 // permissions.local.json mirrors Claude Code's
 // settings.local.json: a project-scoped, typically
@@ -124,6 +131,9 @@ func Resolve(
 		// deny rather than run with weaker policy.
 		return nil, fmt.Errorf("presets: %v", err)
 	}
+	if err := ValidateExternalPresets(pool); err != nil {
+		return nil, err
+	}
 	selected := SelectPresets(
 		pool, globalAgent, projectAgent, localAgent)
 
@@ -131,6 +141,7 @@ func Resolve(
 	// source-load may return ConfigWarnings for malformed
 	// entries; they accumulate into Permissions.Warnings.
 	var sources []SourcePerms
+	var enforcedSources []SourcePerms
 	var warnings []ConfigWarning
 
 	addClaude := func(path, label string) error {
@@ -187,7 +198,12 @@ func Resolve(
 
 	for _, p := range selected {
 		src, w := fromPreset(p)
-		sources = append(sources, src)
+		if p.Enforced {
+			enforcedSources = append(
+				enforcedSources, src)
+		} else {
+			sources = append(sources, src)
+		}
 		warnings = append(warnings, w...)
 	}
 
@@ -196,9 +212,10 @@ func Resolve(
 			projectAgent, globalAgent, localAgent,
 			selected),
 		Permissions: &Permissions{
-			Sources:  sources,
-			Warnings: warnings,
-			PathDirs: parsePathDirs(os.Getenv("PATH")),
+			Sources:         sources,
+			EnforcedSources: enforcedSources,
+			Warnings:        warnings,
+			PathDirs:        parsePathDirs(os.Getenv("PATH")),
 			// Resolve doesn't know which harness is the
 			// consumer. Tools that produce harness-bound
 			// output (claude-hook) replace this with the
@@ -228,15 +245,282 @@ func parsePathDirs(path string) map[string]struct{} {
 	return dirs
 }
 
+// ValidateExternalPresets rejects semantic mistakes that
+// structural JSON decoding cannot catch. External presets
+// carry organisation policy, so dropping a bad entry or
+// silently ignoring a rule typo would weaken that policy.
+// User config keeps the warning-only behavior so users can
+// diagnose and repair a bad entry without losing the hook.
+func ValidateExternalPresets(
+	all []*presets.Preset,
+) error {
+	registry, _ := rules.Registry()
+	var problems []string
+	for _, p := range all {
+		if p.Dir == "" {
+			continue
+		}
+
+		src, warnings := fromPreset(p)
+		for _, w := range warnings {
+			problems = append(problems, fmt.Sprintf(
+				"%s (%s): %q (%s)",
+				w.Source, p.Dir, w.Entry, w.Reason))
+		}
+		for _, pat := range sourceCommandPatterns(src) {
+			owner, ok := ruleOwnedPattern(pat, registry)
+			if !ok {
+				continue
+			}
+			problems = append(problems, fmt.Sprintf(
+				"%s (%s): command pattern %q overlaps "+
+					"rule-owned %q",
+				src.Name, p.Dir, pat.Raw, owner))
+		}
+
+		ids := make([]string, 0, len(p.Rules))
+		for id := range p.Rules {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		for _, id := range ids {
+			if !rules.IsRuleID(id) {
+				problems = append(problems, fmt.Sprintf(
+					"preset:%s (%s): unknown rule ID %q",
+					p.Name, p.Dir, id))
+				continue
+			}
+			if p.Enforced && !p.Rules[id].Enabled {
+				problems = append(problems, fmt.Sprintf(
+					"preset:%s (%s): enforced rule %q "+
+						"must have Enabled true",
+					p.Name, p.Dir, id))
+			}
+		}
+	}
+	if len(problems) == 0 {
+		return nil
+	}
+	sort.Strings(problems)
+	return fmt.Errorf(
+		"external preset validation failed: %s",
+		strings.Join(problems, "; "))
+}
+
+func sourceCommandPatterns(src SourcePerms) []Pattern {
+	var out []Pattern
+	for _, tier := range []TierEntries{
+		src.Allow, src.SoftAsk, src.Ask, src.Deny,
+	} {
+		out = append(out, tier.Commands...)
+	}
+	return out
+}
+
+func ruleOwnedPattern(
+	pat Pattern,
+	registry map[string]*model.CommandRules,
+) (string, bool) {
+	commands := make([]string, 0, len(registry))
+	for command := range registry {
+		commands = append(commands, command)
+	}
+	sort.Strings(commands)
+
+	for _, command := range commands {
+		commandRules := registry[command]
+		if commandRules.OwnsAllPatterns {
+			bareOnly := commandRules.PathMode == model.PathAllow
+			prefix := []string{command}
+			if patternOverlapsOwnedPrefix(
+				pat, prefix, bareOnly,
+			) {
+				return command, true
+			}
+		}
+		for _, relative := range commandRules.OwnedPatternPrefixes {
+			prefix := append(
+				[]string{command}, relative...)
+			if patternOverlapsOwnedPrefix(
+				pat, prefix, false,
+			) || patternOverlapsNormalizedOwnedPrefix(
+				pat, prefix,
+				commandRules.PatternPrefixSkips,
+				commandRules.PathMode == model.PathSkip,
+			) {
+				return strings.Join(prefix, " "), true
+			}
+		}
+	}
+	return "", false
+}
+
+type patternTokenConstraint struct {
+	literal string
+	any     bool
+}
+
+func patternOverlapsNormalizedOwnedPrefix(
+	pat Pattern,
+	prefix []string,
+	skips []model.PatternPrefixSkip,
+	bareOnly bool,
+) bool {
+	if len(skips) == 0 || len(pat.Elements) == 0 {
+		return false
+	}
+	if !commandElementOverlaps(
+		pat.Elements[0], prefix[0], bareOnly,
+	) {
+		return false
+	}
+
+	owner := make([]patternTokenConstraint, 0, len(prefix)-1)
+	for _, element := range prefix[1:] {
+		owner = append(owner, patternTokenConstraint{
+			literal: element,
+		})
+	}
+
+	var leading []patternTokenConstraint
+	var search func(int) bool
+	search = func(depth int) bool {
+		if depth > len(pat.Elements) {
+			return false
+		}
+
+		for _, skip := range skips {
+			before := len(leading)
+			leading = append(leading, patternTokenConstraint{
+				literal: skip.Option,
+			})
+			for range skip.Arguments {
+				leading = append(leading,
+					patternTokenConstraint{any: true})
+			}
+			candidate := append(
+				append([]patternTokenConstraint{}, leading...),
+				owner...)
+			if patternOverlapsTokenConstraints(pat, candidate) {
+				return true
+			}
+			if search(depth + 1) {
+				return true
+			}
+			leading = leading[:before]
+		}
+		return false
+	}
+	return search(1)
+}
+
+func patternOverlapsTokenConstraints(
+	pat Pattern,
+	args []patternTokenConstraint,
+) bool {
+	shared := min(len(pat.Elements)-1, len(args))
+	for i := 0; i < shared; i++ {
+		constraint := args[i]
+		if !constraint.any &&
+			!globMatch(pat.Elements[i+1], constraint.literal) {
+			return false
+		}
+	}
+	candidateLength := len(args) + 1
+	return len(pat.Elements) >= candidateLength ||
+		pat.Mode != MatchExact
+}
+
+func patternOverlapsOwnedPrefix(
+	pat Pattern, prefix []string, bareOnly bool,
+) bool {
+	if len(pat.Elements) == 0 {
+		return pat.Mode != MatchExact
+	}
+	if !commandElementOverlaps(
+		pat.Elements[0], prefix[0], bareOnly,
+	) {
+		return false
+	}
+
+	shared := min(len(pat.Elements), len(prefix))
+	for i := 1; i < shared; i++ {
+		if !globMatch(pat.Elements[i], prefix[i]) {
+			return false
+		}
+	}
+	return len(pat.Elements) >= len(prefix) ||
+		pat.Mode != MatchExact
+}
+
+func commandElementOverlaps(
+	pattern, command string, bareOnly bool,
+) bool {
+	if globMatch(pattern, command) {
+		return true
+	}
+	if bareOnly {
+		return false
+	}
+	return globLanguagesOverlap(
+		pattern, "*/"+command)
+}
+
+// globLanguagesOverlap reports whether two patterns using
+// this package's single `*` wildcard can match the same
+// string. Command ownership needs language intersection,
+// not filepath.Base(pattern), because `*` can cross `/`.
+func globLanguagesOverlap(a, b string) bool {
+	type state struct{ a, b int }
+	queue := []state{{}}
+	seen := map[state]bool{}
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		if seen[current] {
+			continue
+		}
+		seen[current] = true
+		if current.a == len(a) && current.b == len(b) {
+			return true
+		}
+
+		aStar := current.a < len(a) && a[current.a] == '*'
+		bStar := current.b < len(b) && b[current.b] == '*'
+		if aStar {
+			queue = append(queue, state{current.a + 1, current.b})
+		}
+		if bStar {
+			queue = append(queue, state{current.a, current.b + 1})
+		}
+		if current.a == len(a) || current.b == len(b) {
+			continue
+		}
+
+		switch {
+		case aStar && bStar:
+			// Consuming a character leaves both stars in the
+			// same state. Their epsilon moves above provide
+			// every route that can make progress.
+		case aStar:
+			queue = append(queue, state{current.a, current.b + 1})
+		case bStar:
+			queue = append(queue, state{current.a + 1, current.b})
+		case a[current.a] == b[current.b]:
+			queue = append(queue, state{current.a + 1, current.b + 1})
+		}
+	}
+	return false
+}
+
 // SelectPresets returns the presets from all (kept in the
-// given priority order) selected by the most-specific agent
-// config that specifies preset selection — local, else
-// project, else global — otherwise every preset.
-// `enabled-presets` narrows to a whitelist;
-// `disabled-presets` then filters out names from whatever
-// remains. Selection applies to external and embedded
-// presets alike — a site preset is disabled by name the
-// same way a shipped one is.
+// given order) selected by the most-specific agent config
+// that specifies preset selection — local, else project,
+// else global — otherwise every preset. `enabled-presets`
+// narrows ordinary external and embedded presets to a
+// whitelist; `disabled-presets` then filters that result.
+// Enforced presets are always retained.
 func SelectPresets(
 	all []*presets.Preset,
 	global, project, local *agentconfig.Config,
@@ -255,7 +539,16 @@ func SelectPresets(
 		return all
 	}
 
-	out := all
+	var enforced, selectable []*presets.Preset
+	for _, p := range all {
+		if p.Enforced {
+			enforced = append(enforced, p)
+		} else {
+			selectable = append(selectable, p)
+		}
+	}
+
+	out := selectable
 	if cfg.EnabledPresets != nil {
 		out = filterByName(out, *cfg.EnabledPresets, true)
 	}
@@ -263,29 +556,28 @@ func SelectPresets(
 		out = filterByName(
 			out, *cfg.DisabledPresets, false)
 	}
-	return out
+	return append(enforced, out...)
 }
 
 // resolveRuleConfig resolves per-rule config across the
 // rule-config sources. Rules ship default-OFF in code, so a
-// rule absent from every source stays disabled; presets are
-// the enable base and .agents overrides win. Sources are
-// applied lowest priority first so later writes win: presets,
-// then global .agents, then project .agents, then the
-// project-local .agents override. selected is in priority
-// order (external presets before embedded), so it is walked
-// in reverse: embedded presets own their rules disjointly,
-// and an external preset that mentions the same rule ID
-// overrides them. Claude settings.json does not participate
-// — rule config is an agent-permissions concept kept in the
-// shared layers, which is what makes it identical across
-// harnesses.
+// rule absent from every source stays disabled. Ordinary
+// presets form the base, then global/project/local .agents
+// overrides apply. Enforced Enabled:true entries apply last,
+// locking those rules on. External validation rejects
+// Enabled:false in enforced presets. Claude settings.json
+// does not participate — rule config is an agent-permissions
+// concept kept in the shared layers, which is what makes it
+// identical across harnesses.
 func resolveRuleConfig(
 	project, global, local *agentconfig.Config,
 	selected []*presets.Preset,
 ) model.RuleConfigs {
 	out := model.RuleConfigs{}
 	for i := len(selected) - 1; i >= 0; i-- {
+		if selected[i].Enforced {
+			continue
+		}
 		for id, cfg := range selected[i].Rules {
 			out[id] = cfg
 		}
@@ -303,6 +595,16 @@ func resolveRuleConfig(
 	if local != nil {
 		for id, cfg := range local.Rules {
 			out[id] = cfg
+		}
+	}
+	for i := len(selected) - 1; i >= 0; i-- {
+		if !selected[i].Enforced {
+			continue
+		}
+		for id, cfg := range selected[i].Rules {
+			if cfg.Enabled {
+				out[id] = cfg
+			}
 		}
 	}
 	return out
@@ -328,6 +630,9 @@ func filterByName(
 
 func fromPreset(p *presets.Preset) (SourcePerms, []ConfigWarning) {
 	name := "preset:" + p.Name
+	if p.Enforced {
+		name = "enforced-preset:" + p.Name
+	}
 	src := SourcePerms{Name: name, AcceptsReasons: true}
 	var warnings []ConfigWarning
 

@@ -56,7 +56,17 @@ func check(args []string) error {
 	fmt.Printf("  %s\n", cmd)
 	fmt.Println()
 
-	fmt.Println("Resolution chain (highest → lowest priority):")
+	fmt.Println("Enforced policy (strongest match wins):")
+	if len(resolved.Permissions.EnforcedSources) == 0 {
+		fmt.Println("  (none)")
+	}
+	for _, s := range resolved.Permissions.EnforcedSources {
+		fmt.Printf("  %s\n", s.Name)
+	}
+	fmt.Println()
+
+	fmt.Println("Normal resolution chain " +
+		"(highest → lowest priority):")
 	for _, s := range resolved.Permissions.Sources {
 		fmt.Printf("  %s\n", s.Name)
 	}

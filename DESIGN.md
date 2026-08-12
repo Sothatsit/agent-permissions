@@ -88,9 +88,36 @@ Highest to lowest priority:
    entries; project-scoped personal override)
 5. `<project>/.agents/permissions.json` (explicit entries)
 6. `~/.agents/permissions.json` (explicit entries)
-7. Embedded presets (selected by the most-specific `.agents`
-   config — local, then project, then global — that specifies
-   `enabled-presets` or `disabled-presets`)
+7. Ordinary external presets from `AGENT_PERMISSIONS_PRESET_DIRS`
+8. Embedded presets
+
+Ordinary external and embedded presets are selected by the
+most-specific `.agents` config — local, then project, then global —
+that specifies `enabled-presets` or `disabled-presets`.
+
+Enforced external presets from
+`AGENT_PERMISSIONS_ENFORCED_PRESET_DIRS` sit outside that stack. Every
+matching enforced entry participates. The strongest enforced result
+combines with normal resolution using
+`Deny > Ask > SoftAsk > Allow > Undecided`, so user policy can become
+stricter but not weaker. Preset selection cannot disable enforced
+presets, and enforced Rules entries lock their rules on.
+
+Soft-ask is exempt from that ordering when the two planes combine. A
+soft-ask means "nudge unless this was explicitly allowed", so an
+Allow in normal resolution answers an enforced SoftAsk instead of
+losing to it. Were it otherwise, SoftAsk would be the only tier no
+config could silence — stricter than Ask, which inverts what the
+tiers mean. The asymmetry is deliberate: an enforced Allow still
+cannot weaken a normal SoftAsk, because the enforced plane only
+strengthens.
+
+Note this is a different comparison from the one that aggregates
+across extracted commands and axes, where SoftAsk does outrank Allow:
+one risky sub-command has to raise the whole decision. Combining two
+planes' verdicts on one command and folding many commands into one
+answer are separate operations, and only the latter is a plain
+maximum.
 
 The two `.local.json` files (Claude's `settings.local.json` and
 the agents `permissions.local.json`) are project-scoped personal
@@ -99,10 +126,10 @@ Claude Code's convention. Both are project-only — there is no
 global `~/.claude/settings.local.json` or
 `~/.agents/permissions.local.json`.
 
-### Within-source tier precedence
+### Within-normal-source tier precedence
 
-When the deciding source has matches in more than one tier, the
-order is:
+When the deciding normal source has matches in more than one tier,
+the order is:
 
 `Deny > Ask > Allow > SoftAsk`
 
@@ -132,18 +159,21 @@ The two list fields are named `enabled-presets` and
 
 In `~/.agents/permissions.json` (and project equivalent):
 
-- Neither field present → all embedded presets active. Default;
-  auto-includes new presets shipped in future binary updates.
-- `disabled-presets: ["containers"]` → all except listed. The
-  recommended way to opt out.
-- `enabled-presets: ["git", "languages"]` → explicit allow-list.
-  For users who want full control.
+- Neither field present → all ordinary external and embedded presets
+  active. Default; auto-includes new presets shipped in future binary
+  updates.
+- `disabled-presets: ["containers"]` → all ordinary presets except
+  those listed. The recommended way to opt out.
+- `enabled-presets: ["git", "languages"]` → explicit ordinary-preset
+  list. For users who want full control.
 - If both present, `disabled-presets` wins (it filters whatever
   `enabled-presets` resolved to).
 
 Project-level `.agents/permissions.json` overrides global for preset
 selection: if the project file specifies either field, that's the
 authoritative list for that CWD.
+
+Enforced presets remain active regardless of these fields.
 
 ### First-run behaviour
 
@@ -170,9 +200,9 @@ to opt in or out.
 | Subcommand | Purpose |
 | --- | --- |
 | `claude-hook` | PreToolUse handler for Claude Code. |
-| `setup` | Write a populated `~/.agents/permissions.json` with all presets enabled and empty user-custom tier arrays. |
+| `setup` | Write a populated `~/.agents/permissions.json` with all ordinary presets enabled and empty user-custom tier arrays. Enforced presets remain active outside selection. |
 | `install` | Wire the hook into known harness configs. Today: appends the PreToolUse stanza to `~/.claude/settings.json` (merging into an existing Bash matcher when one exists). Refuses to write through symlinks or modify unrecognised structures (e.g. `PreToolUse` that isn't an array), preserves existing file mode, and prints the JSON stanza for hand-paste when it cannot safely auto-edit. Idempotent. |
-| `presets list` | Show embedded presets grouped into Enabled/Disabled with the reason next to each entry. The previous `presets enable` and `presets disable` subcommands were removed — with "all enabled by default" the enable side became a confusing no-op, and the disable side too easily produced contradictory `enabled-presets` / `disabled-presets` files. Users edit `~/.agents/permissions.json` directly to opt in or out. |
+| `presets list` | Show available presets grouped into Enforced, Enabled, and Disabled, with the reason next to each entry. The previous `presets enable` and `presets disable` subcommands were removed — with "all enabled by default" the enable side became a confusing no-op, and the disable side too easily produced contradictory `enabled-presets` / `disabled-presets` files. Users edit `~/.agents/permissions.json` directly to opt ordinary presets in or out. |
 | `check '<cmd>'` | Simulate the hook on a given bash command; print the decision and the reasons that led to it. Useful for debugging "why is this prompting?". |
 
 > I really like the idea of adding the `check` command that can give
@@ -281,9 +311,9 @@ Why dict shape (`pattern → reason`) rather than list of strings:
 
 Why per-axis resolution: a higher-source `Allow.EnvVars` should
 override a lower-source `SoftAsk.EnvVars` without affecting
-Commands resolution. Each axis walks the source stack
-independently, then the final decision aggregates across axes
-via the existing tier precedence.
+Commands resolution. Each axis walks the normal source stack
+independently. Enforced matches are evaluated separately per axis,
+then the final decision aggregates across axes and policy planes.
 
 Concrete results from the reshape:
 - All env-var policy now lives in `presets/escape-hatches.json`
@@ -389,11 +419,12 @@ patterns and broke override intent across sources (a higher-source
 allow on `git push *` did not override a lower-source deny on
 `git push:*`, even though they overlap heavily).
 
-Revised: **source-priority resolution**. For each bash command being
-checked, walk sources highest → lowest priority. The first source
-that has *any* matching pattern decides the outcome via
-within-source tier precedence. Lower-priority sources are not
-consulted once a higher source has matched.
+Revised: **normal source-priority resolution**. For each bash command
+being checked, walk normal sources highest → lowest priority. The first
+source that has *any* matching pattern decides the normal outcome via
+within-source tier precedence. Lower-priority normal sources are not
+consulted once a higher source has matched. Enforced policy applies
+after this normal result.
 
 > If a pattern matches in a higher-priority tier we don't search
 > lower-priority tiers. That way `git push:*` in `.claude/settings.json`
@@ -443,21 +474,22 @@ per-rule options — e.g. downgrading a rule's tier from Deny to
 Ask — without a schema change.
 
 **Default-OFF, presets enable.** Rules ship disabled in code (the
-`RuleConfig` zero value). A preset's `Rules` section sets
-`Enabled: true` for the rules of its topic — git rules in the
-`git` preset, interpreter rules in `languages`, the standard
-shell tooling rules in `standard-commands`. So a default install
-(all presets on) has every rule active, matching prior behaviour,
-and disabling a preset cleanly disables its rules. An invariant
-test enforces that every catalog rule is owned by exactly one
-preset.
+`RuleConfig` zero value). Each embedded preset's `Rules` section sets
+`Enabled: true` for the rules of its topic — git rules in the `git`
+preset, interpreter rules in `languages`, the standard shell tooling
+rules in `standard-commands`. So a default install has every rule
+active, matching prior behaviour. An invariant test enforces that
+every catalog rule is owned by exactly one embedded preset. Ordinary
+external presets can override that base. Disabling an ordinary preset
+removes its contribution, but another source may still decide the
+rule. An enforced external preset can lock any catalog rule on.
 
-**Resolution.** Rule config is harness-agnostic: it comes only
-from presets and `.agents/permissions.json`, never from a
-harness's native settings (Claude's `settings.json` has no
-vocabulary for our rules). It resolves on the same priority chain
-as everything else — project `.agents` beats global `.agents`
-beats the preset union; a rule mentioned nowhere stays disabled.
+**Resolution.** Rule config is harness-agnostic. It comes only from
+presets and `.agents/permissions.json`, never from a harness's native
+settings (Claude's `settings.json` has no vocabulary for our rules).
+Local `.agents` config beats project config, which beats global config,
+ordinary external presets, and embedded presets. Enforced presets then
+lock their enabled rules on. A rule mentioned nowhere stays disabled.
 Because rule config is shared across harnesses, the multi-harness
 `check` (future) breaks a command down once and varies only the
 pattern-layer `Check` per harness.
@@ -576,13 +608,15 @@ alternative and isn't justified unless presets prove insufficient.
 
 ### Code structure for resolution
 
-Implementation: `internal/perms/loader.go` builds a list of
-`SourcePerms` in priority order (highest first). For each source,
-patterns are sorted alphabetically by `Raw` for deterministic
-ordering of `reason` text. `Permissions.checkOne` walks the list
-top-down; for each source it checks Deny → Ask → Allow → SoftAsk
-and returns on the first match. No cross-source deduplication or
-rewriting is performed.
+Implementation: `internal/perms/loader.go` builds a normal
+`SourcePerms` list in priority order (highest first) and a separate
+enforced list. For each source, patterns are sorted alphabetically by
+`Raw` for deterministic ordering of `reason` text.
+`Permissions.checkOne` walks the normal list top-down. For each source,
+it checks Deny → Ask → Allow → SoftAsk and returns on the first match.
+The enforced check evaluates every enforced source, keeps every reason
+at the strongest matching tier, and combines that result with the
+normal decision by decision strength.
 
 ### Safety constraints on `install`
 
@@ -676,38 +710,74 @@ and is denied; `flock FILE -c STR` re-parses STR as code).
 and ambiguous-positional forms that defeat simple parsing, so they
 fail closed (deny) rather than risk masking the inner command.
 
-### External presets are a source layer, not config edits
+### External presets are policy layers, not config edits
 
-`AGENT_PERMISSIONS_PRESET_DIRS` (colon-separated directories of
-preset JSON) exists so an organisation can ship site-wide policy
-alongside its own tooling. The rejected alternative was having a
-site installer write entries into users' `.agents/permissions.json`
-or Claude settings — that makes the installer own a file the user
-also edits, and every upgrade has to merge, migrate, and clean up
-after itself. Delivering policy as a read-only directory the
-launcher points an env var at keeps ownership clean: the site owns
-its directory, the user owns their config files, and an upgrade is
-just a new directory path.
+The two external-preset variables accept colon-separated directories
+of preset JSON. `AGENT_PERMISSIONS_PRESET_DIRS` supplies ordinary,
+user-overridable presets.
+`AGENT_PERMISSIONS_ENFORCED_PRESET_DIRS` supplies minimum policy.
+They let an organisation ship policy alongside its own tooling.
+
+The rejected alternative was having a site installer write entries
+into users' `.agents/permissions.json` or Claude settings. That makes
+the installer own a file the user also edits, and every upgrade has to
+merge, migrate, and clean up after itself. Delivering policy as a
+read-only directory the launcher points an env var at keeps ownership
+clean. The site owns its directory, the user owns their config files,
+and an upgrade is just a new directory path.
 
 An env var rather than a hook-command flag because the hook is not
 the only consumer: `check`, `validate`, and `presets list` resolve
 through the same loader, and a flag baked into the installed hook
 command would make manual `check` runs disagree with the live hook.
 
-Precedence encodes "more specific wins": external presets outrank
-embedded ones (site policy may override shipped defaults) but rank
-below every user config source, so a user can still override any
-single site entry from their own files. External presets are
-otherwise ordinary presets — `enabled-presets`/`disabled-presets`
-and preset `Rules` blocks apply by name; in the rule-config union
-they are applied above embedded presets, mirroring the source
-order.
+`AGENT_PERMISSIONS_ENFORCED_PRESETS` covers what a directory cannot.
+A site can enforce presets it ships, but not the embedded ones, and
+those hold the policy it most wants as a floor: `escape-hatches`'
+denials, and the Rules that scan interpreter and `bash -c` code. So
+the variable names presets already in the pool and moves them into the
+enforced plane, which reuses the whole mechanism — plane split, rule
+locking, immunity from selection — for a set the site did not author.
+Delivering the same thing as a copied preset file would mirror
+definitions the binary already ships, and drift from them.
 
-Failure handling is fail-closed on principle: a missing directory,
-malformed file, or duplicate preset name is a hard error that
-blocks commands (hook exit 2) rather than a warning. The failure
-mode being prevented is site policy silently vanishing — an agent
-running with weaker policy and nobody noticing. Duplicate names
-error rather than shadow because external presets already outrank
-embedded ones entry-by-entry; replacing a whole preset by filename
-would only ever happen by accident.
+It carries names rather than paths, so it is comma-separated where its
+sibling variables use a colon. An unknown name fails the load: quietly
+ignoring one would leave a site believing its floor is in place when
+it is not, which is the failure the enforced plane exists to prevent.
+
+Ordinary external presets outrank embedded ones but rank below every
+user config source. They participate in `enabled-presets` and
+`disabled-presets` by name. Their Rules entries form the preset base,
+above embedded Rules and below user config.
+
+Enforced presets sit outside pattern source priority. The resolver
+combines every matching enforced entry by decision strength, then
+combines that result with normal pattern resolution. This makes the
+policy a floor, not a high-priority source: user config can deny
+something the site allows, but cannot allow something the site denies.
+The Rules layer remains authoritative for commands it owns, which stay
+out of preset Command tiers. Enforced presets cannot be selected off.
+Rules they enable remain enabled after user config is applied. An
+enforced Rules entry that sets `Enabled: false` is an error because it
+would claim to enforce no constraint.
+
+Failure handling is fail-closed on principle. A missing directory,
+malformed file, unknown field, bad pattern, unknown rule ID, or
+pattern that overlaps a Rules-owned command is a hard error that
+blocks commands (hook exit 2) rather than a warning. A Rules-owned
+overlap would look active in JSON but never reach pattern matching.
+Validation runs before preset selection, so disabling a broken
+ordinary preset cannot hide the error. The failure mode being
+prevented is policy silently vanishing.
+
+A preset name supplied by two origins is the exception, and loads.
+A dev checkout beside a deployed tree produces exactly that, and
+refusing to load would block every command over a naming clash —
+far worse than the ambiguity it prevents, since matching entries
+combine by strength in the enforced plane and by list order in the
+normal one, so keeping both can only preserve or strengthen policy.
+Repeating one directory in a list is a no-op, as it is on `PATH`.
+What the collision costs is attribution: output names the preset,
+not the directory behind it, so `presets list` reports the
+directories and `validate` reports the collision.

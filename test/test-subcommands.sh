@@ -26,6 +26,11 @@ _sc_tmpdir=$(mktemp -d)
 add_exit_hook _sc_cleanup
 _sc_cleanup() { rm -rf "$_sc_tmpdir"; }
 
+# Some usage-error and cwd-specific cases call the binary
+# directly, so isolate the whole suite from inherited policy.
+export AGENT_PERMISSIONS_PRESET_DIRS=""
+export AGENT_PERMISSIONS_ENFORCED_PRESET_DIRS=""
+
 _fresh_home() {
     local h="$_sc_tmpdir/h-$RANDOM"
     mkdir -p "$h"
@@ -35,7 +40,13 @@ _fresh_home() {
 # Strip ANSI colours that some terminals add to subcommand
 # output so assertions don't have to match them.
 _sc_run() {
-    HOME="$1" "$HOOK" "${@:2}" 2>&1
+    local h="$1"
+    local preset_dirs="${_sc_preset_dirs:-}"
+    local enforced_dirs="${_sc_enforced_preset_dirs:-}"
+    HOME="$h" \
+        AGENT_PERMISSIONS_PRESET_DIRS="$preset_dirs" \
+        AGENT_PERMISSIONS_ENFORCED_PRESET_DIRS="$enforced_dirs" \
+        "$HOOK" "${@:2}" 2>&1
 }
 
 # validate reads <cwd>/.agents/permissions.json as well as
@@ -46,9 +57,14 @@ _sc_run() {
 # source twice.
 _validate_run() {
     local h="$1" proj
+    local preset_dirs="${_sc_preset_dirs:-}"
+    local enforced_dirs="${_sc_enforced_preset_dirs:-}"
     proj=$(_fresh_home)
     ( cd "$proj" && CLAUDE_CONFIG_DIR="$h/empty-claude" \
-        HOME="$h" "$HOOK" validate 2>&1 )
+        HOME="$h" \
+        AGENT_PERMISSIONS_PRESET_DIRS="$preset_dirs" \
+        AGENT_PERMISSIONS_ENFORCED_PRESET_DIRS="$enforced_dirs" \
+        "$HOOK" validate 2>&1 )
 }
 
 echo ""
@@ -71,6 +87,41 @@ assert_contains "setup refuses overwrite without --force" \
 # --force overwrites.
 out=$(_sc_run "$h" setup --force 2>&1)
 assert_contains "setup --force overwrites" "$out" "Wrote"
+
+# setup reports enforced policy separately and says preset
+# selection cannot remove it.
+setup_enforced_dir="$_sc_tmpdir/setup-enforced"
+mkdir -p "$setup_enforced_dir"
+echo '{"description":"locked policy"}' \
+    > "$setup_enforced_dir/dug-locked.json"
+_sc_enforced_preset_dirs="$setup_enforced_dir"
+h=$(_fresh_home)
+out=$(_sc_run "$h" setup)
+assert_contains "setup reports enforced preset count" \
+    "$out" "Enforced presets active: 1"
+assert_contains "setup explains enforced preset selection" \
+    "$out" "stay active regardless of preset selection"
+_sc_enforced_preset_dirs=""
+
+# setup validates policy before writing. A semantic error
+# must not leave behind a starter file after reporting failure.
+semantic_bad_dir="$_sc_tmpdir/semantic-bad-presets"
+mkdir -p "$semantic_bad_dir"
+echo '{"Deny":{"Commands":{"bad :*":"invalid"}}}' \
+    > "$semantic_bad_dir/dug-bad.json"
+_sc_preset_dirs="$semantic_bad_dir"
+h=$(_fresh_home)
+rc=0
+out=$(_sc_run "$h" setup) || rc=$?
+assert_rc "setup rejects invalid external policy" 2 "$rc"
+if [[ -e "$h/.agents/permissions.json" ]]; then
+    echo "FAIL: setup wrote file before policy validation"
+    failed=$((failed + 1))
+else
+    echo "PASS: setup validates policy before writing"
+    passed=$((passed + 1))
+fi
+_sc_preset_dirs=""
 
 
 echo ""
@@ -95,6 +146,41 @@ assert_contains "presets list shows Disabled heading" \
     "$out" "Disabled:"
 assert_contains "presets list shows git as disabled" \
     "$out" "in disabled-presets"
+
+# Enforced presets have their own group and cannot be moved
+# into Disabled through user selection.
+enforced_dir="$_sc_tmpdir/enforced-presets"
+mkdir -p "$enforced_dir"
+printf '%s%s\n' \
+    '{"description":"locked policy",' \
+    '"Allow":{"Commands":{"mytool:*":"site tool"}}}' \
+    > "$enforced_dir/dug-locked.json"
+_sc_enforced_preset_dirs="$enforced_dir"
+h=$(_fresh_home)
+mkdir -p "$h/.agents"
+echo '{"disabled-presets":["dug-locked"]}' \
+    > "$h/.agents/permissions.json"
+out=$(_sc_run "$h" presets list)
+assert_contains "presets list shows Enforced heading" \
+    "$out" "Enforced:"
+assert_contains "presets list shows enforced preset" \
+    "$out" "dug-locked"
+assert_contains "presets list explains enforced state" \
+    "$out" "always active"
+assert_contains "presets list shows enforced env" \
+    "$out" "AGENT_PERMISSIONS_ENFORCED_PRESET_DIRS"
+_sc_enforced_preset_dirs=""
+
+# The list is an effective-policy view, so it must reject
+# the same semantic errors as the hook and validate commands.
+_sc_preset_dirs="$semantic_bad_dir"
+h=$(_fresh_home)
+rc=0
+out=$(_sc_run "$h" presets list) || rc=$?
+assert_rc "presets list rejects invalid external policy" 2 "$rc"
+assert_contains "presets list names invalid policy entry" \
+    "$out" "bad :*"
+_sc_preset_dirs=""
 
 # enable / disable subcommands were removed — verify they
 # fail with a helpful message.
@@ -262,13 +348,22 @@ h=$(_fresh_home)
 # check inherits CLAUDE_CONFIG_DIR / cwd, so pin both.
 unset CLAUDE_CONFIG_DIR
 out=$(CLAUDE_CONFIG_DIR="$h/empty-claude" \
-        HOME="$h" "$HOOK" check 'git status')
+    _sc_run "$h" check 'git status')
 assert_contains "check: shows the command" "$out" \
     "git status"
 assert_contains "check: shows decision line" "$out" \
     "Decision:"
 assert_contains "check: lists at least one preset source" \
     "$out" "preset:"
+
+_sc_enforced_preset_dirs="$enforced_dir"
+out=$(CLAUDE_CONFIG_DIR="$h/empty-claude" \
+        HOME="$h" _sc_run "$h" check 'mytool run')
+assert_contains "check: shows enforced policy heading" \
+    "$out" "Enforced policy"
+assert_contains "check: shows enforced source" \
+    "$out" "enforced-preset:dug-locked"
+_sc_enforced_preset_dirs=""
 
 # Invalid usage exits non-zero.
 rc=0
@@ -283,7 +378,7 @@ cat > "$h/.agents/permissions.json" <<'EOF'
 {"Allow": {"Commands": {"git status:*": "", ":*": "", "  ": ""}}}
 EOF
 out=$(CLAUDE_CONFIG_DIR="$h/empty-claude" \
-        HOME="$h" "$HOOK" check 'git status')
+    _sc_run "$h" check 'git status')
 assert_contains "check: lists Warnings section" \
     "$out" "Warnings:"
 assert_contains "check: warning quotes the bad entry" \
@@ -365,6 +460,36 @@ rc=$?
 assert_rc "validate: real preset name is clean" 0 "$rc"
 assert_contains "validate: real preset → OK" "$out" "OK."
 
+# A known enforced preset in disabled-presets is not a typo,
+# but it is still an ineffective override and must be reported.
+_sc_enforced_preset_dirs="$enforced_dir"
+h=$(_fresh_home)
+mkdir -p "$h/.agents"
+echo '{"disabled-presets":["dug-locked"]}' \
+    > "$h/.agents/permissions.json"
+rc=0
+out=$(_validate_run "$h") || rc=$?
+assert_rc "validate: enforced preset disable exits 2" 2 "$rc"
+assert_contains "validate: explains enforced preset disable" \
+    "$out" "cannot be disabled"
+_sc_enforced_preset_dirs=""
+
+# Unknown Rules in external presets are load errors, not
+# silent no-ops. This covers the same command used by the
+# deployment smoke check.
+external_dir="$_sc_tmpdir/external-presets"
+mkdir -p "$external_dir"
+echo '{"Rules":{"git.branch-writs":{"Enabled":true}}}' \
+    > "$external_dir/dug-bad.json"
+_sc_preset_dirs="$external_dir"
+h=$(_fresh_home)
+rc=0
+out=$(_validate_run "$h") || rc=$?
+assert_rc "validate: external rule typo exits 2" 2 "$rc"
+assert_contains "validate: external rule typo named" \
+    "$out" "git.branch-writs"
+_sc_preset_dirs=""
+
 # cwd == $HOME: the project and global agent paths are the
 # same file. Resolve must dedup it (keeping the higher-
 # precedence project entry), so one malformed entry is
@@ -377,7 +502,9 @@ cat > "$h/.agents/permissions.json" <<'EOF'
 EOF
 rc=0
 out=$(cd "$h" && CLAUDE_CONFIG_DIR="$h/empty-claude" \
-        HOME="$h" "$HOOK" validate 2>&1) || rc=$?
+        HOME="$h" AGENT_PERMISSIONS_PRESET_DIRS= \
+        AGENT_PERMISSIONS_ENFORCED_PRESET_DIRS= \
+        "$HOOK" validate 2>&1) || rc=$?
 assert_rc "validate: cwd==HOME exits 2" 2 "$rc"
 assert_contains "validate: cwd==HOME counts the file once" \
     "$out" "Found 1 malformed"

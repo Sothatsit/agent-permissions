@@ -58,6 +58,30 @@ func TestEveryRuleOwnedByExactlyOnePreset(t *testing.T) {
 	}
 }
 
+// A command pattern below a Rules-owned prefix never gets
+// consulted. Keep shipped presets out of those subtrees so
+// their apparent policy matches what the hook can enforce.
+func TestPresetPatternsAvoidRuleOwnedCommands(t *testing.T) {
+	registry, _ := rules.Registry()
+	for _, p := range presets.MustEmbedded() {
+		src, warnings := fromPreset(p)
+		if len(warnings) > 0 {
+			t.Fatalf(
+				"preset %q has malformed patterns: %v",
+				p.Name, warnings)
+		}
+		for _, pat := range sourceCommandPatterns(src) {
+			owner, ok := ruleOwnedPattern(pat, registry)
+			if ok {
+				t.Errorf(
+					"preset %q pattern %q overlaps "+
+						"rule-owned %q",
+					p.Name, pat.Raw, owner)
+			}
+		}
+	}
+}
+
 // A default install (all presets, no user config) must
 // resolve every catalog rule to Enabled — matching the
 // behaviour before rules were configurable.
@@ -135,5 +159,29 @@ func TestRuleConfigExternalPresetOverridesEmbedded(t *testing.T) {
 	if rc.For(def).Enabled {
 		t.Error("external preset Enabled:false should " +
 			"override the embedded preset enable")
+	}
+}
+
+func TestRuleConfigEnforcedPresetLocksRuleOn(t *testing.T) {
+	const id = "git.branch-writes"
+	def := &model.RuleDef{ID: id}
+	enforced := &presets.Preset{
+		Name:     "dug-policy",
+		Enforced: true,
+		Rules: map[string]model.RuleConfig{
+			id: {Enabled: true},
+		},
+	}
+	local := &agentconfig.Config{
+		Rules: map[string]model.RuleConfig{
+			id: {Enabled: false},
+		},
+	}
+	selected := append(
+		[]*presets.Preset{enforced},
+		presets.MustEmbedded()...)
+	rc := resolveRuleConfig(nil, nil, local, selected)
+	if !rc.For(def).Enabled {
+		t.Error("local Rules:false disabled enforced rule")
 	}
 }

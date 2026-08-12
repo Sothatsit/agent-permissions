@@ -33,6 +33,15 @@ func Registry() (
 	// that open editors, execute arbitrary commands, or
 	// inject config.
 	r["git"] = &model.CommandRules{
+		OwnedPatternPrefixes: [][]string{
+			{"branch"}, {"remote"}, {"tag"},
+		},
+		// git accepts repeated -C options. breakdownGit
+		// removes each option and path before the owned
+		// subcommand reaches the rules layer.
+		PatternPrefixSkips: []model.PatternPrefixSkip{
+			{Option: "-C", Arguments: 1},
+		},
 		Breakdown: breakdownGit,
 		PathMode:  model.PathSkip,
 		Rules: []model.Rule{
@@ -80,6 +89,7 @@ func Registry() (
 
 	// gh: classify gh api by HTTP method.
 	r["gh"] = &model.CommandRules{
+		OwnedPatternPrefixes: [][]string{{"api"}},
 		Rules: []model.Rule{
 			model.Subcmd("api").
 				WithRuleDef(ghAPIWrites).DefaultDeny(
@@ -256,7 +266,8 @@ func Registry() (
 	// fall through to default deny since they source
 	// arbitrary code before the -c body.
 	bashRules := &model.CommandRules{
-		Breakdown: breakdownBash,
+		OwnsAllPatterns: true,
+		Breakdown:       breakdownBash,
 		Default: model.DenyAction(
 			"invocation could not be verified"),
 		Unverified: bashUnverified,
@@ -276,28 +287,32 @@ func Registry() (
 	// Bash's `time` keyword is already transparent in the
 	// AST — this handles external /usr/bin/time.
 	r["time"] = &model.CommandRules{
-		Parser:    timeParser,
-		Breakdown: breakdownTime,
+		OwnsAllPatterns: true,
+		Parser:          timeParser,
+		Breakdown:       breakdownTime,
 	}
 
 	// timeout: skip duration + flags, extract inner.
 	r["timeout"] = &model.CommandRules{
-		Parser:    timeoutParser,
-		Breakdown: breakdownTimeout,
+		OwnsAllPatterns: true,
+		Parser:          timeoutParser,
+		Breakdown:       breakdownTimeout,
 	}
 
 	// stdbuf: skip buffering flags, extract inner.
 	r["stdbuf"] = &model.CommandRules{
-		Parser:    stdbufParser,
-		Breakdown: breakdownStdbuf,
+		OwnsAllPatterns: true,
+		Parser:          stdbufParser,
+		Breakdown:       breakdownStdbuf,
 	}
 
 	// strace: skip tracing flags, extract inner.
 	// Denies -E/--env (can inject env vars) via
 	// strace.env-injection.
 	r["strace"] = &model.CommandRules{
-		Parser:    straceParser,
-		Breakdown: breakdownStrace,
+		OwnsAllPatterns: true,
+		Parser:          straceParser,
+		Breakdown:       breakdownStrace,
 	}
 
 	// xargs: skip flags, extract inner command.
@@ -306,9 +321,10 @@ func Registry() (
 	// The -I-from-stdin / ambiguous-replacement / unknown-
 	// flag denials are gated by xargs.unverified.
 	r["xargs"] = &model.CommandRules{
-		Parser:     xargsParser,
-		Breakdown:  breakdownXargs,
-		Unverified: xargsUnverified,
+		OwnsAllPatterns: true,
+		Parser:          xargsParser,
+		Breakdown:       breakdownXargs,
+		Unverified:      xargsUnverified,
 	}
 
 	// --- Exec wrappers ---
@@ -325,71 +341,101 @@ func Registry() (
 	// /usr/bin/env python3 (shebang style) still unwraps and
 	// scans the inner interpreter.
 	r["env"] = &model.CommandRules{
-		Parser:     envParser,
-		Breakdown:  breakdownEnv,
-		PathMode:   model.PathAllow,
-		Unverified: envUnverified,
+		OwnsAllPatterns: true,
+		Parser:          envParser,
+		Breakdown:       breakdownEnv,
+		PathMode:        model.PathAllow,
+		Unverified:      envUnverified,
 	}
 
 	// nohup/setsid/nice/ionice/exec: transparent exec wrappers.
 	// Skip own flags, extract the inner command; empty inner is
 	// safe (e.g. ionice -p PID, exec > log).
 	r["nohup"] = &model.CommandRules{
-		Parser: nohupParser, Breakdown: breakdownNohup}
+		OwnsAllPatterns: true,
+		Parser:          nohupParser,
+		Breakdown:       breakdownNohup,
+	}
 	r["setsid"] = &model.CommandRules{
-		Parser: setsidParser, Breakdown: breakdownSetsid}
+		OwnsAllPatterns: true,
+		Parser:          setsidParser,
+		Breakdown:       breakdownSetsid,
+	}
 	r["nice"] = &model.CommandRules{
-		Parser: niceParser, Breakdown: breakdownNice}
+		OwnsAllPatterns: true,
+		Parser:          niceParser,
+		Breakdown:       breakdownNice,
+	}
 	r["ionice"] = &model.CommandRules{
-		Parser: ioniceParser, Breakdown: breakdownIonice}
+		OwnsAllPatterns: true,
+		Parser:          ioniceParser,
+		Breakdown:       breakdownIonice,
+	}
 	r["exec"] = &model.CommandRules{
-		Parser: execParser, Breakdown: breakdownExec}
+		OwnsAllPatterns: true,
+		Parser:          execParser,
+		Breakdown:       breakdownExec,
+	}
 
 	// chroot: skip NEWROOT, extract inner command. With no
 	// command it runs an interactive $SHELL — denied via
 	// chroot.unverified.
 	r["chroot"] = &model.CommandRules{
-		Parser:     chrootParser,
-		Breakdown:  breakdownChroot,
-		Unverified: chrootUnverified,
+		OwnsAllPatterns: true,
+		Parser:          chrootParser,
+		Breakdown:       breakdownChroot,
+		Unverified:      chrootUnverified,
 	}
 
 	// flock: skip the lock file, extract the inner command;
 	// flock FILE -c STR runs STR via a shell, re-parsed as code.
 	r["flock"] = &model.CommandRules{
-		Parser:    flockParser,
-		Breakdown: breakdownFlock,
+		OwnsAllPatterns: true,
+		Parser:          flockParser,
+		Breakdown:       breakdownFlock,
 	}
 
 	// runuser/setpriv/setarch: privilege/personality wrappers
 	// with shell-string, interactive, and ambiguous-positional
 	// forms we cannot model safely. Deny outright (suppressed,
 	// falling through to permissions, when their rule is off).
-	r["runuser"] = &model.CommandRules{Breakdown: breakdownRunuser}
-	r["setpriv"] = &model.CommandRules{Breakdown: breakdownSetpriv}
-	r["setarch"] = &model.CommandRules{Breakdown: breakdownSetarch}
+	r["runuser"] = &model.CommandRules{
+		OwnsAllPatterns: true,
+		Breakdown:       breakdownRunuser,
+	}
+	r["setpriv"] = &model.CommandRules{
+		OwnsAllPatterns: true,
+		Breakdown:       breakdownSetpriv,
+	}
+	r["setarch"] = &model.CommandRules{
+		OwnsAllPatterns: true,
+		Breakdown:       breakdownSetarch,
+	}
 
 	// --- Shell builtins ---
 
 	// eval: join args and re-parse as code. All args
 	// must be static — variables could execute anything.
 	r["eval"] = &model.CommandRules{
-		Breakdown:  breakdownEval,
-		Unverified: evalUnverified,
+		OwnsAllPatterns: true,
+		Breakdown:       breakdownEval,
+		Unverified:      evalUnverified,
 	}
 
 	// trap: extract the code string (first positional)
 	// for re-parsing. -l/-p and signal resets are safe.
 	r["trap"] = &model.CommandRules{
-		Breakdown:  breakdownTrap,
-		Unverified: trapUnverified,
+		OwnsAllPatterns: true,
+		Breakdown:       breakdownTrap,
+		Unverified:      trapUnverified,
 	}
 
 	// command: strip -v/-V/-p/-- flags, extract the
 	// inner command. Rejects unknown flags.
 	r["command"] = &model.CommandRules{
-		Breakdown:  breakdownCommand,
-		Unverified: commandUnverified,
+		OwnsAllPatterns: true,
+		Breakdown:       breakdownCommand,
+		Unverified:      commandUnverified,
 	}
 
 	// cd/pushd/popd: track cwd changes. cd with a

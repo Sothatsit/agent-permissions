@@ -51,9 +51,10 @@ Four tiers, in deny → allow precedence order:
 | `SoftAsk` | Prompts in normal mode. In Claude Code's auto mode, falls through to its classifier for per-invocation judgement. |
 | `Allow` | Hook returns `allow`. |
 
-Tier precedence: `Deny` > `Ask` > `Allow` > `SoftAsk`.
+Within one normal source, tier precedence is
+`Deny` > `Ask` > `Allow` > `SoftAsk`.
 
-`Allow` sits above `SoftAsk` within a single source so an
+`Allow` sits above `SoftAsk` within a single normal source so an
 explicit Allow opts out of a SoftAsk prompt for commands the user
 has broadly trusted.
 
@@ -128,12 +129,13 @@ Agent-generated inline code (`-c` / `-e`) cannot bypass a deny
 via a permission allow. User-authored script files can be opted
 out by allowing the file path explicitly.
 
-### 3. Permissions: pattern matching across source priority
+### 3. Permissions: normal resolution plus enforced policy
 
-`internal/perms/` matches each extracted command and each
-assigned environment variable against a stack of permission
-sources. This is where most decisions actually land. Three things
-make the matching different from Claude Code's native rules.
+`internal/perms/` matches each extracted command and assigned
+environment variable against two policy planes. Normal sources use
+the source-priority stack described below. Enforced presets form a
+minimum policy that user config can strengthen but cannot weaken.
+This is where most decisions actually land.
 
 **Source priority decides who wins, not pattern shape.** The hook
 walks sources from highest to lowest priority (full list in
@@ -143,7 +145,7 @@ consulted once a higher source has matched. So if
 `~/.claude/settings.json` has `git push:*` in Allow, that
 overrides a `git push *` Deny in any lower-priority source, even
 though the pattern shapes are different. The match in the higher
-source is final for that command.
+source is final within normal resolution for that command.
 
 **Within a single source, the tier order from above breaks ties.**
 When the deciding source has matching patterns in more than one
@@ -163,6 +165,33 @@ source does not lock out EnvVars from being consulted in lower
 sources, and vice versa. So a higher-source `Allow.EnvVars: PATH`
 overrides a lower-source `SoftAsk.EnvVars: PATH` independently of
 whatever command Allow/Deny matched.
+
+**Enforced pattern policy is a floor.** Every matching entry from
+`AGENT_PERMISSIONS_ENFORCED_PRESET_DIRS` participates. The strongest
+enforced match combines with normal pattern resolution using:
+
+```
+Deny > Ask > SoftAsk > Allow > Undecided
+```
+
+For example, an enforced Deny beats a user Allow, while a user Deny
+beats an enforced Allow.
+
+Soft-ask is the one exception. It means "nudge unless this was
+explicitly allowed", so an Allow in normal resolution answers an
+enforced SoftAsk rather than losing to it. Enforcing a soft-ask
+would otherwise make it stricter than an enforced Ask, which no
+config can silence either. The reverse still holds: an enforced
+Allow cannot talk a normal SoftAsk down, because the enforced plane
+only ever strengthens.
+
+Enforced presets cannot be removed with `enabled-presets` or
+`disabled-presets`. Rules they enable cannot be disabled in user
+config.
+
+The Rules layer remains authoritative for commands it owns. Those
+commands do not belong in preset Command tiers. An enforced preset can
+enable a Rules-layer rule and prevent user config from turning it off.
 
 **Absolute paths.** `/usr/bin/git status` matches `git status:*`
 in Allow/Ask/SoftAsk only when `/usr/bin` is in the hook
@@ -229,33 +258,34 @@ and `git status <anything>`. Use `git status *` (with a space) if
 you need to require at least one argument, and bare `git status`
 for the no-args form only.
 
-A preset may also carry a `Rules` axis that enables Rules-layer
+A preset may also carry a `Rules` axis that configures Rules-layer
 rules (layer 2) by ID:
 
 ```json
 "Rules": {"git.branch-writes": {"Enabled": true}}
 ```
 
-The built-in rules ship disabled in the binary; each preset turns
-on the rules for its topic, so disabling a preset also disables
-its rules. The object shape leaves room for future per-rule
-options. Override individual rules in your
-`.agents/permissions.json` (see Configuration).
+The built-in rules ship disabled in the binary. Each embedded preset
+turns on the rules for its topic. Ordinary external presets and
+`.agents` config can override that base, while enforced presets can
+lock rules on. Disabling an ordinary preset removes its contribution;
+another source may still decide the rule. The object shape leaves room
+for future per-rule options. Override rules that are not enforced in
+your `.agents/permissions.json` (see Configuration).
 
-All presets are active by default. To narrow the set, add
+All ordinary presets are active by default. To narrow that set, add
 `enabled-presets` or `disabled-presets` to your
-`~/.agents/permissions.json`. See Configuration below.
+`~/.agents/permissions.json`. Enforced presets remain active. See
+Configuration below.
 
 ## Configuration
 
-The hook reads permissions from several sources. The resolution
-chain is **source-priority, per axis** — Commands and EnvVars
-each walk the source stack independently. For each axis, sources
-are consulted from highest priority to lowest, and the first
-source that has any pattern matching decides the outcome on that
-axis. The final decision aggregates across axes (and across
-extracted commands) via tier precedence (`Deny > Ask > Allow >
-SoftAsk`).
+The hook resolves normal permissions **by source priority, per
+axis**. Commands and EnvVars each walk the source stack independently.
+For each axis, the first normal source with a matching pattern decides
+the normal result. A separate enforced result forms the minimum policy.
+The final decision aggregates across policy planes, axes, and extracted
+commands using `Deny > Ask > SoftAsk > Allow > Undecided`.
 
 Source priority, highest to lowest:
 
@@ -268,12 +298,19 @@ Source priority, highest to lowest:
 5. `<project>/.agents/permissions.json` — per-project overrides.
 6. `~/.agents/permissions.json` — your global overrides.
 7. External presets from `AGENT_PERMISSIONS_PRESET_DIRS` —
-   site-wide policy shipped by an organisation.
+   overridable defaults shipped by an organisation.
 8. Embedded presets.
 
-Both preset layers are filtered by `enabled-presets` /
-`disabled-presets` from the most-specific `.agents` config —
-local, then project, then global — that specifies either field.
+The ordinary external and embedded preset layers are filtered by
+`enabled-presets` / `disabled-presets` from the most-specific
+`.agents` config — local, then project, then global — that specifies
+either field.
+
+Enforced presets from
+`AGENT_PERMISSIONS_ENFORCED_PRESET_DIRS` sit outside this priority
+list. They are always active. Every enforced match participates, and
+the strongest enforced result combines with the normal result as a
+minimum policy.
 
 `permissions.local.json` mirrors Claude Code's
 `settings.local.json`: a project-scoped personal override that sits
@@ -283,14 +320,13 @@ It uses the same shape as `permissions.json` (described below).
 ### External presets: `AGENT_PERMISSIONS_PRESET_DIRS`
 
 `AGENT_PERMISSIONS_PRESET_DIRS` is a colon-separated list of
-directories of preset JSON files, for organisations that want to
-ship site-wide policy alongside their own tooling instead of
-editing users' config files. Each file uses the preset shape
-above; the filename stem is the preset name. External presets
-outrank the embedded set (site policy can override shipped
-defaults) but rank below every user config source, and they
-participate in `enabled-presets` / `disabled-presets` by name
-like any other preset.
+directories of preset JSON files, for organisations that want to ship
+overridable defaults alongside their own tooling instead of editing
+users' config files. Each file uses the preset shape above; the
+filename stem is the preset name. External presets outrank the embedded
+set but rank below every user config source, and they participate in
+`enabled-presets` / `disabled-presets` by name like any other ordinary
+preset.
 
 Load failures fail closed: a missing directory, a malformed
 file, or a name colliding with another preset is a hard error,
@@ -300,19 +336,69 @@ external presets distinct names (e.g. an org prefix like
 `dug-slurm`) — they already win on priority, so a collision with
 an embedded name is only ever an accident.
 
-**Within one source**, tier precedence applies in this order:
+External presets also fail closed on semantic errors. Unknown nested
+fields, malformed command or environment-variable patterns, unknown
+rule IDs, and Command patterns that overlap a Rules-owned command are
+hard errors even when preset selection would disable the affected
+preset. The last check rejects policy entries that the Rules layer
+would decide before pattern matching. These checks prevent a mistake
+from silently removing part of site policy.
+
+### Enforced presets: `AGENT_PERMISSIONS_ENFORCED_PRESET_DIRS`
+
+`AGENT_PERMISSIONS_ENFORCED_PRESET_DIRS` has the same colon-separated
+directory format and preset JSON schema as the ordinary external
+variable. Use it for organisation policy that users must not weaken.
+
+Enforced presets do not join the normal first-match source stack.
+Instead, the resolver finds the strongest pattern match across every
+enforced preset and combines it with the normal pattern result. A user
+or project can still impose a stronger pattern decision. It cannot
+impose a weaker one.
+
+`enabled-presets` and `disabled-presets` do not affect enforced
+presets. An enforced `Rules` entry must set `Enabled: true`, and that
+rule stays enabled even when user config sets it to false. Load and
+validation failures use the same fail-closed behavior as ordinary
+external presets.
+
+### Enforcing existing presets: `AGENT_PERMISSIONS_ENFORCED_PRESETS`
+
+A site cannot place the built-in presets in a directory it controls,
+so it names them instead. `AGENT_PERMISSIONS_ENFORCED_PRESETS` takes a
+comma-separated list of preset names — names rather than paths, hence
+the comma — and moves each into the enforced plane:
+
+```sh
+AGENT_PERMISSIONS_ENFORCED_PRESETS=escape-hatches,git,standard-commands
+```
+
+That makes `escape-hatches`'s denials (sudo, ssh, su, unshare,
+crontab, and the dangerous environment variables) a floor no user
+config can weaken, and locks on the Rules each named preset owns —
+including the interpreter and `bash -c` scanning, which a project
+config could otherwise switch off.
+
+`SoftAsk` entries in a named preset stay silenceable by an Allow, so
+enforcing a topic does not freeze its nudges. `Allow` entries change
+nothing, since the enforced plane only ever strengthens.
+
+An unknown name is a load failure, not a no-op: a site that misspells
+one would otherwise believe policy is enforced when it is not.
+
+**Within one normal source**, tier precedence applies in this order:
 `Deny > Ask > Allow > SoftAsk`.
 So if a single source has both an Allow and a Deny matching the
 same command, the Deny wins.
 
-**Across sources**, the first match wins entirely. If
+**Across normal sources**, the first match wins entirely. If
 `~/.claude/settings.json` has `Bash(git push:*)` in Allow, that
 overrides a `git push *` Deny in any lower-priority source —
 even though the pattern shapes differ — because the higher source
 already had a match. This is what gives `enabled-presets` /
 `disabled-presets` and the agent-permissions config their
-override power: anything you put in a higher source is final for
-that command.
+override power within normal resolution. Enforced policy then applies
+its minimum decision.
 
 ### `~/.agents/permissions.json`
 
@@ -339,27 +425,34 @@ Claude Code's settings.json syntax, not ours), plus optional
 `agent-permissions setup` writes a starter file with empty tier
 objects you can fill in.
 
-- No `enabled-presets` or `disabled-presets` → all embedded
-  presets active (the default).
-- `disabled-presets: ["containers"]` → all except those listed.
-- `enabled-presets: ["git", "languages"]` → only those listed.
+- No `enabled-presets` or `disabled-presets` → all ordinary external
+  and embedded presets active (the default).
+- `disabled-presets: ["containers"]` → all ordinary presets except
+  those listed.
+- `enabled-presets: ["git", "languages"]` → only those ordinary
+  presets listed.
 - Both → `enabled-presets` is applied first, then
   `disabled-presets` filters what remains.
 
-A misspelled preset name silently no-ops (it just never
-matches), so `agent-permissions validate` reports a preset
-name that isn't one of the embedded presets, the same way it
-flags a typo'd rule ID. Run `agent-permissions presets list`
-to see the valid names.
+Enforced presets remain active in every case.
+
+If `disabled-presets` names an enforced preset,
+`agent-permissions validate` reports the failed override. The preset
+remains active.
+
+A misspelled preset name silently no-ops (it just never matches), so
+`agent-permissions validate` reports a name that is not an available
+preset, the same way it flags a typo'd rule ID. Run
+`agent-permissions presets list` to see the valid names.
 
 `Rules` overrides Rules-layer rule config by ID. Presets enable
 the rules for their topic; set `Enabled: false` here to turn one
-off, or `Enabled: true` to turn on a rule no active preset
+off, or `Enabled: true` to turn on a rule no active ordinary preset
 enables. Local `.agents` beats project `.agents` beats global
-`.agents` beats presets, and a rule mentioned nowhere stays off.
-Run `agent-permissions rules list` to see every rule ID and what
-it guards; `agent-permissions validate` flags a rule ID you've
-typo'd.
+`.agents` beats ordinary presets. Enforced presets apply last and lock
+their enabled rules on. A rule mentioned nowhere stays off. Run
+`agent-permissions rules list` to see every rule ID and what it guards;
+`agent-permissions validate` flags a rule ID you've typo'd.
 
 The most-specific `.agents` config with a preset selection wins:
 `<cwd>/.agents/permissions.local.json`, then
@@ -392,14 +485,15 @@ agent-permissions claude-hook     # PreToolUse handler (used in settings.json)
 agent-permissions install         # Wire into ~/.claude/settings.json
 agent-permissions setup           # Write a starter ~/.agents/permissions.json
 agent-permissions check '<cmd>'   # Simulate the hook and explain the decision
-agent-permissions validate        # Report config problems (malformed entries, unknown rule/preset names)
-agent-permissions presets list    # Show all presets, grouped by enabled/disabled state
+agent-permissions validate        # Report malformed entries and bad rule/preset references
+agent-permissions presets list    # Show enforced, enabled, and disabled presets
 agent-permissions rules list      # List built-in rules as 'id - description'
 ```
 
-To enable or disable a preset, edit `~/.agents/permissions.json`
-(or `<project>/.agents/permissions.json`) and add to the
-`enabled-presets` or `disabled-presets` array.
+To enable or disable an ordinary preset, edit
+`~/.agents/permissions.json` (or
+`<project>/.agents/permissions.json`) and add to the `enabled-presets`
+or `disabled-presets` array. Enforced presets cannot be disabled.
 
 `install` refuses to write through a symlink, refuses to
 overwrite settings.json structures it doesn't recognise (e.g.
@@ -415,7 +509,10 @@ $ agent-permissions check 'git rm -rf .'
 Command:
   git rm -rf .
 
-Resolution chain (highest → lowest priority):
+Enforced policy (strongest match wins):
+  (none)
+
+Normal resolution chain (highest → lowest priority):
   preset:git
   ...
 

@@ -34,6 +34,11 @@ _bp_tmpdir=$(mktemp -d)
 add_exit_hook _bp_cleanup
 _bp_cleanup() { rm -rf "$_bp_tmpdir"; }
 
+# Direct hook invocations as well as helpers must be isolated
+# from site policy inherited by the test process.
+export AGENT_PERMISSIONS_PRESET_DIRS=""
+export AGENT_PERMISSIONS_ENFORCED_PRESET_DIRS=""
+
 # _hook_input generates the stdin JSON for a given bash
 # command. Optional second arg sets permission_mode.
 _hook_input() {
@@ -57,14 +62,19 @@ _hook_input() {
 
 # _run_hook calls the hook with a bash command. Passes
 # CLAUDE_CONFIG_DIR pointing at our fake settings, and pins
-# AGENT_PERMISSIONS_PRESET_DIRS (default empty) so a
-# developer's real site presets can't leak into tests.
+# both external-preset variables (default empty) so a
+# developer's real site policy can't leak into tests.
 # Optional second arg sets permission_mode.
 _run_hook() {
     local cmd="$1" mode="${2:-}"
+    local preset_dirs="${_bp_preset_dirs:-}"
+    local enforced_dirs="${_bp_enforced_preset_dirs:-}"
+    local enforced_names="${_bp_enforced_presets:-}"
     _hook_input "$cmd" "$mode" \
         | CLAUDE_CONFIG_DIR="$_bp_tmpdir/config" \
-            AGENT_PERMISSIONS_PRESET_DIRS="${_bp_preset_dirs:-}" \
+            AGENT_PERMISSIONS_PRESET_DIRS="$preset_dirs" \
+            AGENT_PERMISSIONS_ENFORCED_PRESET_DIRS="$enforced_dirs" \
+            AGENT_PERMISSIONS_ENFORCED_PRESETS="$enforced_names" \
             "$HOOK" claude-hook 2>/dev/null
 }
 
@@ -73,11 +83,31 @@ _run_hook() {
 _run_hook_rc() {
     local cmd="$1"
     local rc=0
+    local preset_dirs="${_bp_preset_dirs:-}"
+    local enforced_dirs="${_bp_enforced_preset_dirs:-}"
+    local enforced_names="${_bp_enforced_presets:-}"
     _hook_input "$cmd" \
         | CLAUDE_CONFIG_DIR="$_bp_tmpdir/config" \
-            AGENT_PERMISSIONS_PRESET_DIRS="${_bp_preset_dirs:-}" \
+            AGENT_PERMISSIONS_PRESET_DIRS="$preset_dirs" \
+            AGENT_PERMISSIONS_ENFORCED_PRESET_DIRS="$enforced_dirs" \
+            AGENT_PERMISSIONS_ENFORCED_PRESETS="$enforced_names" \
             "$HOOK" claude-hook >/dev/null 2>&1 || rc=$?
     echo "$rc"
+}
+
+# _run_hook_error preserves stderr and the hook's exit code
+# for configuration-failure assertions.
+_run_hook_error() {
+    local cmd="$1"
+    local preset_dirs="${_bp_preset_dirs:-}"
+    local enforced_dirs="${_bp_enforced_preset_dirs:-}"
+    local enforced_names="${_bp_enforced_presets:-}"
+    _hook_input "$cmd" \
+        | CLAUDE_CONFIG_DIR="$_bp_tmpdir/config" \
+            AGENT_PERMISSIONS_PRESET_DIRS="$preset_dirs" \
+            AGENT_PERMISSIONS_ENFORCED_PRESET_DIRS="$enforced_dirs" \
+            AGENT_PERMISSIONS_ENFORCED_PRESETS="$enforced_names" \
+            "$HOOK" claude-hook 2>&1
 }
 
 # _decision extracts permissionDecision from hook output.
@@ -145,6 +175,30 @@ _clear_external_presets() {
     _bp_preset_dirs=""
 }
 
+# _write_enforced_preset writes a preset that forms a
+# non-selectable minimum policy.
+_write_enforced_preset() {
+    mkdir -p "$_bp_tmpdir/enforced-preset-dir"
+    echo "$2" > "$_bp_tmpdir/enforced-preset-dir/$1"
+    _bp_enforced_preset_dirs="$_bp_tmpdir/enforced-preset-dir"
+}
+
+_clear_enforced_presets() {
+    rm -rf "$_bp_tmpdir/enforced-preset-dir"
+    _bp_enforced_preset_dirs=""
+}
+
+# _enforce_presets moves already-available presets into the
+# enforced plane by name (comma-separated), as a site does for
+# the embedded topics it does not ship itself.
+_enforce_presets() {
+    _bp_enforced_presets="$1"
+}
+
+_clear_enforced_preset_names() {
+    _bp_enforced_presets=""
+}
+
 # Isolate HOME so the test runner's real ~/.agents/
 # permissions.json doesn't bleed into the hook's resolver.
 # CLAUDE_CONFIG_DIR is also pinned at the tmpdir, so an
@@ -168,6 +222,8 @@ echo ""
 echo "=== bash permissions: smoke check ==="
 _smoke_out=$(_hook_input "git status" \
     | env "CLAUDE_CONFIG_DIR=$_bp_tmpdir/config" \
+        "AGENT_PERMISSIONS_PRESET_DIRS=" \
+        "AGENT_PERMISSIONS_ENFORCED_PRESET_DIRS=" \
         "$HOOK" claude-hook 2>&1)
 _smoke_rc=$?
 if [[ $_smoke_rc -ne 0 ]]; then
@@ -2246,17 +2302,34 @@ assert_not_contains "external-preset: disabled by name" \
     "$(_decision "$out")" "allow"
 _clear_agent_config
 
-# A name collision with an embedded preset fails closed.
+# A name collision with an embedded preset must not block the
+# session: both presets stay active. Refusing to load would
+# deny every Bash call over a naming clash.
 _write_external_preset git.json \
     '{"Allow":{"Commands":{"mytool:*":"collides"}}}'
 rc=$(_run_hook_rc 'git status')
-assert_contains "external-preset: duplicate name exits 2" "$rc" "2"
+assert_contains "external-preset: duplicate name still loads" \
+    "$rc" "0"
+out=$(_run_hook 'mytool run')
+assert_contains "external-preset: colliding preset applies" \
+    "$(_decision "$out")" "allow"
+out=$(_run_hook 'git status')
+assert_contains "external-preset: embedded namesake applies" \
+    "$(_decision "$out")" "allow"
 _clear_external_presets
 
 # A malformed external preset fails closed.
 _write_external_preset dug-test.json '{not json'
 rc=$(_run_hook_rc 'git status')
 assert_contains "external-preset: malformed JSON exits 2" "$rc" "2"
+_clear_external_presets
+
+# Unknown nested fields are schema errors rather than
+# silently ignored policy.
+_write_external_preset dug-test.json \
+    '{"Deny":{"Command":{"rg:*":"site denies rg"}}}'
+rc=$(_run_hook_rc 'git status')
+assert_contains "external-preset: unknown axis exits 2" "$rc" "2"
 _clear_external_presets
 
 # A missing preset directory fails closed — site policy
@@ -2270,6 +2343,190 @@ _bp_preset_dirs=""
 out=$(_run_hook 'rg pattern')
 assert_contains "external-preset: cleared env restores embedded allow" \
     "$(_decision "$out")" "allow"
+
+# Semantic errors are as fatal as malformed JSON. A valid
+# JSON file with a rejected entry would otherwise load a
+# weaker policy than its author wrote.
+_write_external_preset dug-bad.json \
+    '{"Deny":{"Commands":{"scancel :*":"bad pattern"}}}'
+rc=0
+out=$(_run_hook_error 'git status') || rc=$?
+assert_contains "external-preset: bad command pattern exits 2" "$rc" "2"
+assert_contains "external-preset: bad command names entry" \
+    "$out" "scancel :*"
+assert_contains "external-preset: bad command names source" \
+    "$out" "preset:dug-bad"
+_clear_external_presets
+
+_write_external_preset dug-bad.json \
+    '{"Deny":{"EnvVars":{"BAD-NAME":"bad pattern"}}}'
+rc=$(_run_hook_rc 'git status')
+assert_contains "external-preset: bad env pattern exits 2" "$rc" "2"
+_clear_external_presets
+
+# Validation runs before preset selection, so disabling a
+# broken external preset cannot hide its rule typo.
+_write_external_preset dug-bad.json \
+    '{"Rules":{"git.branch-writs":{"Enabled":true}}}'
+_write_agent_config '{"disabled-presets":["dug-bad"]}'
+rc=0
+out=$(_run_hook_error 'git status') || rc=$?
+assert_contains "external-preset: unknown rule exits 2" "$rc" "2"
+assert_contains "external-preset: unknown rule named" \
+    "$out" "git.branch-writs"
+_clear_external_presets
+_clear_agent_config
+
+# --- Enforced presets: minimum policy ---
+
+_write_enforced_preset dug-enforced.json \
+    '{"Deny":{"Commands":{"rg:*":"DUG denies rg"}}}'
+_write_agent_config \
+    '{"Allow":{"Commands":{"rg:*":"user allows rg"}}}'
+out=$(_run_hook 'rg pattern')
+assert_contains "enforced-preset: deny beats user allow" \
+    "$(_decision "$out")" "deny"
+assert_contains "enforced-preset: deny source shown" \
+    "$(_reason "$out")" "enforced-preset:dug-enforced"
+_clear_agent_config
+
+_write_enforced_preset dug-enforced.json \
+    '{"Allow":{"Commands":{"mytool:*":"DUG allows tool"}}}'
+_write_agent_config \
+    '{"Deny":{"Commands":{"mytool:*":"user denies tool"}}}'
+out=$(_run_hook 'mytool run')
+assert_contains "enforced-preset: user deny beats allow" \
+    "$(_decision "$out")" "deny"
+_clear_agent_config
+
+out=$(_run_hook 'mytool run')
+assert_contains "enforced-preset: allow decides unknown" \
+    "$(_decision "$out")" "allow"
+
+_write_agent_config '{"disabled-presets":["dug-enforced"]}'
+out=$(_run_hook 'mytool run')
+assert_contains "enforced-preset: selection cannot disable" \
+    "$(_decision "$out")" "allow"
+_clear_agent_config
+
+# A soft-ask is a nudge, and an explicit allow is the answer to
+# it — so an enforced soft-ask must yield to a user allow. It is
+# the one restrictive tier that stays silenceable; enforcing it
+# would make it stricter than an enforced Ask.
+_write_enforced_preset dug-enforced.json \
+    '{"SoftAsk":{"Commands":{"mytool:*":"DUG nudges tool"}}}'
+_write_agent_config \
+    '{"Allow":{"Commands":{"mytool:*":"user allows tool"}}}'
+out=$(_run_hook 'mytool run')
+assert_contains "enforced-preset: soft-ask yields to user allow" \
+    "$(_decision "$out")" "allow"
+_clear_agent_config
+
+# Without that allow the nudge still lands (a soft-ask reaches
+# Claude Code as "ask" outside auto mode).
+out=$(_run_hook 'mytool run')
+assert_contains "enforced-preset: soft-ask nudges by default" \
+    "$(_decision "$out")" "ask"
+assert_contains "enforced-preset: soft-ask names its source" \
+    "$(_reason "$out")" "enforced-preset:dug-enforced"
+
+# An enforced Ask is not silenceable, which is the distinction.
+_write_enforced_preset dug-enforced.json \
+    '{"Ask":{"Commands":{"mytool:*":"DUG asks about tool"}}}'
+_write_agent_config \
+    '{"Allow":{"Commands":{"mytool:*":"user allows tool"}}}'
+out=$(_run_hook 'mytool run')
+assert_contains "enforced-preset: ask survives user allow" \
+    "$(_decision "$out")" "ask"
+_clear_agent_config
+
+_write_enforced_preset dug-env.json \
+    '{"Deny":{"EnvVars":{"POLICY_VAR":"DUG policy"}}}'
+_write_agent_config \
+    '{"Allow":{"EnvVars":{"POLICY_VAR":"user allows"}}}'
+out=$(_run_hook 'POLICY_VAR=x true')
+assert_contains "enforced-preset: env deny beats user allow" \
+    "$(_decision "$out")" "deny"
+_clear_agent_config
+
+_write_enforced_preset dug-rules.json \
+    '{"Rules":{"python.command-execution":{"Enabled":true}}}'
+_write_agent_config \
+    '{"Rules":{"python.command-execution":{"Enabled":false}}}'
+out=$(_run_hook 'python3 -c "import subprocess"')
+assert_contains "enforced-preset: rule stays enabled" \
+    "$(_decision "$out")" "deny"
+_clear_agent_config
+
+_write_enforced_preset dug-rules.json \
+    '{"Rules":{"python.command-execution":{"Enabled":false}}}'
+rc=$(_run_hook_rc 'git status')
+assert_contains "enforced-preset: rule false exits 2" "$rc" "2"
+_clear_enforced_presets
+
+_bp_enforced_preset_dirs="$_bp_tmpdir/no-such-enforced-dir"
+rc=$(_run_hook_rc 'git status')
+assert_contains "enforced-preset: missing dir exits 2" "$rc" "2"
+_bp_enforced_preset_dirs=""
+
+# --- Enforcing presets by name ---
+#
+# A site cannot put an embedded preset in an enforced directory,
+# so it names them instead. Their Deny/Ask entries and Rules
+# become a floor; SoftAsk entries stay silenceable.
+
+_write_agent_config \
+    '{"Allow":{"Commands":{"ssh:*":"user allows ssh"}}}'
+out=$(_run_hook 'ssh host uptime')
+assert_contains "enforce-by-name: user allow wins by default" \
+    "$(_decision "$out")" "allow"
+
+_enforce_presets "escape-hatches"
+out=$(_run_hook 'ssh host uptime')
+assert_contains "enforce-by-name: embedded deny becomes a floor" \
+    "$(_decision "$out")" "deny"
+assert_contains "enforce-by-name: names the enforced preset" \
+    "$(_reason "$out")" "enforced-preset:escape-hatches"
+_clear_agent_config
+
+# Enforcing a topic locks its rules on, which a project config
+# would otherwise switch off.
+_write_local_agent_config \
+    '{"Rules":{"python.command-execution":{"Enabled":false}}}'
+_enforce_presets "escape-hatches,languages"
+out=$(_run_hook 'python3 -c "import subprocess"')
+assert_contains "enforce-by-name: locks the topic's rules on" \
+    "$(_decision "$out")" "deny"
+_clear_agent_config
+
+# A soft-ask in an enforced preset is still answerable by an
+# explicit allow — that is what separates it from Ask.
+_enforce_presets "standard-commands"
+_write_agent_config \
+    '{"Allow":{"Commands":{"rm:*":"user allows rm"}}}'
+out=$(_run_hook 'rm -rf /tmp/junk')
+assert_contains "enforce-by-name: soft-ask stays silenceable" \
+    "$(_decision "$out")" "allow"
+_clear_agent_config
+
+# An unnamed preset is unaffected.
+_enforce_presets "escape-hatches"
+_write_agent_config \
+    '{"Allow":{"Commands":{"rm:*":"user allows rm"}}}'
+out=$(_run_hook 'rm -rf /tmp/junk')
+assert_contains "enforce-by-name: unnamed preset unaffected" \
+    "$(_decision "$out")" "allow"
+_clear_agent_config
+
+# A misspelled name fails closed rather than quietly enforcing
+# nothing.
+_enforce_presets "escape-hatchs"
+rc=$(_run_hook_rc 'ls')
+assert_contains "enforce-by-name: unknown name exits 2" "$rc" "2"
+out=$(_run_hook_error 'ls')
+assert_contains "enforce-by-name: unknown name is named" \
+    "$out" "escape-hatchs"
+_clear_enforced_preset_names
 
 # xargs in a pipe — common real-world pattern.
 out=$(_run_hook 'echo hello | xargs echo')
