@@ -9,7 +9,24 @@ permissions:
   contents: write
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+      - name: Install jq
+        run: sudo apt-get install -y jq
+      - name: Build
+        run: ./build.sh
+      - name: Test
+        run: ./test/test.sh
+
   release:
+    needs: test
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -43,7 +60,10 @@ jobs:
             -o "dist/$name" \
             ./cmd/agent-permissions
           (cd dist && tar czf "$name.tar.gz" "$name")
-          shasum -a 256 "dist/$name.tar.gz" > "dist/$name.tar.gz.sha256"
+          (
+            cd dist
+            shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
+          )
 
       - name: Upload
         uses: softprops/action-gh-release@v2
