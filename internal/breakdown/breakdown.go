@@ -26,6 +26,13 @@ const maxBreakdownDepth = 20
 // to delimit the chain of files (e.g. "outer.sh > inner.sh").
 const sourcePathSep = " > "
 
+type shellExpansion int
+
+const (
+	needsExpansion shellExpansion = iota
+	expansionScanned
+)
+
 // breaker holds mutable state during a breakdown pass.
 type breaker struct {
 	model.State
@@ -155,6 +162,7 @@ func (b *breaker) runBreakdown(
 	baseName string,
 	cmdArgs []*syntax.Word,
 	depth int,
+	expansion shellExpansion,
 ) (model.BreakdownResult, bool, error) {
 	rules := b.registry[baseName]
 
@@ -237,6 +245,9 @@ func (b *breaker) runBreakdown(
 			result.Assigns = append(
 				result.Assigns, assign.Name.Value)
 		}
+		if expansion == expansionScanned {
+			continue
+		}
 		inner, assignErr := b.processAssign(
 			assign, quotedTextArithmetic)
 		if assignErr != nil {
@@ -246,11 +257,56 @@ func (b *breaker) runBreakdown(
 		result.Merge(inner)
 	}
 
+	// ShellWords expand before a handled wrapper starts, so they always use
+	// the outer working directory rather than a wrapper-scoped one.
+	if expansion == needsExpansion {
+		for _, shellWord := range unwrapResult.ShellWords {
+			inner, shellErr := b.extractSubsFromWord(shellWord)
+			if shellErr != nil {
+				return model.BreakdownResult{}, true, shellErr
+			}
+			result.Merge(inner)
+		}
+	}
+
+	innerExpansion := expansion
+	if directory := unwrapResult.WorkingDirectory; directory != nil {
+		if expansion == needsExpansion {
+			inner, directoryErr := b.extractSubsFromWord(directory)
+			if directoryErr != nil {
+				return model.BreakdownResult{}, true, directoryErr
+			}
+			result.Merge(inner)
+			for _, words := range unwrapResult.Commands {
+				for _, commandWord := range words {
+					inner, wordErr := b.extractSubsFromWord(commandWord)
+					if wordErr != nil {
+						return model.BreakdownResult{}, true, wordErr
+					}
+					result.Merge(inner)
+				}
+			}
+		}
+
+		restoreCwd := b.saveCwd()
+		defer restoreCwd()
+		b.CwdChanged = false
+		b.SetWorkingDirectory(directory)
+		innerExpansion = expansionScanned
+	}
+
 	// Process inner commands directly through the AST
 	// walker — no print→reparse round trip.
 	for _, words := range unwrapResult.Commands {
-		inner, innerErr := b.processCallExpr(
-			&syntax.CallExpr{Args: words}, depth)
+		call := &syntax.CallExpr{Args: words}
+		var inner model.BreakdownResult
+		var innerErr error
+		if innerExpansion == expansionScanned {
+			inner, innerErr =
+				b.processCallExprWithScannedExpansion(call, depth)
+		} else {
+			inner, innerErr = b.processCallExpr(call, depth)
+		}
 		if innerErr != nil {
 			return model.BreakdownResult{},
 				true, innerErr
@@ -282,18 +338,6 @@ func (b *breaker) runBreakdown(
 	result.CodeSnippets = append(
 		result.CodeSnippets,
 		unwrapResult.CodeSnippets...)
-
-	// A handled wrapper replaces its outer command, so its raw shell words do
-	// not reach processCallExpr's normal substitution scan. Check them without
-	// turning flags, program sources, or data into commands of their own.
-	for _, shellWord := range unwrapResult.ShellWords {
-		inner, shellErr := b.extractSubsFromWord(shellWord)
-		if shellErr != nil {
-			return model.BreakdownResult{}, true, shellErr
-		}
-
-		result.Merge(inner)
-	}
 
 	// Scan files with automatic isolation.
 	for _, path := range unwrapResult.ScanFiles {
@@ -544,11 +588,30 @@ func (b *breaker) processCommand(
 func (b *breaker) processCallExpr(
 	ce *syntax.CallExpr, depth int,
 ) (model.BreakdownResult, error) {
+	return b.processCallExprWithExpansion(
+		ce, depth, needsExpansion)
+}
+
+func (b *breaker) processCallExprWithScannedExpansion(
+	ce *syntax.CallExpr, depth int,
+) (model.BreakdownResult, error) {
+	return b.processCallExprWithExpansion(
+		ce, depth, expansionScanned)
+}
+
+func (b *breaker) processCallExprWithExpansion(
+	ce *syntax.CallExpr,
+	depth int,
+	expansion shellExpansion,
+) (model.BreakdownResult, error) {
 	var result model.BreakdownResult
 
 	// Collect findings from assignment substitutions
 	// (e.g. FOO=$(evil) cmd -> extract "evil" for checking).
 	for _, assign := range ce.Assigns {
+		if expansion == expansionScanned {
+			continue
+		}
 		inner, err := b.processAssign(
 			assign, quotedTextArithmetic)
 		if err != nil {
@@ -618,7 +681,7 @@ func (b *breaker) processCallExpr(
 				inner, replaced, bdErr :=
 					b.runBreakdown(
 						baseName, ce.Args,
-						depth)
+						depth, expansion)
 				if bdErr != nil {
 					return model.BreakdownResult{},
 						bdErr
@@ -640,6 +703,9 @@ func (b *breaker) processCallExpr(
 	// Store the original Words on the Command — text
 	// resolution happens lazily in the perms layer.
 	for i, word := range ce.Args {
+		if expansion == expansionScanned {
+			break
+		}
 		if i == 0 {
 			continue
 		}

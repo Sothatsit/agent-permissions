@@ -137,17 +137,20 @@ type SnippetLang struct {
 	// StripComments removes comments (not strings)
 	// before running rules. Nil means no stripping.
 	StripComments func(string) string
-	Rules         []SnippetRule
+	// InterpolationContents returns string contents that can evaluate code but
+	// the normal matcher skips as one quoted literal. Rules also scan each
+	// returned fragment. Nil means the language has no supported extractor.
+	InterpolationContents func(string) []string
+	Rules                 []SnippetRule
 }
 
 // SnippetRule checks code snippets for dangerous patterns
 // and produces an action when matched. The rule governing
 // it lives on the enclosing SnippetLang.
 type SnippetRule struct {
-	// Check reports whether the code contains the
-	// dangerous pattern. Comments are already stripped
-	// by the caller; string literals are skipped by
-	// the SKIP/FAIL regex built into each matcher.
+	// Check reports whether the code contains the dangerous pattern. The main
+	// source has comments stripped. Interpolated string contents are passed
+	// unchanged. String literals are skipped by each matcher's SKIP/FAIL regex.
 	Check  func(code string) bool
 	Action *Action
 }
@@ -289,6 +292,10 @@ type CodeSnippet struct {
 //     outer find may have flags or args that need
 //     rules/permissions evaluation).
 type UnwrapResult struct {
+	// WorkingDirectory scopes the inner work to this directory. The framework
+	// scans its shell substitutions under the outer state, resolves it with the
+	// same rules as cd, then restores the outer state.
+	WorkingDirectory *syntax.Word
 	// Commands to recurse into. Each slice of Words is
 	// processed directly through the AST walker (no
 	// print→reparse round trip). Use this for inner

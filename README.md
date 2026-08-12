@@ -73,6 +73,10 @@ redirects, command substitution, `bash -c`, `sh -c`, `eval`,
 *possibly* execute. If any AST node isn't recognised, the whole
 command is denied. Fail closed.
 
+A wrapper can scope this analysis without changing the surrounding shell.
+For example, `env -C dir python3 file.py` resolves `file.py` beneath `dir`,
+then restores the outer working directory for the next shell command.
+
 For interpreter invocations (`python`, `perl`, `ruby`, `node`),
 Breakdown also extracts the code itself, either inline
 (`python -c '...'`) or by reading the referenced script file
@@ -125,15 +129,16 @@ command denies just those forms. Examples:
 - `gh api`. The rule classifies calls as read-only, or denies
   calls that could write.
 
-Code snippets from interpreter invocations get a per-language
-regex scan for the obvious shell-out patterns: `subprocess` or
-`os.system` in Python, `system`/`exec`/backticks in Perl and
-Ruby, `child_process` in Node, and so on. It is not a real AST
-parse, more a coarse pattern check, and is expected to improve
-over time. The script-vs-inline split applies here too.
-Agent-generated inline code (`-c` / `-e`) cannot bypass a deny
-via a permission allow. User-authored script files can be opted
-out by allowing the file path explicitly.
+Code snippets from interpreter invocations get a per-language regex scan for
+the obvious shell-out patterns: `subprocess` or `os.system` in Python,
+`system`/`exec`/backticks in Perl and Ruby, `child_process` in Node, and so
+on. The scan also checks interpolation-bearing string contents that the normal
+matcher skips as literals. This is deliberately coarse, not a language parser,
+so dangerous-looking inert text in the same interpolated string can also
+match. Complex language syntax can also evade the coarse scan. The
+script-vs-inline split applies here too. Agent-generated inline code
+(`-c` / `-e`) cannot bypass a deny via a permission allow. User-authored script
+files can be opted out by allowing the file path explicitly.
 
 ### 3. Permissions: normal resolution plus enforced policy
 

@@ -57,6 +57,60 @@ var breakdownPython = breakdownInterpreter(
 		fallthroughFlags: []string{"-m", "-i"},
 	})
 
+func pythonInterpolationContents(code string) []string {
+	return interpolatedLiteralContents(
+		code, syntaxPython,
+		func(source string, start int, _ quoteDef, content string) bool {
+			return pythonInterpolationPrefix(source, start) &&
+				pythonHasReplacementField(content)
+		})
+}
+
+func pythonInterpolationPrefix(code string, quoteStart int) bool {
+	start := quoteStart - 1
+	if start < 0 {
+		return false
+	}
+	if isPythonRawPrefix(code[start]) {
+		if start == 0 || !isPythonInterpolationPrefix(code[start-1]) {
+			return false
+		}
+		start--
+	} else if !isPythonInterpolationPrefix(code[start]) {
+		return false
+	} else if start > 0 && isPythonRawPrefix(code[start-1]) {
+		start--
+	}
+	return start == 0 || !isPythonNameByte(code[start-1])
+}
+
+func isPythonInterpolationPrefix(value byte) bool {
+	return value == 'f' || value == 'F' || value == 't' || value == 'T'
+}
+
+func isPythonRawPrefix(value byte) bool {
+	return value == 'r' || value == 'R'
+}
+
+func isPythonNameByte(value byte) bool {
+	return value == '_' || value >= 'a' && value <= 'z' ||
+		value >= 'A' && value <= 'Z' || value >= '0' && value <= '9'
+}
+
+func pythonHasReplacementField(content string) bool {
+	for i := 0; i < len(content); i++ {
+		if content[i] != '{' {
+			continue
+		}
+		if i+1 < len(content) && content[i+1] == '{' {
+			i++
+			continue
+		}
+		return true
+	}
+	return false
+}
+
 // --- Snippet matching ---
 
 // pythonDangerousOSFuncs lists os module functions that

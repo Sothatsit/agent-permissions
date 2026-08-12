@@ -65,6 +65,15 @@ var breakdownNode = breakdownInterpreter(
 		},
 	})
 
+func nodeInterpolationContents(code string) []string {
+	return interpolatedLiteralContents(
+		code, syntaxNode,
+		func(_ string, _ int, quote quoteDef, content string) bool {
+			return quote.Delim == "`" &&
+				hasUnescapedPrefix(content, "${")
+		})
+}
+
 // --- Snippet matching ---
 
 // nodeRequire matches Node.js require() calls and

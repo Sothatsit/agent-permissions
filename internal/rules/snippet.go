@@ -156,6 +156,73 @@ func hasPrefix(s string, i int, prefix string) bool {
 		s[i:i+len(prefix)] == prefix
 }
 
+// interpolatedLiteralContents returns the contents of quoted literals chosen
+// by include. It only finds quote boundaries and escapes already understood by
+// the shared matcher. Language-specific callbacks decide which literals can
+// evaluate interpolation; their contents remain deliberately conservative.
+func interpolatedLiteralContents(
+	code string,
+	syntax *langSyntax,
+	include func(string, int, quoteDef, string) bool,
+) []string {
+	var contents []string
+	for i := 0; i < len(code); {
+		matchedQuote := false
+		for _, quote := range syntax.Quotes {
+			if !hasPrefix(code, i, quote.Delim) {
+				continue
+			}
+
+			length := skipQuote(code, i, syntax)
+			end := i + length
+			contentEnd := end
+			if end >= i+2*len(quote.Delim) &&
+				hasPrefix(code, end-len(quote.Delim), quote.Delim) {
+				contentEnd -= len(quote.Delim)
+			}
+			content := code[i+len(quote.Delim) : contentEnd]
+			if include(code, i, quote, content) {
+				contents = append(contents, content)
+			}
+			i = end
+			matchedQuote = true
+			break
+		}
+		if matchedQuote {
+			continue
+		}
+		if length := skipLineComment(code, i, syntax); length > 0 {
+			i += length
+			continue
+		}
+		if length := skipBlockComment(code, i, syntax); length > 0 {
+			i += length
+			continue
+		}
+		i++
+	}
+	return contents
+}
+
+func hasUnescapedPrefix(text, prefix string) bool {
+	for offset := 0; offset < len(text); {
+		relative := strings.Index(text[offset:], prefix)
+		if relative < 0 {
+			return false
+		}
+		index := offset + relative
+		backslashes := 0
+		for i := index - 1; i >= 0 && text[i] == '\\'; i-- {
+			backslashes++
+		}
+		if backslashes%2 == 0 {
+			return true
+		}
+		offset = index + len(prefix)
+	}
+	return false
+}
+
 // --- Builder ---
 
 // matchBuilder wraps a check function so you can call

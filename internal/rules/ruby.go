@@ -59,6 +59,15 @@ var breakdownRuby = breakdownInterpreter(
 		codeFlags: []string{"-e"},
 	})
 
+func rubyInterpolationContents(code string) []string {
+	return interpolatedLiteralContents(
+		code, syntaxRuby,
+		func(_ string, _ int, quote quoteDef, content string) bool {
+			return quote.Delim == `"` &&
+				hasUnescapedPrefix(content, "#{")
+		})
+}
+
 // --- Snippet matching ---
 
 // rubyBareCall matches bare function calls (system,

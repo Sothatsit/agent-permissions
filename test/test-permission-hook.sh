@@ -2065,6 +2065,92 @@ assert_contains "deny: env LD_PRELOAD denied" "$(_decision "$out")" "deny"
 out=$(_run_hook 'env python3 -c "import subprocess"')
 assert_contains "deny: env python3 -c scanned" "$(_decision "$out")" "deny"
 
+# env -C applies a working directory to the wrapped command without changing
+# the surrounding shell. Give the outer and selected directories different
+# versions of the same scripts so each assertion proves which one was read.
+_bp_env_cwd="$_bp_tmpdir/project/env-cwd"
+_bp_env_first="$_bp_tmpdir/project/env-first"
+mkdir -p "$_bp_env_cwd/sub" "$_bp_env_first"
+echo 'print("safe")' > "$_bp_env_first/selected.py"
+echo 'import os; os.system("true")' > "$_bp_env_cwd/selected.py"
+echo 'print("safe")' > "$_bp_env_cwd/nested.py"
+echo 'import os; os.system("true")' > "$_bp_env_cwd/sub/nested.py"
+echo 'print("safe")' > "$_bp_env_cwd/after-env.py"
+echo 'import os; os.system("true")' \
+    > "$_bp_tmpdir/project/after-env.py"
+echo 'print("safe")' > "$_bp_env_cwd/expanded.py"
+echo 'import os; os.system("true")' \
+    > "$_bp_tmpdir/project/expanded.py"
+echo 'import os; os.system("true")' > "$_bp_env_cwd/scoped.py"
+echo 'print("safe")' > "$_bp_tmpdir/project/scoped.py"
+
+out=$(_run_hook 'env -C env-cwd python3 selected.py')
+assert_contains "ask: env -C scopes relative script" \
+    "$(_decision "$out")" "ask"
+
+out=$(_run_hook 'env --chdir=env-cwd python3 selected.py')
+assert_contains "ask: env --chdir scopes relative script" \
+    "$(_decision "$out")" "ask"
+
+# Repeated -C flags do not chain. env keeps the final value and resolves it
+# against the directory in which env itself starts.
+out=$(_run_hook \
+    'env -C env-first -C env-cwd python3 selected.py')
+assert_contains "ask: env final -C uses incoming directory" \
+    "$(_decision "$out")" "ask"
+
+out=$(_run_hook \
+    'env -C env-cwd env -C sub python3 nested.py')
+assert_contains "ask: nested env -C scopes compose" \
+    "$(_decision "$out")" "ask"
+
+out=$(_run_hook \
+    'env -C env-first env -C ../env-cwd python3 selected.py')
+assert_contains "ask: nested relative env -C uses parent scope" \
+    "$(_decision "$out")" "ask"
+
+# A wrapper-scoped directory is valid inside conditional shell syntax, and it
+# does not leak to the next command after the wrapper exits.
+out=$(_run_hook \
+    "true && env -C $_bp_env_cwd python3 selected.py")
+assert_contains "ask: conditional env -C uses selected directory" \
+    "$(_decision "$out")" "ask"
+
+out=$(_run_hook \
+    'env -C env-cwd python3 after-env.py && python3 after-env.py')
+assert_contains "ask: env -C directory does not leak" \
+    "$(_decision "$out")" "ask"
+
+# The shell expands wrapper operands before env changes directory. Both the
+# directory value and substitutions in the inner argv use the outer cwd.
+out=$(_run_hook 'env -C "$(ssh evil)" git status')
+assert_contains "deny: env -C target substitution scanned" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    'env -C "$(ssh evil)" -C env-cwd git status')
+assert_contains "deny: env earlier -C substitution scanned" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    'env -C env-cwd echo "$(python3 expanded.py)"')
+assert_contains "ask: env inner substitution uses outer directory" \
+    "$(_decision "$out")" "ask"
+
+out=$(_run_hook \
+    'env -C env-cwd echo "$(python3 scoped.py)"')
+assert_contains "allow: env does not rescan substitutions in scoped cwd" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook \
+    'env -C env-cwd env -C sub echo "$(python3 scoped.py)"')
+assert_contains "allow: nested env does not rescan substitutions" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook 'env -C "$TARGET" python3 selected.py')
+assert_contains "deny: env opaque -C cannot resolve relative script" \
+    "$(_decision "$out")" "deny"
+
 # env -S runs env's own string splitter, not the shell — can't
 # be verified, so it is denied.
 out=$(_run_hook 'env -S "git status"')
@@ -6641,6 +6727,23 @@ out=$(_run_hook \
 assert_contains "python: os.system -c deny" \
     "$(_decision "$out")" "deny"
 
+# The normal matcher skips complete strings. Scan f-string contents as an
+# extra fragment so executable interpolation cannot hide a dangerous call.
+out=$(_run_hook \
+    "python3 -c 'import os; f\"{os.system(chr(105))}\"'")
+assert_contains "python: os.system in f-string deny" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    "python3 -c 'value = 1; print(f\"{value}\")'")
+assert_contains "python: safe f-string allow" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook \
+    "python3 -c 'f\"{{os.system()}}\"'")
+assert_contains "python: escaped f-string braces allow" \
+    "$(_decision "$out")" "allow"
+
 # --- Python: user permission override ---
 #
 # Users can add Bash(python3 script.py) to their allow
@@ -7031,6 +7134,16 @@ out=$(_run_hook \
 assert_contains "perl: backtick in string allow" \
     "$(_decision "$out")" "allow"
 
+out=$(_run_hook \
+    "perl -e 'my \$x = \"@{[system(q(id))]}\"'")
+assert_contains "perl: system in interpolation deny" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    "perl -e 'my \$value = 1; print \"\$value\"'")
+assert_contains "perl: safe interpolation allow" \
+    "$(_decision "$out")" "allow"
+
 # --- Perl: file scanning ---
 
 printf '%s\n' 'print "hello\n";' \
@@ -7154,6 +7267,16 @@ out=$(_run_hook \
 assert_contains "ruby: system in string allow" \
     "$(_decision "$out")" "allow"
 
+out=$(_run_hook \
+    "ruby -e 'value = \"#{system(%q(id))}\"'")
+assert_contains "ruby: system in interpolation deny" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    "ruby -e 'value = 1; puts \"#{value}\"'")
+assert_contains "ruby: safe interpolation allow" \
+    "$(_decision "$out")" "allow"
+
 # Whitespace-tolerant require matching.
 out=$(_run_hook \
     'ruby -e "require(  \"open3\"  )"')
@@ -7233,6 +7356,21 @@ assert_contains "node: child_process -e deny" \
     "$(_decision "$out")" "deny"
 assert_contains "node: child_process -e reason" \
     "$(_reason "$out")" "child_process"
+
+out=$(_run_hook \
+    "node -e 'const x = \`\${require(\"child_process\")}\`'")
+assert_contains "node: child_process in template deny" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    "node -e 'const value = 1; console.log(\`\${value}\`)'")
+assert_contains "node: safe template interpolation allow" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook \
+    "node -e 'const x = \`\\\${require(\"child_process\")}\`'")
+assert_contains "node: escaped template marker allow" \
+    "$(_decision "$out")" "allow"
 
 # --eval long form.
 out=$(_run_hook \

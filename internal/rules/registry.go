@@ -484,12 +484,14 @@ func Registry() (
 		model.LangSed: snippetLang(
 			sedCommandExec,
 			nil,
+			nil,
 			sedCommandExecution().Deny(
 				"shell command execution"),
 		),
 
 		model.LangAwk: snippetLang(
 			awkCommandExec,
+			nil,
 			nil,
 			awkCommandExecution().Deny(
 				"shell command execution or code loading"),
@@ -498,6 +500,7 @@ func Registry() (
 		model.LangPython: snippetLang(
 			pythonCommandExec,
 			syntaxPython.stripComments,
+			pythonInterpolationContents,
 			pythonImport("subprocess", nil).
 				Deny("subprocess (shell command execution)"),
 			pythonImport("os", pythonDangerousOSFuncs).
@@ -509,6 +512,7 @@ func Registry() (
 		model.LangPerl: snippetLang(
 			perlCommandExec,
 			syntaxPerl.stripComments,
+			perlInterpolationContents,
 			perlUse("IPC::").
 				Deny("IPC (shell command execution)"),
 			perlBareCall("system", "exec").
@@ -520,6 +524,7 @@ func Registry() (
 		model.LangRuby: snippetLang(
 			rubyCommandExec,
 			syntaxRuby.stripComments,
+			rubyInterpolationContents,
 			rubyRequire("open3", "open4").
 				Deny("open3/open4 (shell command execution)"),
 			rubyBareCall(
@@ -538,6 +543,7 @@ func Registry() (
 		model.LangNode: snippetLang(
 			nodeCommandExec,
 			syntaxNode.stripComments,
+			nodeInterpolationContents,
 			nodeRequire("child_process").
 				Deny("child_process (shell command execution)"),
 		),
@@ -552,11 +558,13 @@ func Registry() (
 func snippetLang(
 	def *model.RuleDef,
 	strip func(string) string,
+	interpolationContents func(string) []string,
 	rules ...model.SnippetRule,
 ) *model.SnippetLang {
 	return &model.SnippetLang{
-		Def:           def,
-		StripComments: strip,
-		Rules:         rules,
+		Def:                   def,
+		StripComments:         strip,
+		InterpolationContents: interpolationContents,
+		Rules:                 rules,
 	}
 }

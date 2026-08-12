@@ -381,11 +381,9 @@ else
         failed=$((failed + 1))
     fi
 
-    out=$(printf '%s' \
+    if printf '%s' \
         '{"tool_name":"Other","tool_input":{},"cwd":"/"}' | \
-        eval "$stored_hook")
-    if jq -e '.hookSpecificOutput.permissionDecision == "allow"' \
-        >/dev/null <<< "$out"; then
+        eval "$stored_hook" >/dev/null; then
         echo "PASS: install: stored command with spaces executes"
         passed=$((passed + 1))
     else

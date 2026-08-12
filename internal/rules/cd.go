@@ -1,9 +1,6 @@
 package rules
 
 import (
-	"path/filepath"
-	"strings"
-
 	"github.com/sothatsit/agent-permissions/internal/model"
 	"github.com/sothatsit/agent-permissions/internal/word"
 )
@@ -31,23 +28,13 @@ func breakdownCd(
 		input.Name == "cd" &&
 		len(input.Raw) == 1 &&
 		word.Static(input.Raw[0]) {
-		target := word.Text(input.Raw[0])
-		// cd - goes to $OLDPWD, cd ~ expands to
-		// $HOME, neither of which we support yet.
-		if target == "-" || strings.HasPrefix(target, "~") {
+		// cd - goes to $OLDPWD, which we do not track.
+		if word.DefinitelyEqual(input.Raw[0], "-") {
 			state.Cwd = ""
 			return nil, nil
 		}
-		if filepath.IsAbs(target) {
-			state.Cwd = filepath.Clean(target)
-			return nil, nil
-		}
-		// Relative target: resolve against known cwd.
-		if state.Cwd != "" {
-			state.Cwd = filepath.Clean(
-				filepath.Join(state.Cwd, target))
-			return nil, nil
-		}
+		state.SetWorkingDirectory(input.Raw[0])
+		return nil, nil
 	}
 	// Anything else: directory unknown.
 	state.Cwd = ""

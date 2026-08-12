@@ -669,14 +669,26 @@ func (p *Permissions) checkSnippet(
 	}
 
 	code := snippet.Code
+	var interpolationContents []string
+	if lang.InterpolationContents != nil {
+		interpolationContents = lang.InterpolationContents(code)
+	}
 	if lang.StripComments != nil {
 		code = lang.StripComments(code)
 	}
+	scanInputs := append([]string{code}, interpolationContents...)
 
 	var reasons []string
 	strongest := model.Allow
 	for i := range lang.Rules {
-		if lang.Rules[i].Check(code) {
+		matched := false
+		for _, input := range scanInputs {
+			if lang.Rules[i].Check(input) {
+				matched = true
+				break
+			}
+		}
+		if matched {
 			action := lang.Rules[i].Action
 			if action.Decision > strongest {
 				strongest = action.Decision

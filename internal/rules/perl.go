@@ -61,6 +61,16 @@ var breakdownPerl = breakdownInterpreter(
 		codeFlags: []string{"-e", "-E"},
 	})
 
+func perlInterpolationContents(code string) []string {
+	return interpolatedLiteralContents(
+		code, syntaxPerl,
+		func(_ string, _ int, quote quoteDef, content string) bool {
+			return quote.Delim == `"` &&
+				(hasUnescapedPrefix(content, "$") ||
+					hasUnescapedPrefix(content, "@"))
+		})
+}
+
 // --- Snippet matching ---
 
 // perlBareCall matches bare function calls (system,

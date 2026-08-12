@@ -50,10 +50,33 @@ func breakdownEnv(
 	state *model.State,
 ) (*model.UnwrapResult, error) {
 	result, err := _envBaseBreakdown(input, state)
-	if err != nil || result == nil ||
-		len(result.Commands) == 0 {
-		// Error, declined, or bare env (no command).
+	if err != nil || result == nil {
+		// Error or declined.
 		return result, err
+	}
+
+	// GNU env retains only the final -C value and changes directory once, so a
+	// relative final value resolves against the wrapper's incoming directory.
+	var flagValues []*syntax.Word
+	for i := range input.Flags {
+		isDirectory := input.Flags[i].Name == "-C" ||
+			input.Flags[i].Name == "--chdir"
+		if input.Flags[i].Value != nil && !isDirectory {
+			flagValues = append(flagValues, input.Flags[i].Value)
+		}
+		if isDirectory {
+			if result.WorkingDirectory != nil {
+				flagValues = append(
+					flagValues, result.WorkingDirectory)
+			}
+			result.WorkingDirectory = input.Flags[i].Value
+		}
+	}
+	result.ShellWords = flagValues
+	if len(result.Commands) == 0 {
+		// Bare env has no inner command, but -C values can still contain shell
+		// substitutions that run before env reports the missing command.
+		return result, nil
 	}
 
 	words := result.Commands[0]
@@ -77,7 +100,11 @@ func breakdownEnv(
 		i++
 	}
 
-	out := &model.UnwrapResult{Assigns: assigns}
+	out := &model.UnwrapResult{
+		Assigns:          assigns,
+		ShellWords:       flagValues,
+		WorkingDirectory: result.WorkingDirectory,
+	}
 	if rest := words[i:]; len(rest) > 0 {
 		out.Commands = [][]*syntax.Word{rest}
 	}
