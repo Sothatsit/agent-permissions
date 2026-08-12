@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/sothatsit/agent-permissions/internal/breakdown"
 	"github.com/sothatsit/agent-permissions/internal/harness"
@@ -58,7 +59,7 @@ func run() error {
 		printUsage(os.Stdout)
 		return nil
 	case "claude-hook":
-		return claudeHook()
+		return runClaudeHook()
 	case "check":
 		return check(os.Args[2:])
 	case "validate":
@@ -66,9 +67,9 @@ func run() error {
 	case "setup":
 		return setup(os.Args[2:])
 	case "presets":
-		return presetsCmd(os.Args[2:])
+		return runPresetsCommand(os.Args[2:])
 	case "rules":
-		return rulesCmd(os.Args[2:])
+		return runRulesCommand(os.Args[2:])
 	case "install":
 		return install(os.Args[2:])
 	default:
@@ -79,19 +80,34 @@ func run() error {
 }
 
 func printUsage(w io.Writer) {
-	fmt.Fprintln(w, "agent-permissions — toolkit for AI agent bash permissions")
+	fmt.Fprintln(w,
+		"agent-permissions — toolkit for AI agent bash permissions")
 	fmt.Fprintf(w, "Version: %s\n", version)
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Usage: agent-permissions <subcommand>")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Subcommands:")
-	fmt.Fprintln(w, "  claude-hook       PreToolUse hook for Claude Code (reads JSON on stdin)")
-	fmt.Fprintln(w, "  check '<cmd>'     Simulate the hook on a command and print the decision")
-	fmt.Fprintln(w, "  validate          Report malformed entries and bad rule/preset references")
-	fmt.Fprintln(w, "  setup             Write a starter ~/.agents/permissions.json")
-	fmt.Fprintln(w, "  presets list      List enforced, enabled, and disabled presets")
-	fmt.Fprintln(w, "  rules list        List built-in rules as 'id - description'")
-	fmt.Fprintln(w, "  install           Wire the hook into known harness configs (e.g. ~/.claude/settings.json)")
+	fmt.Fprintln(w,
+		"  claude-hook       PreToolUse hook for Claude Code "+
+			"(reads JSON on stdin)")
+	fmt.Fprintln(w,
+		"  check '<cmd>'     Simulate the hook on a command "+
+			"and print the decision")
+	fmt.Fprintln(w,
+		"  validate          Report malformed entries and bad "+
+			"rule/preset references")
+	fmt.Fprintln(w,
+		"  setup             Write a starter "+
+			"~/.agents/permissions.json")
+	fmt.Fprintln(w,
+		"  presets list      List enforced, enabled, and "+
+			"disabled presets")
+	fmt.Fprintln(w,
+		"  rules list        List built-in rules as "+
+			"'id - description'")
+	fmt.Fprintln(w,
+		"  install           Wire the hook into known harness "+
+			"configs (e.g. ~/.claude/settings.json)")
 	fmt.Fprintln(w, "  --version         Print version")
 	fmt.Fprintln(w, "  --help            Print this help")
 }
@@ -119,10 +135,10 @@ type hookSpecific struct {
 	PermissionDecisionReason string `json:"permissionDecisionReason,omitempty"`
 }
 
-// claudeHook runs the Claude Code PreToolUse hook flow:
+// runClaudeHook runs the Claude Code PreToolUse hook flow:
 // read JSON from stdin, classify the bash command, and
 // emit a decision on stdout.
-func claudeHook() error {
+func runClaudeHook() error {
 	data, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		return fmt.Errorf(
@@ -136,7 +152,7 @@ func claudeHook() error {
 	}
 
 	if input.ToolName != "Bash" {
-		// Not a Bash tool call — pass through silently.
+		// Other tools pass through silently.
 		return nil
 	}
 
@@ -144,16 +160,9 @@ func claudeHook() error {
 		return fmt.Errorf("empty command in hook input")
 	}
 
-	// Load permissions and create registry.
-	configDir := os.Getenv("CLAUDE_CONFIG_DIR")
-	if configDir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf(
-				"cannot determine home directory: %v",
-				err)
-		}
-		configDir = home + "/.claude"
+	configDir, err := resolveClaudeConfigDir()
+	if err != nil {
+		return err
 	}
 
 	registry, snippetRules := rules.Registry()
@@ -186,8 +195,7 @@ func claudeHook() error {
 		registry, resolved.RuleConfig)
 	if err != nil {
 		r := perms.DenyResult(breakdownDenialReason(err))
-		writeDecision("deny", r.Reason)
-		return nil
+		return writeDecision(model.Deny, r.Reason)
 	}
 
 	// Check permissions.
@@ -205,7 +213,7 @@ func claudeHook() error {
 			hasInlineSnippets(&br) {
 			return nil
 		}
-		writeDecision("allow", result.Reason)
+		return writeDecision(model.Allow, result.Reason)
 	case model.SoftAsk:
 		// In auto mode, fall through to the
 		// classifier for per-invocation judgment.
@@ -213,12 +221,13 @@ func claudeHook() error {
 		if input.PermissionMode == "auto" {
 			return nil
 		}
-		writeDecision("ask",
+		return writeDecision(model.Ask,
 			"\n"+result.Reason+"\n\n")
 	case model.Ask:
-		writeDecision("ask", "\n"+result.Reason+"\n\n")
+		return writeDecision(
+			model.Ask, "\n"+result.Reason+"\n\n")
 	case model.Deny:
-		writeDecision("deny", result.Reason)
+		return writeDecision(model.Deny, result.Reason)
 	case model.Undecided:
 		// Truly no opinion (e.g. bare assignment,
 		// suspicious env vars) — always fall through
@@ -258,19 +267,36 @@ func breakdownDenialReason(err error) string {
 	return reason
 }
 
-func writeDecision(decision, reason string) {
+func writeDecision(decision model.Decision, reason string) error {
 	output := hookOutput{
 		HookSpecificOutput: hookSpecific{
 			HookEventName:            "PreToolUse",
-			PermissionDecision:       decision,
+			PermissionDecision:       decision.String(),
 			PermissionDecisionReason: reason,
 		},
 	}
 	data, err := json.Marshal(output)
 	if err != nil {
-		fmt.Fprintf(os.Stderr,
-			"failed to marshal output: %v\n", err)
-		os.Exit(2)
+		return fmt.Errorf("failed to marshal output: %w", err)
 	}
-	fmt.Println(string(data))
+
+	if _, err := fmt.Println(string(data)); err != nil {
+		return fmt.Errorf("write hook output: %w", err)
+	}
+
+	return nil
+}
+
+func resolveClaudeConfigDir() (string, error) {
+	if configDir := os.Getenv("CLAUDE_CONFIG_DIR"); configDir != "" {
+		return configDir, nil
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf(
+			"cannot determine home directory: %w", err)
+	}
+
+	return filepath.Join(home, ".claude"), nil
 }

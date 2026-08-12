@@ -52,84 +52,6 @@ assert_not_empty() {
     fi
 }
 
-assert_matches() {
-    local label="$1"
-    local haystack="$2"
-    local pattern="$3"
-
-    if grep -qE -- "$pattern" <<< "$haystack"; then
-        echo "PASS: $label"
-        passed=$((passed + 1))
-    else
-        echo "FAIL: $label — expected to match pattern: $pattern"
-        echo "actual output:"
-        printf '  %s\n' "$haystack"
-        failed=$((failed + 1))
-    fi
-}
-
-assert_line_count_ge() {
-    local label="$1"
-    local value="$2"
-    local min="$3"
-
-    local count
-    if [[ -z "$value" ]]; then
-        count=0
-    else
-        count=$(echo "$value" | wc -l)
-    fi
-    if [[ $count -ge $min ]]; then
-        echo "PASS: $label ($count lines)"
-        passed=$((passed + 1))
-    else
-        echo "FAIL: $label — expected >= $min lines, got $count"
-        failed=$((failed + 1))
-    fi
-}
-
-assert_starts_with() {
-    local label="$1"
-    local value="$2"
-    local prefix="$3"
-
-    if [[ "$value" == "$prefix"* ]]; then
-        echo "PASS: $label"
-        passed=$((passed + 1))
-    else
-        echo "FAIL: $label — expected prefix: $prefix (got: $value)"
-        failed=$((failed + 1))
-    fi
-}
-
-assert_command_fails() {
-    local label="$1"
-    local expected="$2"
-    shift 2
-
-    local output
-    if output=$("$@" 2>&1); then
-        echo "FAIL: $label — command succeeded unexpectedly"
-        failed=$((failed + 1))
-        return
-    fi
-
-    if [[ -n "$expected" ]]; then
-        if [[ "$output" == *"$expected"* ]]; then
-            echo "PASS: $label"
-            passed=$((passed + 1))
-        else
-            echo "FAIL: $label — expected error containing: $expected"
-            echo "actual output:"
-            printf '  %s\n' "$output"
-            failed=$((failed + 1))
-        fi
-    else
-        echo "PASS: $label"
-        passed=$((passed + 1))
-    fi
-}
-
 assert_rc() {
     local label="$1"
     local expected="$2"
@@ -140,53 +62,6 @@ assert_rc() {
         passed=$((passed + 1))
     else
         echo "FAIL: $label — expected exit code $expected, got $actual"
-        failed=$((failed + 1))
-    fi
-}
-
-assert_symlink() {
-    local label="$1"
-    local link="$2"
-    local expected_target="$3"
-
-    if [[ -L "$link" ]]; then
-        local actual_target
-        actual_target=$(readlink "$link")
-        if [[ "$actual_target" == "$expected_target" ]]; then
-            echo "PASS: $label"
-            passed=$((passed + 1))
-        else
-            echo "FAIL: $label — target: $actual_target (expected: $expected_target)"
-            failed=$((failed + 1))
-        fi
-    else
-        echo "FAIL: $label — not a symlink: $link"
-        failed=$((failed + 1))
-    fi
-}
-
-assert_exists() {
-    local label="$1"
-    local path="$2"
-
-    if [[ -e "$path" || -L "$path" ]]; then
-        echo "PASS: $label"
-        passed=$((passed + 1))
-    else
-        echo "FAIL: $label — expected to exist: $path"
-        failed=$((failed + 1))
-    fi
-}
-
-assert_not_exists() {
-    local label="$1"
-    local path="$2"
-
-    if [[ ! -e "$path" && ! -L "$path" ]]; then
-        echo "PASS: $label"
-        passed=$((passed + 1))
-    else
-        echo "FAIL: $label — expected not to exist: $path"
         failed=$((failed + 1))
     fi
 }
@@ -209,7 +84,7 @@ trap _run_exit_hooks EXIT
 
 # --- Summary ---
 
-test_summary() {
+print_test_summary() {
     echo ""
     echo "================================"
     local total=$((passed + failed))

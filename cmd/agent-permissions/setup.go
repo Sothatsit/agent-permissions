@@ -68,7 +68,10 @@ func setup(args []string) error {
 		return err
 	}
 
-	body := setupTemplate()
+	body, err := buildSetupTemplate()
+	if err != nil {
+		return fmt.Errorf("build starter config: %w", err)
+	}
 	if err := atomicfile.Write(
 		path, body, 0o644,
 	); err != nil {
@@ -114,27 +117,27 @@ func setup(args []string) error {
 	return nil
 }
 
-// setupTemplate returns the initial JSON body with empty
+// buildSetupTemplate returns the initial JSON body with empty
 // tier objects (each holding empty Commands and EnvVars
-// maps) as placeholders for hand-editing. Key order is
-// alphabetised by encoding/json — fine for a starter file
-// users will hand-edit anyway.
-func setupTemplate() []byte {
+// maps) as placeholders for hand-editing. encoding/json sorts
+// the keys, which gives the starter file stable output.
+func buildSetupTemplate() ([]byte, error) {
 	body := map[string]any{
-		"Allow":   emptyTier(),
-		"SoftAsk": emptyTier(),
-		"Ask":     emptyTier(),
-		"Deny":    emptyTier(),
+		"Allow":   buildEmptyTier(),
+		"SoftAsk": buildEmptyTier(),
+		"Ask":     buildEmptyTier(),
+		"Deny":    buildEmptyTier(),
 	}
-	out, _ := json.MarshalIndent(body, "", "  ")
+	out, err := json.MarshalIndent(body, "", "  ")
+	if err != nil {
+		return nil, err
+	}
 	out = append(out, '\n')
-	return out
+	return out, nil
 }
 
-// emptyTier returns a new empty tier object matching the
-// loader's expected schema. Returned fresh each call so
-// JSON marshalling doesn't share state across tier keys.
-func emptyTier() map[string]any {
+// buildEmptyTier returns an empty tier in the loader's schema.
+func buildEmptyTier() map[string]any {
 	return map[string]any{
 		"Commands": map[string]string{},
 		"EnvVars":  map[string]string{},

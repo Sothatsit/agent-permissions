@@ -116,7 +116,8 @@ func TestSelectPresetsLocalOverridesProject(t *testing.T) {
 	local := &agentconfig.Config{
 		EnabledPresets: &localEnabled,
 	}
-	got := presetNames(SelectPresets(presets.MustEmbedded(), global, project, local))
+	got := presetNames(SelectPresets(
+		presets.MustEmbedded(), global, project, local))
 	if len(got) != 1 || !contains(got, "containers") {
 		t.Errorf(
 			"local should have won; got %v", got)

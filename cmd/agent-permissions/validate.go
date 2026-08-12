@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -48,13 +47,9 @@ func validate(args []string) error {
 	if err != nil {
 		return fmt.Errorf("cwd: %v", err)
 	}
-	configDir := os.Getenv("CLAUDE_CONFIG_DIR")
-	if configDir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("home: %v", err)
-		}
-		configDir = filepath.Join(home, ".claude")
+	configDir, err := resolveClaudeConfigDir()
+	if err != nil {
+		return err
 	}
 
 	resolved, err := perms.Resolve(configDir, cwd)

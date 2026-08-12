@@ -35,20 +35,25 @@ func TestWritePreservesExistingMode(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	// Default mode 0o644 should be ignored — existing
-	// 0o600 wins.
+	// The existing mode must win over the default mode.
 	if err := Write(
 		path, []byte(`{"k":2}`), 0o644,
 	); err != nil {
 		t.Fatal(err)
 	}
-	info, _ := os.Stat(path)
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if info.Mode().Perm() != 0o600 {
 		t.Errorf(
 			"expected preserved 0o600, got %o",
 			info.Mode().Perm())
 	}
-	got, _ := os.ReadFile(path)
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if string(got) != `{"k":2}` {
 		t.Errorf("contents not updated")
 	}
@@ -71,8 +76,10 @@ func TestWriteRefusesSymlink(t *testing.T) {
 		t.Errorf(
 			"expected ErrSymlinkTarget, got %v", err)
 	}
-	// Real file should be unchanged.
-	contents, _ := os.ReadFile(real)
+	contents, err := os.ReadFile(real)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if string(contents) != `{}` {
 		t.Errorf(
 			"real file was modified: %s", contents)
@@ -100,7 +107,10 @@ func TestWriteDoesNotLeaveTempOnSuccess(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	entries, _ := os.ReadDir(dir)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, e := range entries {
 		if e.Name() != "f.json" {
 			t.Errorf(
@@ -128,10 +138,14 @@ func TestWriteUnwritableParent(t *testing.T) {
 		filepath.Join(sub, "f.json"),
 		[]byte(`{}`), 0o644)
 	if err == nil {
-		t.Error("expected error for read-only parent")
+		t.Fatal("expected error for read-only parent")
 	}
+
 	var pErr *fs.PathError
-	if errors.As(err, &pErr) {
-		// fine: filesystem error surfaced
+	if !errors.As(err, &pErr) {
+		t.Errorf("expected filesystem cause, got %v", err)
+	}
+	if !errors.Is(err, fs.ErrPermission) {
+		t.Errorf("expected permission error, got %v", err)
 	}
 }

@@ -9,8 +9,13 @@
 # developer's real config files are untouched.
 #
 
-[[ "${AGENT_PERMISSIONS_TEST_ORCHESTRATED:-}" == 1 ]] \
-    || { echo "Run via test/test.sh, not directly." >&2; exit 1; }
+if [[ "${AGENT_PERMISSIONS_TEST_ORCHESTRATED:-}" != 1 ]]; then
+    echo "Run via test/test.sh, not directly." >&2
+    if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+        exit 1
+    fi
+    return 1
+fi
 
 HOOK="$REPO_DIR/bin/agent-permissions"
 if [[ ! -x "$HOOK" ]]; then
@@ -76,8 +81,13 @@ assert_contains "setup writes file" "$out" \
     "$h/.agents/permissions.json"
 assert_contains "setup reports preset count" "$out" \
     "presets active"
-test -f "$h/.agents/permissions.json"
-assert_rc "setup actually creates the file" 0 "$?"
+if [[ -f "$h/.agents/permissions.json" ]]; then
+    echo "PASS: setup actually creates the file"
+    passed=$((passed + 1))
+else
+    echo "FAIL: setup did not create permissions.json"
+    failed=$((failed + 1))
+fi
 
 # Second run without --force should refuse.
 out=$(_sc_run "$h" setup 2>&1 || true)
@@ -265,16 +275,49 @@ assert_contains "install: preserves model key" "$contents" \
 assert_contains "install: preserves permissions key" \
     "$contents" "Bash(ls)"
 
+# JSON numbers must survive the generic settings merge without conversion.
+# This integer cannot be represented exactly as a float64.
+h=$(_fresh_home)
+mkdir -p "$h/.claude"
+echo '{"large":9007199254740993}' > "$h/.claude/settings.json"
+_sc_run "$h" install >/dev/null
+contents=$(cat "$h/.claude/settings.json")
+assert_contains "install: preserves large JSON integers" \
+    "$contents" "9007199254740993"
+
+# A null document is not a settings object. Refuse it rather than replacing
+# content the installer does not understand.
+h=$(_fresh_home)
+mkdir -p "$h/.claude"
+echo 'null' > "$h/.claude/settings.json"
+rc=0
+out=$(_sc_run "$h" install) || rc=$?
+assert_rc "install: rejects a null settings document" 2 "$rc"
+assert_contains "install: explains the required settings shape" \
+    "$out" "must contain a JSON object"
+contents=$(cat "$h/.claude/settings.json")
+if [[ "$contents" == "null" ]]; then
+    echo "PASS: install: leaves a null settings document untouched"
+    passed=$((passed + 1))
+else
+    echo "FAIL: install: replaced a null settings document"
+    failed=$((failed + 1))
+fi
+
 # Merges into an existing Bash matcher rather than adding
 # a duplicate top-level entry.
 h=$(_fresh_home)
 mkdir -p "$h/.claude"
 cat > "$h/.claude/settings.json" <<'EOF'
-{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"my-existing-logger"}]}]}}
+{"hooks":{"PreToolUse":[
+  {"matcher":"Bash","hooks":[
+    {"type":"command","command":"my-existing-logger"}
+  ]}
+]}}
 EOF
 _sc_run "$h" install >/dev/null
 contents=$(cat "$h/.claude/settings.json")
-assert_contains "install: merges into existing Bash matcher (preserves existing hook)" \
+assert_contains "install: preserves an existing Bash hook" \
     "$contents" "my-existing-logger"
 # There should be only one Bash matcher entry, not two.
 count=$(echo "$contents" | grep -c '"matcher": "Bash"' || true)
@@ -284,6 +327,71 @@ if [[ "$count" -ne 1 ]]; then
 else
     echo "PASS: install: single Bash matcher entry after merge"
     passed=$((passed + 1))
+fi
+
+# Search every Bash matcher before merging. An existing hook in a later
+# matcher must not be duplicated into the first one.
+h=$(_fresh_home)
+mkdir -p "$h/.claude"
+cat > "$h/.claude/settings.json" <<'EOF'
+{"hooks":{"PreToolUse":[
+  {"matcher":"Bash","hooks":[
+    {"type":"command","command":"logger"}
+  ]},
+  {"matcher":"Bash","hooks":[
+    {"type":"command","command":"/opt/agent-permissions claude-hook"}
+  ]}
+]}}
+EOF
+out=$(_sc_run "$h" install)
+assert_contains "install: finds hook in a later Bash matcher" \
+    "$out" "already installed"
+if ! count=$(jq '[.hooks.PreToolUse[].hooks[] | select(
+    .command | test("agent-permissions claude-hook$"))] | length' \
+    "$h/.claude/settings.json"); then
+    echo "FAIL: install: could not count installed hooks"
+    failed=$((failed + 1))
+elif [[ "$count" -eq 1 ]]; then
+    echo "PASS: install: does not duplicate a later hook"
+    passed=$((passed + 1))
+else
+    echo "FAIL: install: expected 1 hook, got $count"
+    failed=$((failed + 1))
+fi
+
+# The generated shell command must preserve an executable path with spaces.
+h=$(_fresh_home)
+mkdir -p "$h/.claude" "$h/bin with spaces"
+echo '{}' > "$h/.claude/settings.json"
+spaced_hook="$h/bin with spaces/agent-permissions"
+cp "$HOOK" "$spaced_hook"
+HOME="$h" "$spaced_hook" install >/dev/null
+if ! stored_hook=$(jq -r '.hooks.PreToolUse[0].hooks[0].command' \
+    "$h/.claude/settings.json"); then
+    echo "FAIL: install: could not read stored hook"
+    failed=$((failed + 1))
+else
+    if ( eval "set -- $stored_hook"
+        [[ $# -eq 2 && "$1" == "$spaced_hook" && "$2" == "claude-hook" ]]
+    ); then
+        echo "PASS: install: stored hook preserves the executable path"
+        passed=$((passed + 1))
+    else
+        echo "FAIL: install: stored hook changed its arguments"
+        failed=$((failed + 1))
+    fi
+
+    out=$(printf '%s' \
+        '{"tool_name":"Other","tool_input":{},"cwd":"/"}' | \
+        eval "$stored_hook")
+    if jq -e '.hookSpecificOutput.permissionDecision == "allow"' \
+        >/dev/null <<< "$out"; then
+        echo "PASS: install: stored command with spaces executes"
+        passed=$((passed + 1))
+    else
+        echo "FAIL: install: stored command with spaces did not execute"
+        failed=$((failed + 1))
+    fi
 fi
 
 # Preserves file mode when overwriting.
@@ -300,6 +408,21 @@ if [[ "$mode" != "600" ]]; then
 else
     echo "PASS: install: mode preservation (600 retained)"
     passed=$((passed + 1))
+fi
+
+# Permission failures retain their identity through atomicfile.Write so the
+# installer can provide the manual stanza. Root bypasses directory modes.
+if [[ $(id -u) -ne 0 ]]; then
+    h=$(_fresh_home)
+    mkdir -p "$h/.claude"
+    echo '{}' > "$h/.claude/settings.json"
+    chmod 0500 "$h/.claude"
+    rc=0
+    out=$(_sc_run "$h" install) || rc=$?
+    chmod 0700 "$h/.claude"
+    assert_rc "install: read-only directory exits 2" 2 "$rc"
+    assert_contains "install: read-only directory offers manual install" \
+        "$out" "To install by hand"
 fi
 
 # Refuses to write through a symlink and leaves the real
@@ -405,7 +528,10 @@ assert_rc "validate: clean exit code 0" 0 "$rc"
 h=$(_fresh_home)
 mkdir -p "$h/.agents"
 cat > "$h/.agents/permissions.json" <<'EOF'
-{"Allow": {"Commands": {"git status:*": "", ":*": ""}}, "Deny": {"Commands": {"  ": ""}}}
+{
+  "Allow": {"Commands": {"git status:*": "", ":*": ""}},
+  "Deny": {"Commands": {"  ": ""}}
+}
 EOF
 rc=0
 out=$(_validate_run "$h") || rc=$?
@@ -422,7 +548,10 @@ assert_contains "validate: quotes the bad entry" "$out" \
 h=$(_fresh_home)
 mkdir -p "$h/.agents"
 cat > "$h/.agents/permissions.json" <<'EOF'
-{"Rules": {"git.branch-writs": {"Enabled": false}}, "Allow": {"Commands": {":*": ""}}}
+{
+  "Rules": {"git.branch-writs": {"Enabled": false}},
+  "Allow": {"Commands": {":*": ""}}
+}
 EOF
 rc=0
 out=$(_validate_run "$h") || rc=$?
@@ -433,6 +562,16 @@ assert_contains "validate: labels it an unknown rule" "$out" \
     "unknown rule"
 assert_contains "validate: also reports the malformed entry" \
     "$out" "malformed"
+
+# Schema typos at nested levels must fail rather than silently removing policy.
+h=$(_fresh_home)
+mkdir -p "$h/.agents"
+echo '{"Allow":{"Commandz":{"git status:*":"read-only"}}}' \
+    > "$h/.agents/permissions.json"
+rc=0
+out=$(_validate_run "$h") || rc=$?
+assert_rc "validate: nested schema typo exits 2" 2 "$rc"
+assert_contains "validate: names nested schema typo" "$out" "Commandz"
 
 # Unknown preset name in disabled-presets → exit 2, the same
 # silent-no-op class as an unknown rule ID.
@@ -490,6 +629,19 @@ assert_contains "validate: external rule typo named" \
     "$out" "git.branch-writs"
 _sc_preset_dirs=""
 
+# A null enforced preset used to load as empty policy. It must fail closed.
+null_enforced_dir="$_sc_tmpdir/null-enforced-presets"
+mkdir -p "$null_enforced_dir"
+echo 'null' > "$null_enforced_dir/dug-null.json"
+_sc_enforced_preset_dirs="$null_enforced_dir"
+h=$(_fresh_home)
+rc=0
+out=$(_validate_run "$h") || rc=$?
+assert_rc "validate: null enforced preset exits 2" 2 "$rc"
+assert_contains "validate: rejects null enforced preset" \
+    "$out" "must not be null"
+_sc_enforced_preset_dirs=""
+
 # cwd == $HOME: the project and global agent paths are the
 # same file. Resolve must dedup it (keeping the higher-
 # precedence project entry), so one malformed entry is
@@ -502,8 +654,8 @@ cat > "$h/.agents/permissions.json" <<'EOF'
 EOF
 rc=0
 out=$(cd "$h" && CLAUDE_CONFIG_DIR="$h/empty-claude" \
-        HOME="$h" AGENT_PERMISSIONS_PRESET_DIRS= \
-        AGENT_PERMISSIONS_ENFORCED_PRESET_DIRS= \
+        HOME="$h" AGENT_PERMISSIONS_PRESET_DIRS='' \
+        AGENT_PERMISSIONS_ENFORCED_PRESET_DIRS='' \
         "$HOOK" validate 2>&1) || rc=$?
 assert_rc "validate: cwd==HOME exits 2" 2 "$rc"
 assert_contains "validate: cwd==HOME counts the file once" \

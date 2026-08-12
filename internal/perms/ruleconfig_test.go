@@ -110,7 +110,7 @@ func TestRuleConfigOverridePrecedence(t *testing.T) {
 		},
 	}
 	if resolveRuleConfig(
-		nil, global, nil, all).For(def).Enabled {
+		global, nil, nil, all).For(def).Enabled {
 		t.Error("global .agents Enabled:false should " +
 			"override the preset enable")
 	}
@@ -121,7 +121,7 @@ func TestRuleConfigOverridePrecedence(t *testing.T) {
 		},
 	}
 	if !resolveRuleConfig(
-		project, global, nil, all).For(def).Enabled {
+		global, project, nil, all).For(def).Enabled {
 		t.Error("project .agents should override global")
 	}
 
@@ -133,7 +133,7 @@ func TestRuleConfigOverridePrecedence(t *testing.T) {
 		},
 	}
 	if resolveRuleConfig(
-		project, global, local, all).For(def).Enabled {
+		global, project, local, all).For(def).Enabled {
 		t.Error("local .agents should override project")
 	}
 }

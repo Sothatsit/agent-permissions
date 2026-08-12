@@ -130,16 +130,6 @@ func TestParsePatternRejectsDegenerate(t *testing.T) {
 			"trailing empty element", "Bash(git :*)",
 			"empty element",
 		},
-		// Non-Bash wrapped tool entries — settings.json
-		// may contain Read(), Edit(), WebFetch() etc.,
-		// none of which should produce a Bash pattern.
-		// extractBashPattern rejects them; the fallback
-		// path then attempts to parse the literal entry
-		// as a plain pattern. Most of those produce
-		// nonsense one-element patterns rather than
-		// degenerate ones, so we don't test the full
-		// list here — see TestParsePatternRejectsNonBash
-		// for the dedicated cases.
 		{
 			"plain pattern with empty element", ":*",
 			"empty element",

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2016  # Single quotes intentional — passing literal $() to hook.
+# Single quotes pass literal command substitutions to the hook.
+# shellcheck disable=SC2016
 #
 # Integration tests for agent-permissions.
 # Sourced by test/test.sh — do not execute directly.
@@ -11,7 +12,13 @@
 # a permission decision JSON on stdout.
 #
 
-[[ "${AGENT_PERMISSIONS_TEST_ORCHESTRATED:-}" == 1 ]] || { echo "Run via test/test.sh, not directly." >&2; exit 1; }
+if [[ "${AGENT_PERMISSIONS_TEST_ORCHESTRATED:-}" != 1 ]]; then
+    echo "Run via test/test.sh, not directly." >&2
+    if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+        exit 1
+    fi
+    return 1
+fi
 
 HOOK="$REPO_DIR/bin/agent-permissions"
 
@@ -413,6 +420,12 @@ assert_contains "allow: cmd sub in arg position" "$(_decision "$out")" "allow"
 out=$(_run_hook 'echo "$(whoami)"')
 assert_contains "allow: cmd sub in double quotes" "$(_decision "$out")" "allow"
 
+# Interpreter snippets inside substitutions must reach the
+# snippet scanner along with ordinary extracted commands.
+out=$(_run_hook "echo \"\$(python3 -c 'import subprocess')\"")
+assert_contains "deny: cmd sub preserves interpreter snippet" \
+    "$(_decision "$out")" "deny"
+
 # Substitution in assignment value — inner command checked.
 out=$(_run_hook 'VAR=$(date)')
 assert_contains "allow: cmd sub in assignment value allowed" "$(_decision "$out")" "allow"
@@ -480,6 +493,11 @@ assert_contains "deny: proc sub with denied inner" \
 # Output process substitution with denied inner command.
 out=$(_run_hook 'tee >(ssh evil)')
 assert_contains "deny: output proc sub with denied inner" \
+    "$(_decision "$out")" "deny"
+
+# Process substitutions carry snippets as well as commands.
+out=$(_run_hook "echo <(python3 -c 'import subprocess')")
+assert_contains "deny: proc sub preserves interpreter snippet" \
     "$(_decision "$out")" "deny"
 
 # Process substitution alongside command substitution

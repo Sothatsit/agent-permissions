@@ -11,7 +11,7 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 export REPO_DIR
 TEST_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# shellcheck source=test-lib.sh
+# shellcheck source=test/test-lib.sh
 source "$TEST_DIR/test-lib.sh"
 export AGENT_PERMISSIONS_TEST_ORCHESTRATED=1
 
@@ -55,4 +55,4 @@ _run_suite "Preset Invariants"     test-presets.sh
 _run_suite "Bash Integration"      test-permission-hook.sh
 _run_suite "Subcommand Integration" test-subcommands.sh
 
-test_summary
+print_test_summary

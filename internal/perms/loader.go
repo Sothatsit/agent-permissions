@@ -209,7 +209,7 @@ func Resolve(
 
 	return &Resolved{
 		RuleConfig: resolveRuleConfig(
-			projectAgent, globalAgent, localAgent,
+			globalAgent, projectAgent, localAgent,
 			selected),
 		Permissions: &Permissions{
 			Sources:         sources,
@@ -570,7 +570,7 @@ func SelectPresets(
 // concept kept in the shared layers, which is what makes it
 // identical across harnesses.
 func resolveRuleConfig(
-	project, global, local *agentconfig.Config,
+	global, project, local *agentconfig.Config,
 	selected []*presets.Preset,
 ) model.RuleConfigs {
 	out := model.RuleConfigs{}

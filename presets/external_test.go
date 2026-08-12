@@ -139,6 +139,69 @@ func TestLoadDirsUnknownRuleConfigKeyErrors(t *testing.T) {
 	}
 }
 
+func TestLoadDirsRejectsWrongKeyCase(t *testing.T) {
+	for _, body := range []string{
+		`{"deny": {"Commands": {}}}`,
+		`{"Deny": {"commands": {}}}`,
+		`{"Rules": {"git.branch-writes": {"enabled": true}}}`,
+	} {
+		dir := t.TempDir()
+		writePreset(t, dir, "bad.json", body)
+		if _, err := LoadDirs(dir); err == nil {
+			t.Errorf("expected wrong-case key error for %s", body)
+		}
+	}
+}
+
+func TestLoadDirsRejectsNullValues(t *testing.T) {
+	tests := []struct {
+		name  string
+		body  string
+		field string
+	}{
+		{"top level", `null`, "$"},
+		{"tier", `{"Allow": null}`, `$["Allow"]`},
+		{"axis", `{"Deny": {"Commands": null}}`,
+			`$["Deny"]["Commands"]`},
+		{"rules", `{"Rules": null}`, `$["Rules"]`},
+		{
+			"rule config",
+			`{"Rules": {"git.branch-writes": null}}`,
+			`$["Rules"]["git.branch-writes"]`,
+		},
+		{
+			"rule field",
+			`{"Rules": {"git.branch-writes": {"Enabled": null}}}`,
+			`$["Rules"]["git.branch-writes"]["Enabled"]`,
+		},
+		{
+			"description",
+			`{"description": null}`,
+			`$["description"]`,
+		},
+		{
+			"reason",
+			`{"Deny": {"Commands": {"mytool:*": null}}}`,
+			`$["Deny"]["Commands"]["mytool:*"]`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writePreset(t, dir, "bad.json", tt.body)
+			_, err := LoadDirs(dir)
+			if err == nil || !strings.Contains(
+				err.Error(), tt.field,
+			) {
+				t.Errorf(
+					"expected error naming %s, got %v",
+					tt.field, err)
+			}
+		})
+	}
+}
+
 func TestAllWithoutEnvIsEmbedded(t *testing.T) {
 	t.Setenv(PresetDirsEnv, "")
 	t.Setenv(EnforcedPresetDirsEnv, "")

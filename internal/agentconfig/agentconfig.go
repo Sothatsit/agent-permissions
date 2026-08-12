@@ -13,11 +13,13 @@
 package agentconfig
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 
 	"github.com/sothatsit/agent-permissions/internal/atomicfile"
+	"github.com/sothatsit/agent-permissions/internal/configjson"
 	"github.com/sothatsit/agent-permissions/internal/model"
 )
 
@@ -103,50 +105,38 @@ func Load(path string) (*Config, error) {
 // silent reinterpretation — pre-release, no compatibility
 // shim warranted.
 func Parse(path string, data []byte) (*Config, error) {
-	var generic map[string]json.RawMessage
-	if err := json.Unmarshal(data, &generic); err != nil {
+	generic, err := configjson.DecodeObject(data)
+	if err != nil {
 		return nil, fmt.Errorf(
 			"invalid JSON in %s: %v", path, err)
 	}
-	known := map[string]bool{
-		"Allow":            true,
-		"SoftAsk":          true,
-		"Ask":              true,
-		"Deny":             true,
-		"Rules":            true,
-		"enabled-presets":  true,
-		"disabled-presets": true,
+	if err := checkSchemaKeys(generic); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
-	for k, v := range generic {
-		if !known[k] {
-			return nil, fmt.Errorf(
-				"%s: unknown key %q", path, k)
-		}
-		// Rules is an object keyed by rule ID and the preset
-		// fields are arrays/objects of their own; none are
-		// tier objects, so skip the legacy flat-array check
-		// (which guards only the Commands/EnvVars tiers).
-		if k == "Rules" ||
-			k == "enabled-presets" ||
-			k == "disabled-presets" {
+
+	for _, tierName := range []string{
+		"Allow", "SoftAsk", "Ask", "Deny",
+	} {
+		value, exists := generic[tierName]
+		if !exists {
 			continue
 		}
-		// Reject the legacy flat-array shape with a
-		// migration message that names the file and the
-		// new shape.
-		if len(v) > 0 && v[0] == '[' {
+		if _, isArray := value.([]any); isArray {
 			return nil, fmt.Errorf(
 				"%s: %q must be an object with "+
 					"Commands/EnvVars keys, got an array",
-				path, k)
+				path, tierName)
 		}
 	}
 
 	var raw rawConfig
-	if err := json.Unmarshal(data, &raw); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&raw); err != nil {
 		return nil, fmt.Errorf(
 			"invalid JSON in %s: %v", path, err)
 	}
+
 	return &Config{
 		Path:            path,
 		Allow:           raw.Allow,
@@ -157,6 +147,42 @@ func Parse(path string, data []byte) (*Config, error) {
 		EnabledPresets:  raw.EnabledPresets,
 		DisabledPresets: raw.DisabledPresets,
 	}, nil
+}
+
+func checkSchemaKeys(root map[string]any) error {
+	if err := configjson.CheckKeys(
+		root,
+		"Allow", "SoftAsk", "Ask", "Deny", "Rules",
+		"enabled-presets", "disabled-presets",
+	); err != nil {
+		return err
+	}
+
+	for _, tierName := range []string{
+		"Allow", "SoftAsk", "Ask", "Deny",
+	} {
+		tier, ok := configjson.ObjectAt(root, tierName)
+		if !ok {
+			continue
+		}
+		if err := configjson.CheckKeys(
+			tier, "Commands", "EnvVars",
+		); err != nil {
+			return fmt.Errorf("%s: %w", tierName, err)
+		}
+	}
+
+	rules, ok := configjson.ObjectAt(root, "Rules")
+	if !ok {
+		return nil
+	}
+	if err := configjson.CheckObjectValueKeys(
+		rules, "Enabled",
+	); err != nil {
+		return fmt.Errorf("Rules.%w", err)
+	}
+
+	return nil
 }
 
 // Save writes the config back to its Path. The write goes

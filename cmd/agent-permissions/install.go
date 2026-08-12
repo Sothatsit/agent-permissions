@@ -1,41 +1,34 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
-	"regexp"
+	"strings"
 
 	"github.com/sothatsit/agent-permissions/internal/atomicfile"
+	"github.com/sothatsit/agent-permissions/internal/word"
+	"mvdan.cc/sh/v3/syntax"
 )
 
-// install wires the agent-permissions hook into known
-// harness config files. Today: ~/.claude/settings.json
-// (Claude Code's PreToolUse on Bash). Per-harness future
-// extension lives here too.
+// install wires the agent-permissions hook into known harness config files.
+// Today it installs Claude Code's Bash PreToolUse hook in settings.json.
 //
-// This is the only command that modifies Claude Code's
-// settings.json. It is conservative and safety-first:
+// This is the only command that modifies Claude Code's settings.json. It must
+// preserve settings it does not own.
 //
-//   - Skips when the file doesn't exist (does not create
-//     it).
-//   - Refuses to write through a symbolic link and prints
-//     the stanza for the user to paste by hand. Same for
-//     read-only or otherwise unwritable targets.
-//   - Errors if the existing hooks structure isn't the
-//     shape Claude Code documents (PreToolUse must be an
-//     array of matcher entries). Refusing to write is
-//     safer than silently overwriting unrecognised data.
-//   - Detects an existing agent-permissions stanza via a
-//     word-boundary path match so wrapper scripts or
-//     forks that happen to mention the binary's name in
-//     a different context don't cause false positives.
-//   - Merges into an existing Bash matcher's hooks array
-//     when one exists (the canonical Claude Code
-//     structure) rather than creating a second top-level
-//     matcher entry.
+//   - It skips a missing settings file rather than creating one.
+//   - It refuses symlinks and permission failures, then prints a stanza the
+//     user can paste by hand.
+//   - It refuses hook structures that do not match Claude Code's documented
+//     shape rather than overwriting data it does not understand.
+//   - It parses hook commands to distinguish this hook from wrapper scripts or
+//     incidental mentions of the binary name.
+//   - It merges into an existing Bash matcher's hooks array when one exists.
 func install(args []string) error {
 	if len(args) != 0 {
 		return fmt.Errorf("usage: agent-permissions install")
@@ -43,17 +36,14 @@ func install(args []string) error {
 
 	binPath, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("resolve binary path: %v", err)
+		return fmt.Errorf("resolve binary path: %w", err)
 	}
 	if resolved, err := filepath.EvalSymlinks(
 		binPath,
 	); err == nil {
 		binPath = resolved
 	} else {
-		// Fall back to the unresolved path but warn —
-		// silently baking a dev-time symlink into
-		// settings.json is exactly the kind of stale
-		// reference we want to avoid.
+		// The unresolved path can become stale if a development symlink moves.
 		fmt.Fprintf(os.Stderr,
 			"warning: could not resolve symlinks "+
 				"on %s: %v\n", binPath, err)
@@ -65,11 +55,17 @@ func install(args []string) error {
 func installClaudeCode(binPath string) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return fmt.Errorf("home: %v", err)
+		return fmt.Errorf("home: %w", err)
 	}
 	path := filepath.Join(home, ".claude", "settings.json")
-	hookCmd := binPath + " claude-hook"
-	stanza := bashMatcherEntry(hookCmd)
+	// Use mvdan/sh's Bash quoting rules because the executable path may contain
+	// spaces or shell metacharacters.
+	quotedBinPath, err := syntax.Quote(binPath, syntax.LangBash)
+	if err != nil {
+		return fmt.Errorf("quote binary path for Bash hook: %w", err)
+	}
+	hookCmd := quotedBinPath + " claude-hook"
+	stanza := buildBashMatcherEntry(hookCmd)
 
 	if _, err := os.Lstat(path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -80,26 +76,38 @@ func installClaudeCode(binPath string) error {
 			return nil
 		}
 		return fmt.Errorf(
-			"stat %s: %v", path, err)
+			"stat %s: %w", path, err)
 	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("read %s: %v", path, err)
+		return fmt.Errorf("read %s: %w", path, err)
 	}
 	var root map[string]any
-	if err := json.Unmarshal(data, &root); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&root); err != nil {
 		return fmt.Errorf(
-			"invalid JSON in %s: %v", path, err)
+			"invalid JSON in %s: %w", path, err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			err = errors.New("multiple JSON values")
+		}
+		return fmt.Errorf(
+			"invalid JSON in %s: %w", path, err)
 	}
 	if root == nil {
-		root = map[string]any{}
+		return buildHandPasteError(
+			path, stanza,
+			errors.New("settings.json must contain a JSON object"))
 	}
 
 	updated, status, err := mergeHookStanza(
 		root, hookCmd)
 	if err != nil {
-		return handPasteError(path, stanza, err)
+		return buildHandPasteError(path, stanza, err)
 	}
 	if status == hookAlreadyPresent {
 		fmt.Println(
@@ -120,14 +128,14 @@ func installClaudeCode(binPath string) error {
 		if errors.Is(
 			err, atomicfile.ErrSymlinkTarget,
 		) {
-			return handPasteError(
+			return buildHandPasteError(
 				path, stanza, err)
 		}
 		// Permission errors and other writable issues
 		// also fall back to the hand-paste path so the
 		// user has a clear next step.
 		if errors.Is(err, os.ErrPermission) {
-			return handPasteError(
+			return buildHandPasteError(
 				path, stanza, err)
 		}
 		return err
@@ -138,8 +146,7 @@ func installClaudeCode(binPath string) error {
 	return nil
 }
 
-// mergeStatus is the result of attempting to merge our
-// hook into an existing settings.json structure.
+// mergeStatus describes whether merging changed settings.json.
 type mergeStatus int
 
 const (
@@ -147,11 +154,8 @@ const (
 	hookAlreadyPresent                    // no edit needed
 )
 
-// mergeHookStanza inserts the agent-permissions hook into
-// root["hooks"]["PreToolUse"], following Claude Code's
-// documented structure. Returns an error if the existing
-// structure is the wrong shape (e.g. PreToolUse is not an
-// array) so the caller can refuse to overwrite.
+// mergeHookStanza inserts the hook into Claude Code's documented PreToolUse
+// structure. It rejects an unknown shape so the caller does not overwrite it.
 func mergeHookStanza(
 	root map[string]any, hookCmd string,
 ) (map[string]any, mergeStatus, error) {
@@ -183,15 +187,9 @@ func mergeHookStanza(
 		preToolUse = arr
 	}
 
-	hookEntry := map[string]any{
-		"type":    "command",
-		"command": hookCmd,
-	}
-
-	// Look for a Bash matcher entry already in
-	// PreToolUse and either confirm we're already
-	// installed there or merge our command into its
-	// hooks array.
+	// Inspect every Bash matcher before choosing where to merge. Claude Code
+	// accepts more than one matcher, and the hook may already be in a later one.
+	mergeIndex := -1
 	for i, e := range preToolUse {
 		entry, ok := e.(map[string]any)
 		if !ok {
@@ -200,6 +198,9 @@ func mergeHookStanza(
 		matcher, _ := entry["matcher"].(string)
 		if matcher != "Bash" {
 			continue
+		}
+		if mergeIndex == -1 {
+			mergeIndex = i
 		}
 		entryHooks, ok := entry["hooks"].([]any)
 		if !ok {
@@ -214,65 +215,98 @@ func mergeHookStanza(
 				continue
 			}
 			cmd, _ := hm["command"].(string)
-			if isAgentPermissionsHook(cmd) {
+			if isAgentPermissionsHook(cmd, hookCmd) {
 				return root, hookAlreadyPresent, nil
 			}
 		}
-		entryHooks = append(entryHooks, hookEntry)
+	}
+
+	if mergeIndex >= 0 {
+		entry := preToolUse[mergeIndex].(map[string]any)
+		entryHooks := entry["hooks"].([]any)
+		entryHooks = append(
+			entryHooks, buildCommandHookEntry(hookCmd))
 		entry["hooks"] = entryHooks
-		preToolUse[i] = entry
+		preToolUse[mergeIndex] = entry
 		hooks["PreToolUse"] = preToolUse
 		root["hooks"] = hooks
 		return root, hookMerged, nil
 	}
 
-	// No Bash matcher entry — append a new one.
-	preToolUse = append(preToolUse, bashMatcherEntry(hookCmd))
+	preToolUse = append(preToolUse, buildBashMatcherEntry(hookCmd))
 	hooks["PreToolUse"] = preToolUse
 	root["hooks"] = hooks
 	return root, hookMerged, nil
 }
 
-func bashMatcherEntry(hookCmd string) map[string]any {
+func buildCommandHookEntry(hookCmd string) map[string]any {
+	return map[string]any{
+		"type":    "command",
+		"command": hookCmd,
+	}
+}
+
+func buildBashMatcherEntry(hookCmd string) map[string]any {
 	return map[string]any{
 		"matcher": "Bash",
 		"hooks": []any{
-			map[string]any{
-				"type":    "command",
-				"command": hookCmd,
-			},
+			buildCommandHookEntry(hookCmd),
 		},
 	}
 }
 
-// hookCmdPattern matches a command string that ends with
-// "agent-permissions claude-hook" preceded by a path
-// separator or word boundary. This keeps incidental
-// substring matches (wrapper scripts, comments, log
-// strings, alternate-fork commands) from being treated as
-// our own hook.
-var hookCmdPattern = regexp.MustCompile(
-	`(^|/)agent-permissions claude-hook$`)
+func isAgentPermissionsHook(cmd, installedCmd string) bool {
+	if cmd == installedCmd {
+		return true
+	}
 
-func isAgentPermissionsHook(cmd string) bool {
-	return hookCmdPattern.MatchString(cmd)
+	file, err := syntax.NewParser().Parse(strings.NewReader(cmd), "")
+	if err != nil {
+		return false
+	}
+	if len(file.Stmts) != 1 {
+		return false
+	}
+
+	stmt := file.Stmts[0]
+	if stmt.Negated || stmt.Background || stmt.Coprocess || stmt.Disown {
+		return false
+	}
+	if stmt.Semicolon.IsValid() || len(stmt.Redirs) != 0 {
+		return false
+	}
+
+	call, ok := stmt.Cmd.(*syntax.CallExpr)
+	if !ok {
+		return false
+	}
+	if len(call.Assigns) != 0 || len(call.Args) != 2 {
+		return false
+	}
+	if !word.Static(call.Args[0]) || !word.Static(call.Args[1]) {
+		return false
+	}
+
+	return filepath.Base(word.Text(call.Args[0])) == "agent-permissions" &&
+		word.Text(call.Args[1]) == "claude-hook"
 }
 
-// handPasteError wraps a write failure with the JSON
-// stanza so the user can install manually. Used for
-// symlinks, read-only files, and shape mismatches — any
-// case where we can't safely auto-edit settings.json.
-func handPasteError(
+// buildHandPasteError adds the manual stanza to a failure the user can fix.
+func buildHandPasteError(
 	path string, stanza map[string]any, cause error,
 ) error {
-	pretty, _ := json.MarshalIndent(
+	pretty, err := json.MarshalIndent(
 		map[string]any{
 			"hooks": map[string]any{
 				"PreToolUse": []any{stanza},
 			},
 		}, "", "  ")
+	if err != nil {
+		return fmt.Errorf(
+			"format manual hook stanza after %v: %w", cause, err)
+	}
 	return fmt.Errorf(
-		"cannot write %s: %v\n\n"+
+		"cannot write %s: %w\n\n"+
 			"To install by hand, merge the "+
 			"following into %s:\n\n%s",
 		path, cause, path, string(pretty))

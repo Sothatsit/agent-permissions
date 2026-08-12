@@ -57,10 +57,12 @@ _prepare() {
     local name="$1"
     local cmd="$2"
     local path="$_bm_tmpdir/inputs/$name.json"
-    jq -n --arg cmd "$cmd" \
+    local input
+    input=$(jq -n --arg cmd "$cmd" \
         --arg cwd "$_bm_tmpdir/project" \
-        '{"tool_name":"Bash","tool_input":{"command":$cmd},"cwd":$cwd}' \
-        > "$path"
+        '{"tool_name":"Bash","tool_input":{"command":$cmd},"cwd":$cwd}') \
+        || return 1
+    printf '%s\n' "$input" > "$path"
     echo "$path"
 }
 
@@ -99,16 +101,21 @@ _bench() {
     local input_file="$2"
     local collect="${3:-yes}"
     local i j
+    local rc=0
 
     for ((i = 0; i < WARMUP; i++)); do
         "$HOOK" claude-hook < "$input_file" >/dev/null 2>&1 \
-            || true
+            || { rc=$?; break; }
     done
 
-    if ! "$HOOK" claude-hook < "$input_file" >/dev/null 2>&1; then
+    if [[ $rc -eq 0 ]]; then
+        "$HOOK" claude-hook < "$input_file" \
+            >/dev/null 2>&1 || rc=$?
+    fi
+    if [[ $rc -ne 0 ]]; then
         printf "  %-44s FAIL (hook returned %d)\n" \
-            "$label" "$?"
-        return
+            "$label" "$rc"
+        return 1
     fi
 
     local times=()
@@ -117,8 +124,13 @@ _bench() {
         start=$(date +%s%N)
         for ((j = 0; j < BATCH; j++)); do
             "$HOOK" claude-hook < "$input_file" \
-                >/dev/null 2>&1 || true
+                >/dev/null 2>&1 || { rc=$?; break; }
         done
+        if [[ $rc -ne 0 ]]; then
+            printf "  %-44s FAIL (hook returned %d)\n" \
+                "$label" "$rc"
+            return 1
+        fi
         end=$(date +%s%N)
         times+=("$(( (end - start) / 1000 / BATCH ))")
     done

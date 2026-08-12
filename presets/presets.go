@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/sothatsit/agent-permissions/internal/configjson"
 	"github.com/sothatsit/agent-permissions/internal/model"
 )
 
@@ -365,38 +366,29 @@ func parseAll() ([]*Preset, error) {
 func parseOne(
 	filename string, data []byte,
 ) (*Preset, error) {
-	var generic map[string]json.RawMessage
-	if err := json.Unmarshal(data, &generic); err != nil {
-		return nil, fmt.Errorf(
-			"parse %s: %v", filename, err)
+	generic, err := configjson.DecodeObject(data)
+	if err != nil {
+		return nil, fmt.Errorf("parse %s: %v", filename, err)
 	}
-	known := map[string]bool{
-		"description": true,
-		"Allow":       true,
-		"SoftAsk":     true,
-		"Ask":         true,
-		"Deny":        true,
-		"Rules":       true,
+	if err := checkSchemaKeys(generic); err != nil {
+		return nil, fmt.Errorf("%s: %w", filename, err)
 	}
-	for k, v := range generic {
-		if !known[k] {
-			return nil, fmt.Errorf(
-				"%s: unknown key %q", filename, k)
-		}
-		// description is a string and Rules is an object
-		// keyed by rule ID; neither is a tier, so skip the
-		// legacy flat-array check below (which guards the
-		// Commands/EnvVars tier keys).
-		if k == "description" || k == "Rules" {
+
+	for _, tierName := range []string{
+		"Allow", "SoftAsk", "Ask", "Deny",
+	} {
+		value, exists := generic[tierName]
+		if !exists {
 			continue
 		}
-		if len(v) > 0 && v[0] == '[' {
+		if _, isArray := value.([]any); isArray {
 			return nil, fmt.Errorf(
 				"%s: %q must be an object with "+
 					"Commands/EnvVars keys, got an array",
-				filename, k)
+				filename, tierName)
 		}
 	}
+
 	var p Preset
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
@@ -404,6 +396,42 @@ func parseOne(
 		return nil, fmt.Errorf(
 			"decode %s: %v", filename, err)
 	}
+
 	p.Name = strings.TrimSuffix(filename, ".json")
 	return &p, nil
+}
+
+func checkSchemaKeys(root map[string]any) error {
+	if err := configjson.CheckKeys(
+		root,
+		"description", "Allow", "SoftAsk", "Ask", "Deny", "Rules",
+	); err != nil {
+		return err
+	}
+
+	for _, tierName := range []string{
+		"Allow", "SoftAsk", "Ask", "Deny",
+	} {
+		tier, ok := configjson.ObjectAt(root, tierName)
+		if !ok {
+			continue
+		}
+		if err := configjson.CheckKeys(
+			tier, "Commands", "EnvVars",
+		); err != nil {
+			return fmt.Errorf("%s: %w", tierName, err)
+		}
+	}
+
+	rules, ok := configjson.ObjectAt(root, "Rules")
+	if !ok {
+		return nil
+	}
+	if err := configjson.CheckObjectValueKeys(
+		rules, "Enabled",
+	); err != nil {
+		return fmt.Errorf("Rules.%w", err)
+	}
+
+	return nil
 }

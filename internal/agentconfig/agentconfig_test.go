@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -108,6 +109,75 @@ func TestParseRejectsUnknownKey(t *testing.T) {
 	_, err := Parse("test.json", data)
 	if err == nil {
 		t.Fatal("expected error for unknown key")
+	}
+}
+
+func TestParseRejectsUnknownNestedKey(t *testing.T) {
+	for _, data := range []string{
+		`{"Allow": {"Commandz": {}}}`,
+		`{"Rules": {"git.branch-writes": {"Enable": true}}}`,
+		`{"deny": {"Commands": {}}}`,
+		`{"Deny": {"commands": {}}}`,
+		`{"Rules": {"git.branch-writes": {"enabled": true}}}`,
+	} {
+		_, err := Parse("test.json", []byte(data))
+		if err == nil || !strings.Contains(
+			err.Error(), "unknown key",
+		) {
+			t.Errorf("expected unknown-field error, got %v", err)
+		}
+	}
+}
+
+func TestParseRejectsNullValues(t *testing.T) {
+	tests := []struct {
+		name  string
+		data  string
+		field string
+	}{
+		{"top level", `null`, "$"},
+		{"tier", `{"Allow": null}`, `$["Allow"]`},
+		{"axis", `{"Deny": {"Commands": null}}`,
+			`$["Deny"]["Commands"]`},
+		{"rules", `{"Rules": null}`, `$["Rules"]`},
+		{
+			"rule config",
+			`{"Rules": {"git.branch-writes": null}}`,
+			`$["Rules"]["git.branch-writes"]`,
+		},
+		{
+			"rule field",
+			`{"Rules": {"git.branch-writes": {"Enabled": null}}}`,
+			`$["Rules"]["git.branch-writes"]["Enabled"]`,
+		},
+		{
+			"preset selection",
+			`{"enabled-presets": null}`,
+			`$["enabled-presets"]`,
+		},
+		{
+			"preset name",
+			`{"disabled-presets": [null]}`,
+			`$["disabled-presets"][0]`,
+		},
+		{
+			"reason",
+			`{"Allow": {"Commands": {"git status:*": null}}}`,
+			`$["Allow"]["Commands"]["git status:*"]`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Parse("test.json", []byte(tt.data))
+			if err == nil || !strings.Contains(
+				err.Error(), tt.field,
+			) {
+				t.Errorf(
+					"expected error naming %s, got %v",
+					tt.field, err)
+			}
+		})
 	}
 }
 

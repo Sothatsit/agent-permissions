@@ -236,11 +236,12 @@ func (b *breaker) runBreakdown(
 			result.Assigns = append(
 				result.Assigns, assign.Name.Value)
 		}
-		subs, assignErr := b.processAssign(assign)
+		inner, assignErr := b.processAssign(assign)
 		if assignErr != nil {
 			return model.BreakdownResult{}, true, assignErr
 		}
-		result.Commands = append(result.Commands, subs...)
+
+		result.Merge(inner)
 	}
 
 	// Process inner commands directly through the AST
@@ -420,11 +421,12 @@ func (b *breaker) processStmt(
 	// can contain CmdSubst that must be extracted and checked.
 	var result model.BreakdownResult
 	for _, redir := range stmt.Redirs {
-		c, err := b.processRedirect(redir)
+		inner, err := b.processRedirect(redir)
 		if err != nil {
 			return model.BreakdownResult{}, err
 		}
-		result.Commands = append(result.Commands, c...)
+
+		result.Merge(inner)
 	}
 
 	main, err := b.processCommand(stmt.Cmd, depth)
@@ -517,14 +519,15 @@ func (b *breaker) processCallExpr(
 ) (model.BreakdownResult, error) {
 	var result model.BreakdownResult
 
-	// Collect commands from assignment substitutions
-	// (e.g. FOO=$(evil) cmd → extract "evil" for checking).
+	// Collect findings from assignment substitutions
+	// (e.g. FOO=$(evil) cmd -> extract "evil" for checking).
 	for _, assign := range ce.Assigns {
-		c, err := b.processAssign(assign)
+		inner, err := b.processAssign(assign)
 		if err != nil {
 			return model.BreakdownResult{}, err
 		}
-		result.Commands = append(result.Commands, c...)
+
+		result.Merge(inner)
 	}
 
 	// No args means assignment-only (e.g. VAR=val).
@@ -604,12 +607,12 @@ func (b *breaker) processCallExpr(
 		if i == 0 {
 			continue
 		}
-		subs, wordErr := b.extractSubsFromWord(word)
+		inner, wordErr := b.extractSubsFromWord(word)
 		if wordErr != nil {
 			return model.BreakdownResult{}, wordErr
 		}
-		result.Commands = append(
-			result.Commands, subs...)
+
+		result.Merge(inner)
 	}
 
 	cmd := model.Command{Args: ce.Args}
@@ -783,12 +786,12 @@ func (b *breaker) processForClause(
 	// Check iteration words for command substitutions.
 	if wi, ok := fc.Loop.(*syntax.WordIter); ok {
 		for _, w := range wi.Items {
-			subs, err := b.extractSubsFromWord(w)
+			inner, err := b.extractSubsFromWord(w)
 			if err != nil {
 				return model.BreakdownResult{}, err
 			}
-			result.Commands = append(
-				result.Commands, subs...)
+
+			result.Merge(inner)
 		}
 	}
 	// CStyleLoop is pure arithmetic — no commands to
@@ -810,22 +813,23 @@ func (b *breaker) processCaseClause(
 	var result model.BreakdownResult
 	// Check the case word for command substitutions.
 	if cc.Word != nil {
-		subs, err := b.extractSubsFromWord(cc.Word)
+		inner, err := b.extractSubsFromWord(cc.Word)
 		if err != nil {
 			return model.BreakdownResult{}, err
 		}
-		result.Commands = append(result.Commands, subs...)
+
+		result.Merge(inner)
 	}
 	// Check all arms — both patterns and bodies. Each arm
 	// is conditional (only the matching arm executes).
 	for _, item := range cc.Items {
 		for _, pattern := range item.Patterns {
-			subs, err := b.extractSubsFromWord(pattern)
+			inner, err := b.extractSubsFromWord(pattern)
 			if err != nil {
 				return model.BreakdownResult{}, err
 			}
-			result.Commands = append(
-				result.Commands, subs...)
+
+			result.Merge(inner)
 		}
 		b.ConditionalDepth++
 		r, err := b.processStmts(item.Stmts, depth)
@@ -841,7 +845,7 @@ func (b *breaker) processCaseClause(
 // extractSubsFromNode walks an AST node looking for command
 // substitutions. Used for nodes that don't contain commands
 // themselves but whose operands can (TestClause, ArithmCmd).
-// Returns Safe=true when no commands are found.
+// Returns Safe=true when no executable content is found.
 func (b *breaker) extractSubsFromNode(
 	node syntax.Node,
 ) (model.BreakdownResult, error) {
@@ -863,8 +867,7 @@ func (b *breaker) extractSubsFromNode(
 				walkErr = err
 				return false
 			}
-			result.Commands = append(
-				result.Commands, inner.Commands...)
+			result.Merge(inner)
 			return false
 		case *syntax.ProcSubst:
 			// Process substitutions run in a subshell
@@ -876,8 +879,7 @@ func (b *breaker) extractSubsFromNode(
 				walkErr = err
 				return false
 			}
-			result.Commands = append(
-				result.Commands, inner.Commands...)
+			result.Merge(inner)
 			return false
 		}
 		return true
@@ -895,71 +897,78 @@ func (b *breaker) processDeclClause(
 	// assignments.
 	var result model.BreakdownResult
 	for _, assign := range dc.Args {
-		c, err := b.processAssign(assign)
+		inner, err := b.processAssign(assign)
 		if err != nil {
 			return model.BreakdownResult{}, err
 		}
-		result.Commands = append(result.Commands, c...)
+
+		result.Merge(inner)
 	}
 	return result, nil
 }
 
 func (b *breaker) processAssign(
 	assign *syntax.Assign,
-) ([]model.Command, error) {
-	var cmds []model.Command
+) (model.BreakdownResult, error) {
+	var result model.BreakdownResult
 	if assign.Value != nil {
-		subs, err := b.extractSubsFromWord(
+		inner, err := b.extractSubsFromWord(
 			assign.Value)
 		if err != nil {
-			return nil, err
+			return model.BreakdownResult{}, err
 		}
-		cmds = append(cmds, subs...)
+
+		result.Merge(inner)
 	}
+
 	if assign.Array != nil {
 		for _, elem := range assign.Array.Elems {
 			if elem.Value != nil {
-				subs, err :=
+				inner, err :=
 					b.extractSubsFromWord(
 						elem.Value)
 				if err != nil {
-					return nil, err
+					return model.BreakdownResult{}, err
 				}
-				cmds = append(cmds, subs...)
+
+				result.Merge(inner)
 			}
 		}
 	}
-	return cmds, nil
+
+	return result, nil
 }
 
 func (b *breaker) processRedirect(
 	redir *syntax.Redirect,
-) ([]model.Command, error) {
-	var cmds []model.Command
+) (model.BreakdownResult, error) {
+	var result model.BreakdownResult
 
 	if redir.Word != nil {
 		if err := checkNetworkRedirect(
 			redir.Word); err != nil {
-			return nil, err
+			return model.BreakdownResult{}, err
 		}
-		subs, err := b.extractSubsFromWord(
+		inner, err := b.extractSubsFromWord(
 			redir.Word)
 		if err != nil {
-			return nil, err
+			return model.BreakdownResult{}, err
 		}
-		cmds = append(cmds, subs...)
+
+		result.Merge(inner)
 	}
 
 	if redir.Hdoc != nil {
-		subs, err := b.extractSubsFromWord(
+		inner, err := b.extractSubsFromWord(
 			redir.Hdoc)
 		if err != nil {
-			return nil, err
+			return model.BreakdownResult{}, err
 		}
-		cmds = append(cmds, subs...)
+
+		result.Merge(inner)
 	}
 
-	return cmds, nil
+	return result, nil
 }
 
 // checkNetworkRedirect denies bash network redirections
@@ -1049,52 +1058,56 @@ func resolveCommandName(w *syntax.Word) (string, error) {
 	return result, nil
 }
 
-// extractSubsFromWord walks a Word for command
-// substitutions and returns the commands found. Unlike
-// resolveWord, it does not build the resolved text.
+// extractSubsFromWord walks a Word for command substitutions
+// and returns every finding from their nested breakdowns.
 func (b *breaker) extractSubsFromWord(
 	w *syntax.Word,
-) ([]model.Command, error) {
-	var subs []model.Command
+) (model.BreakdownResult, error) {
+	var result model.BreakdownResult
 	for _, part := range w.Parts {
-		s, err := b.extractSubsFromPart(part)
+		inner, err := b.extractSubsFromPart(part)
 		if err != nil {
-			return nil, err
+			return model.BreakdownResult{}, err
 		}
-		subs = append(subs, s...)
+
+		result.Merge(inner)
 	}
-	return subs, nil
+
+	return result, nil
 }
 
 func (b *breaker) extractSubsFromPart(
 	part syntax.WordPart,
-) ([]model.Command, error) {
+) (model.BreakdownResult, error) {
 	switch p := part.(type) {
 	case *syntax.Lit, *syntax.SglQuoted:
-		return nil, nil
+		return model.BreakdownResult{}, nil
 	case *syntax.DblQuoted:
-		var subs []model.Command
+		var result model.BreakdownResult
 		for _, inner := range p.Parts {
-			s, err := b.extractSubsFromPart(inner)
+			innerResult, err := b.extractSubsFromPart(inner)
 			if err != nil {
-				return nil, err
+				return model.BreakdownResult{}, err
 			}
-			subs = append(subs, s...)
+
+			result.Merge(innerResult)
 		}
-		return subs, nil
+
+		return result, nil
 	case *syntax.CmdSubst:
 		restoreCwd := b.saveCwd()
 		innerResult, err := b.processStmts(
 			p.Stmts, 0)
 		restoreCwd()
 		if err != nil {
-			return nil, err
+			return model.BreakdownResult{}, err
 		}
-		return innerResult.Commands, nil
+
+		return innerResult, nil
 	case *syntax.ParamExp:
 		return b.walkParamExpForSubs(p)
 	case *syntax.ArithmExp:
-		return nil, unsupported(
+		return model.BreakdownResult{}, unsupported(
 			"arithmetic expansion $(())")
 	case *syntax.ProcSubst:
 		restoreCwd := b.saveCwd()
@@ -1102,24 +1115,28 @@ func (b *breaker) extractSubsFromPart(
 			p.Stmts, 0)
 		restoreCwd()
 		if err != nil {
-			return nil, err
+			return model.BreakdownResult{}, err
 		}
-		return innerResult.Commands, nil
+
+		return innerResult, nil
 	case *syntax.ExtGlob:
-		return nil, unsupported("extended glob")
+		return model.BreakdownResult{}, unsupported(
+			"extended glob")
 	case *syntax.BraceExp:
-		return nil, unsupported("brace expansion")
+		return model.BreakdownResult{}, unsupported(
+			"brace expansion")
 	default:
-		return nil, unsupported(nodeTypeName(part))
+		return model.BreakdownResult{}, unsupported(
+			nodeTypeName(part))
 	}
 }
 
 // walkParamExpForSubs walks a ParamExp's sub-expressions
-// looking for CmdSubst. Returns any commands found.
+// looking for CmdSubst and returns their breakdown findings.
 func (b *breaker) walkParamExpForSubs(
 	pe *syntax.ParamExp,
-) ([]model.Command, error) {
-	var cmds []model.Command
+) (model.BreakdownResult, error) {
+	var result model.BreakdownResult
 
 	// Walk all child nodes looking for CmdSubst.
 	var walkErr error
@@ -1137,7 +1154,7 @@ func (b *breaker) walkParamExpForSubs(
 				walkErr = err
 				return false
 			}
-			cmds = append(cmds, innerResult.Commands...)
+			result.Merge(innerResult)
 			return false
 		case *syntax.ArithmExp:
 			walkErr = unsupported(
@@ -1149,9 +1166,10 @@ func (b *breaker) walkParamExpForSubs(
 	})
 
 	if walkErr != nil {
-		return nil, walkErr
+		return model.BreakdownResult{}, walkErr
 	}
-	return cmds, nil
+
+	return result, nil
 }
 
 func unsupported(what string) error {

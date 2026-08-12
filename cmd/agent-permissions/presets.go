@@ -5,13 +5,14 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/sothatsit/agent-permissions/internal/agentconfig"
 	"github.com/sothatsit/agent-permissions/internal/perms"
 	"github.com/sothatsit/agent-permissions/presets"
 )
 
-// presetsCmd dispatches the `presets` subcommand group.
+// runPresetsCommand dispatches the `presets` subcommand group.
 // `list` is the only subcommand today; users opt presets
 // in or out by hand-editing `enabled-presets` /
 // `disabled-presets` in ~/.agents/permissions.json. The
@@ -19,14 +20,14 @@ import (
 // because "all enabled by default" made `enable` a
 // no-op-with-a-misleading-success-message in the common
 // case.
-func presetsCmd(args []string) error {
+func runPresetsCommand(args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf(
 			"usage: agent-permissions presets list")
 	}
 	switch args[0] {
 	case "list":
-		return presetsList(args[1:])
+		return listPresets(args[1:])
 	default:
 		return fmt.Errorf(
 			"unknown presets subcommand: %s "+
@@ -43,10 +44,10 @@ type presetState struct {
 	reason  string
 }
 
-// presetsList shows every available preset and its state,
+// listPresets shows every available preset and its state,
 // considering global, project, and local permissions.json
 // files with the same priority as the hook.
-func presetsList(args []string) error {
+func listPresets(args []string) error {
 	if len(args) != 0 {
 		return fmt.Errorf("usage: presets list")
 	}
@@ -69,11 +70,7 @@ func presetsList(args []string) error {
 
 	selecting := pickPresetSelector(global, project, local)
 
-	// Header — show which config files were consulted
-	// and which one is authoritative for preset
-	// selection. Matches what the hook actually does, so
-	// `presets list` doesn't lie about the effective
-	// state.
+	// Show which file owns preset selection so this view matches the hook.
 	fmt.Println("Configs:")
 	fmt.Printf(
 		"  ~ %s\n",
@@ -129,9 +126,9 @@ func presetsList(args []string) error {
 		return rows[i].name < rows[j].name
 	})
 
-	printPresetGroup("Enforced", rows, true, true)
-	printPresetGroup("Enabled", rows, false, true)
-	printPresetGroup("Disabled", rows, false, false)
+	printPresetGroup(enforcedPresetGroup, rows)
+	printPresetGroup(enabledPresetGroup, rows)
+	printPresetGroup(disabledPresetGroup, rows)
 	return nil
 }
 
@@ -143,33 +140,40 @@ type classifiedPreset struct {
 	state       presetState
 }
 
+type presetGroup int
+
+const (
+	enforcedPresetGroup presetGroup = iota
+	enabledPresetGroup
+	disabledPresetGroup
+)
+
 func printPresetGroup(
-	heading string,
-	rows []classifiedPreset,
-	enforced bool,
-	enabled bool,
+	group presetGroup, rows []classifiedPreset,
 ) {
-	var any bool
+	var hasRows bool
 	for _, r := range rows {
-		if r.enforced == enforced &&
-			(enforced || r.state.enabled == enabled) {
-			any = true
+		if r.group() == group {
+			hasRows = true
 			break
 		}
 	}
-	if !any {
+
+	if !hasRows {
 		return
 	}
-	fmt.Printf("%s:\n", heading)
+
+	fmt.Printf("%s:\n", group)
 	for _, r := range rows {
-		if r.enforced != enforced ||
-			(!enforced && r.state.enabled != enabled) {
+		if r.group() != group {
 			continue
 		}
+
 		reason := ""
 		if r.state.reason != "" {
 			reason = "  (" + r.state.reason + ")"
 		}
+
 		fmt.Printf(
 			"  %-22s%s\n", r.name, reason)
 		fmt.Printf("    %s\n", r.description)
@@ -177,7 +181,33 @@ func printPresetGroup(
 			fmt.Printf("    from: %s\n", r.dir)
 		}
 	}
+
 	fmt.Println()
+}
+
+func (p classifiedPreset) group() presetGroup {
+	if p.enforced {
+		return enforcedPresetGroup
+	}
+
+	if p.state.enabled {
+		return enabledPresetGroup
+	}
+
+	return disabledPresetGroup
+}
+
+func (g presetGroup) String() string {
+	switch g {
+	case enforcedPresetGroup:
+		return "Enforced"
+	case enabledPresetGroup:
+		return "Enabled"
+	case disabledPresetGroup:
+		return "Disabled"
+	default:
+		panic(fmt.Sprintf("unknown preset group %d", g))
+	}
 }
 
 func classifyPreset(
@@ -189,15 +219,14 @@ func classifyPreset(
 			reason:  "always active",
 		}
 	}
+
 	return classify(p.Name, sel)
 }
 
-// pickPresetSelector returns the agentconfig that owns
-// preset selection: the most-specific config that specifies
-// either field — local, else project, else global —
-// otherwise nil (= default, all enabled). Mirrors
-// SelectPresets in the resolver so `presets list` reports
-// the same effective state the hook applies.
+// pickPresetSelector returns the most-specific config that specifies preset
+// selection. It checks local, then project, then global. It returns nil when
+// none has an opinion. This mirrors SelectPresets in the resolver so the
+// preset list reports the same effective state the hook applies.
 func pickPresetSelector(
 	global, project, local *agentconfig.Config,
 ) *agentconfig.Config {
@@ -248,7 +277,7 @@ func classify(
 
 // loadAgentConfig reads the file at path and returns
 // (config, displayPath, err). A missing file produces a
-// nil config — callers treat that as "no opinion from this
+// nil config. Callers treat that as "no opinion from this
 // source", matching the hook's behaviour.
 func loadAgentConfig(
 	pathFn func() (string, error),
@@ -313,16 +342,5 @@ func describeConfig(
 		return path + " (no preset selection)"
 	}
 	return fmt.Sprintf(
-		"%s (%s)", path, joinComma(bits))
-}
-
-func joinComma(parts []string) string {
-	out := ""
-	for i, p := range parts {
-		if i > 0 {
-			out += ", "
-		}
-		out += p
-	}
-	return out
+		"%s (%s)", path, strings.Join(bits, ", "))
 }

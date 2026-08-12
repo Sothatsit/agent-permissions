@@ -37,7 +37,7 @@ func Write(
 	info, err := os.Lstat(path)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf(
-			"stat %s: %v", path, err)
+			"stat %s: %w", path, err)
 	}
 
 	mode := defaultMode
@@ -51,13 +51,13 @@ func Write(
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf(
-			"create parent dir: %v", err)
+			"create parent dir: %w", err)
 	}
 
 	tmp, err := os.CreateTemp(
 		dir, ".atomic-*.tmp")
 	if err != nil {
-		return fmt.Errorf("create temp: %v", err)
+		return fmt.Errorf("create temp: %w", err)
 	}
 	tmpPath := tmp.Name()
 
@@ -66,19 +66,19 @@ func Write(
 
 	if _, err := tmp.Write(data); err != nil {
 		tmp.Close()
-		return fmt.Errorf("write temp: %v", err)
+		return fmt.Errorf("write temp: %w", err)
 	}
 	if err := tmp.Chmod(mode); err != nil {
 		tmp.Close()
-		return fmt.Errorf("chmod temp: %v", err)
+		return fmt.Errorf("chmod temp: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close temp: %v", err)
+		return fmt.Errorf("close temp: %w", err)
 	}
 
 	if err := os.Rename(tmpPath, path); err != nil {
 		return fmt.Errorf(
-			"rename %s -> %s: %v", tmpPath, path, err)
+			"rename %s -> %s: %w", tmpPath, path, err)
 	}
 	return nil
 }

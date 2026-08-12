@@ -12,14 +12,20 @@ set -euo pipefail
 THRESHOLD_MS=50
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
-output=$("$DIR/benchmark.sh")
+benchmark_rc=0
+output=$("$DIR/benchmark.sh") || benchmark_rc=$?
 echo "$output"
 echo ""
 
 failed=0
+benchmark_failures=0
 total=0
 
 while IFS= read -r line; do
+    if [[ "$line" == *" FAIL ("* ]]; then
+        benchmark_failures=$((benchmark_failures + 1))
+        continue
+    fi
     [[ "$line" == *" ms" ]] || continue
     [[ "$line" == *"overhead"* ]] && continue
     [[ "$line" == *"mean"* ]] && continue
@@ -34,7 +40,13 @@ while IFS= read -r line; do
     fi
 done <<< "$output"
 
-if [[ "$total" -eq 0 ]]; then
+if [[ "$benchmark_failures" -gt 0 ]]; then
+    echo "FAIL: $benchmark_failures benchmark case(s) failed"
+    exit 1
+elif [[ "$benchmark_rc" -ne 0 ]]; then
+    echo "FAIL: benchmark exited with code $benchmark_rc"
+    exit 1
+elif [[ "$total" -eq 0 ]]; then
     echo "FAIL: no benchmark results found"
     exit 1
 elif [[ "$failed" -gt 0 ]]; then
