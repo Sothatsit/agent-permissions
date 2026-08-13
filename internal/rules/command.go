@@ -17,10 +17,10 @@ import (
 func breakdownCommand(
 	input model.ParseResult,
 	_ *model.State,
-) (*model.UnwrapResult, error) {
+) (model.BreakdownOutcome, error) {
 	if len(input.Raw) == 0 {
 		// Bare "command" — lists functions.
-		return &model.UnwrapResult{}, nil
+		return model.Safe(), nil
 	}
 
 	idx := 0
@@ -29,27 +29,27 @@ func breakdownCommand(
 	// -v/-V: command existence check — safe.
 	if word.DefinitelyEqual(w, "-v") ||
 		word.DefinitelyEqual(w, "-V") {
-		return &model.UnwrapResult{}, nil
+		return model.Safe(), nil
 	}
 
 	// -p: use standard PATH, advance past it.
 	if word.DefinitelyEqual(w, "-p") {
 		idx++
 		if idx >= len(input.Raw) {
-			return &model.UnwrapResult{}, nil
+			return model.Safe(), nil
 		}
 		w = input.Raw[idx]
 		if word.DefinitelyEqual(w, "--") {
 			idx++
 			if idx >= len(input.Raw) {
-				return &model.UnwrapResult{}, nil
+				return model.Safe(), nil
 			}
 		} else if word.DefinitelyEqual(w, "-v") ||
 			word.DefinitelyEqual(w, "-V") {
 			// command -p -v name — safe lookup.
-			return &model.UnwrapResult{}, nil
+			return model.Safe(), nil
 		} else if word.DefinitelyHasPrefix(w, "-") {
-			return nil, &model.RuleError{
+			return model.BreakdownOutcome{}, &model.RuleError{
 				Def: commandUnverified,
 				Reason: fmt.Sprintf(
 					"command: unrecognised flag "+
@@ -63,10 +63,10 @@ func breakdownCommand(
 	} else if word.DefinitelyEqual(w, "--") {
 		idx++
 		if idx >= len(input.Raw) {
-			return &model.UnwrapResult{}, nil
+			return model.Safe(), nil
 		}
 	} else if word.DefinitelyHasPrefix(w, "-") {
-		return nil, &model.RuleError{
+		return model.BreakdownOutcome{}, &model.RuleError{
 			Def: commandUnverified,
 			Reason: fmt.Sprintf(
 				"command: unrecognised flag "+
@@ -79,7 +79,7 @@ func breakdownCommand(
 	}
 
 	// Remaining args are the inner command.
-	return &model.UnwrapResult{
+	return model.ReplaceOuter(model.BreakdownWork{
 		Commands: [][]*syntax.Word{input.Raw[idx:]},
-	}, nil
+	}), nil
 }

@@ -265,40 +265,16 @@ type CodeSnippet struct {
 	SourceFile string
 }
 
-// UnwrapResult tells the breakdown framework what a
-// command unwraps to. Returned by BreakdownFunc hooks.
-//
-// Return semantics:
-//   - nil: the hook did not unwrap the command. The outer
-//     command falls through to normal flattening. Use
-//     this for state-only mutations (cd updates Cwd) or
-//     when the hook can't handle the invocation (bare
-//     bash falls to the rules deny).
-//   - &UnwrapResult{} (empty): the hook handled the
-//     command and it is safe — no inner commands to
-//     check. The outer command is replaced (not emitted).
-//     Use this for safe operations (command -v, trap -l,
-//     bare xargs).
-//   - &UnwrapResult{Commands: ...}: inner commands
-//     replace the outer command. The framework processes
-//     them and the outer command is not emitted.
-//   - &UnwrapResult{KeepOuter: true, Commands: ...}:
-//     inner commands are extracted AND the outer command
-//     continues through normal flattening (cmd-sub
-//     extraction, rules, permissions). Use this when the
-//     breakdown extracts embedded commands but the outer
-//     command itself still needs independent checking
-//     (e.g. find -exec extracts inner commands, but the
-//     outer find may have flags or args that need
-//     rules/permissions evaluation).
-type UnwrapResult struct {
+// BreakdownWork is the work extracted from one command. Its fields are
+// additive: a wrapper can produce several kinds of work.
+type BreakdownWork struct {
 	// WorkingDirectory scopes the inner work to this directory. The framework
 	// scans its shell substitutions under the outer state, resolves it with the
 	// same rules as cd, then restores the outer state.
 	WorkingDirectory *syntax.Word
 	// Commands to recurse into. Each slice of Words is
 	// processed directly through the AST walker (no
-	// print→reparse round trip). Use this for inner
+	// print-and-reparse round trip). Use this for inner
 	// commands that are already structured as separate
 	// arg Words (e.g. timeout 5 [ls -la], find -exec
 	// [git status] ;).
@@ -310,16 +286,12 @@ type UnwrapResult struct {
 	// where the Word's text representation includes
 	// quotes that shouldn't be in the code.
 	CodeStrings []string
-	// Assigns are environment-variable assignments the
-	// wrapper applies to its inner command (e.g.
-	// env NAME=val cmd). The framework records each name on
-	// the EnvVars deny axis and extracts command
-	// substitutions from each value — so a wrapper that sets
-	// env vars carries that execution-relevant part forward
-	// rather than dropping it. Exec-style wrappers (timeout,
-	// nohup, ...) leave this nil: they exec the inner command
-	// directly via execvp, so a leading NAME=val is the
-	// program name, not an assignment, and is not honoured.
+	// Assigns are environment-variable assignments the wrapper applies to its
+	// inner command (e.g. env NAME=val cmd). The framework records each name on
+	// the EnvVars deny axis and extracts command substitutions from each value.
+	// Exec-style wrappers (timeout, nohup, ...) leave this nil: they exec the
+	// inner command directly via execvp, so a leading NAME=val is the program
+	// name, not an assignment.
 	Assigns []*syntax.Assign
 	// ScanFiles lists file paths to scan directly (e.g.
 	// bash script.sh). The framework handles isolation
@@ -332,15 +304,86 @@ type UnwrapResult struct {
 	CodeSnippets []CodeSnippet
 	// ShellWords contains words that the outer shell still expands before a
 	// handled wrapper runs. The framework extracts command and process
-	// substitutions even though the outer command itself is replaced. Language
-	// wrappers use this for program sources and data. Either can run shell code
-	// before the language runtime sees it.
+	// substitutions even though the outer command itself is replaced.
 	ShellWords []*syntax.Word
-	// KeepOuter preserves the outer command alongside
-	// the extracted inner commands. When false (default),
-	// the inner commands replace the outer command. When
-	// true, the outer command continues through normal
-	// flattening — cmd-sub extraction from args, rules
-	// evaluation, and permissions checking all apply.
-	KeepOuter bool
+}
+
+func (w BreakdownWork) empty() bool {
+	return w.WorkingDirectory == nil &&
+		len(w.Commands) == 0 &&
+		len(w.CodeStrings) == 0 &&
+		len(w.Assigns) == 0 &&
+		len(w.ScanFiles) == 0 &&
+		len(w.CodeSnippets) == 0 &&
+		len(w.ShellWords) == 0
+}
+
+// OuterDisposition is the framework action selected by a BreakdownOutcome.
+// Callers choose it through an outcome constructor rather than setting it.
+type OuterDisposition uint8
+
+const (
+	invalidBreakdownOutcome OuterDisposition = iota
+	OuterFallThrough
+	OuterSafe
+	OuterReplace
+	OuterKeep
+)
+
+// BreakdownOutcome says what happens to the outer command and carries any
+// work extracted from it. Its zero value is invalid; construct outcomes with
+// FallThrough, Safe, ReplaceOuter, or KeepOuter.
+type BreakdownOutcome struct {
+	disposition OuterDisposition
+	work        BreakdownWork
+}
+
+// FallThrough keeps the outer command for normal flattening. Use it when a
+// hook declines to unwrap an invocation or only mutates breakdown state.
+func FallThrough() BreakdownOutcome {
+	return BreakdownOutcome{disposition: OuterFallThrough}
+}
+
+// Safe removes an outer command that the hook has fully checked and found to
+// contain no work.
+func Safe() BreakdownOutcome {
+	return BreakdownOutcome{disposition: OuterSafe}
+}
+
+// ReplaceOuter removes the outer command after processing the extracted work.
+// It panics when work is empty; use Safe for that outcome.
+func ReplaceOuter(work BreakdownWork) BreakdownOutcome {
+	if work.empty() {
+		panic("ReplaceOuter requires non-empty BreakdownWork")
+	}
+	return BreakdownOutcome{
+		disposition: OuterReplace,
+		work:        work,
+	}
+}
+
+// KeepOuter processes the extracted work, then also flattens the outer
+// command through normal rules and permissions. It panics when work is empty;
+// use FallThrough when there is nothing to extract.
+func KeepOuter(work BreakdownWork) BreakdownOutcome {
+	if work.empty() {
+		panic("KeepOuter requires non-empty BreakdownWork")
+	}
+	return BreakdownOutcome{
+		disposition: OuterKeep,
+		work:        work,
+	}
+}
+
+// Work returns the work extracted from the outer command.
+func (o BreakdownOutcome) Work() BreakdownWork {
+	return o.work
+}
+
+// Disposition returns the selected outer-command action. The bool is false
+// for an outcome that did not come from a constructor.
+func (o BreakdownOutcome) Disposition() (OuterDisposition, bool) {
+	valid := o.disposition >= OuterFallThrough &&
+		o.disposition <= OuterKeep
+	return o.disposition, valid
 }

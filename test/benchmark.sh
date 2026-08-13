@@ -539,9 +539,8 @@ f_nested=$(_prepare nested "$cmd")
 
 # 3. Many find -exec clauses
 # Targets: find breakdown hook (each -exec extracts
-# an inner command), KeepOuter (find itself also
-# checked by rules for -ok/-okdir), permission
-# matching for all extracted + outer commands.
+# an inner command), retained outer find checking for
+# -ok/-okdir, and permission matching for all commands.
 read -r -d '' cmd <<'BENCH' || true
 find /project/src -type f -name '*.py' -exec grep -l 'import os' {} \; -exec grep -c 'def ' {} \; -exec wc -l {} \; -exec head -5 {} \; -exec md5sum {} \; -exec stat --format='%s %n' {} \; -exec file --mime-type {} \; -exec basename {} \;
 BENCH

@@ -31,6 +31,27 @@ func flagValue(pf []ParsedFlag, name string) string {
 	return ""
 }
 
+func TestWorkOutcomesRejectEmptyWork(t *testing.T) {
+	constructors := []struct {
+		name      string
+		construct func()
+	}{
+		{"replace", func() { ReplaceOuter(BreakdownWork{}) }},
+		{"keep", func() { KeepOuter(BreakdownWork{}) }},
+	}
+
+	for _, constructor := range constructors {
+		t.Run(constructor.name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Error("expected panic for empty work")
+				}
+			}()
+			constructor.construct()
+		})
+	}
+}
+
 // --- PopulatePossibleFlags ---
 
 func TestPopulatePossibleFlags(t *testing.T) {

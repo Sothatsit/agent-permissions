@@ -46,16 +46,14 @@ type ParseResult struct {
 // decision. Returns Undecided when the hook has no opinion.
 type HookFunc func(input ParseResult) (Decision, string)
 
-// BreakdownFunc examines a command's parsed arguments and
-// optionally unwraps it into inner commands for further
-// breakdown. Also used for pure state mutations (e.g.
-// cd updates Cwd). Returns nil when the command should not
-// be unwrapped (fall through to normal flattening).
-// Returns an error for "cannot verify" (becomes a deny).
+// BreakdownFunc examines a command's parsed arguments and chooses how the
+// breakdown framework handles it. It can also mutate breakdown state, as cd
+// does. A successful function must return an outcome made by one of the
+// BreakdownOutcome constructors. An error becomes a denial.
 type BreakdownFunc func(
 	input ParseResult,
 	state *State,
-) (*UnwrapResult, error)
+) (BreakdownOutcome, error)
 
 // Rule matches a command's arguments and produces a
 // decision via a static action, a hook, children, or a

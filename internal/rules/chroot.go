@@ -22,17 +22,17 @@ var chrootParser, _chrootBaseBreakdown = wrapperBreakdown(
 func breakdownChroot(
 	input model.ParseResult,
 	state *model.State,
-) (*model.UnwrapResult, error) {
-	result, err := _chrootBaseBreakdown(input, state)
-	if err != nil || result == nil {
-		return result, err
+) (model.BreakdownOutcome, error) {
+	outcome, err := _chrootBaseBreakdown(input, state)
+	if err != nil {
+		return model.BreakdownOutcome{}, err
 	}
-	if len(result.Commands) == 0 {
-		return nil, &model.RuleError{
+	if len(outcome.Work().Commands) == 0 {
+		return model.BreakdownOutcome{}, &model.RuleError{
 			Def: chrootUnverified,
 			Reason: "chroot with no command runs an " +
 				"interactive shell — give an explicit command",
 		}
 	}
-	return result, nil
+	return outcome, nil
 }

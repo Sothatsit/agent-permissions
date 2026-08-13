@@ -40,7 +40,7 @@ func wrapperBreakdown(
 	breakdown := func(
 		input model.ParseResult,
 		state *model.State,
-	) (*model.UnwrapResult, error) {
+	) (model.BreakdownOutcome, error) {
 		// Deny flags checked post-parse — deny is policy,
 		// not parsing. A matched deny-flag implies this
 		// wrapper has a denyRule; honor its config so a
@@ -52,7 +52,7 @@ func wrapperBreakdown(
 				continue
 			}
 			if state.RuleConfig.For(def.denyRule).Enabled {
-				return nil, &model.RuleError{
+				return model.BreakdownOutcome{}, &model.RuleError{
 					Def:    def.denyRule,
 					Reason: reason,
 				}
@@ -70,11 +70,11 @@ func wrapperBreakdown(
 		rest = rest[skip:]
 
 		if len(rest) == 0 {
-			return &model.UnwrapResult{}, nil
+			return model.Safe(), nil
 		}
-		return &model.UnwrapResult{
+		return model.ReplaceOuter(model.BreakdownWork{
 			Commands: [][]*syntax.Word{rest},
-		}, nil
+		}), nil
 	}
 
 	return p, breakdown

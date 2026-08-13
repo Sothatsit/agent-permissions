@@ -152,12 +152,9 @@ func (b *breaker) suppressDisabled(err error) bool {
 	return false
 }
 
-// runBreakdown calls the BreakdownFunc for a command and
-// processes the UnwrapResult. Returns the inner commands
-// extracted (if any) and whether the outer command was
-// replaced (true = inner commands replace the outer;
-// false = hook returned nil or KeepOuter was set, fall
-// through to flattening).
+// runBreakdown calls the BreakdownFunc for a command and processes its
+// outcome. It returns the extracted work and whether the outcome replaces the
+// outer command.
 func (b *breaker) runBreakdown(
 	baseName string,
 	cmdArgs []*syntax.Word,
@@ -194,8 +191,7 @@ func (b *breaker) runBreakdown(
 				}
 			}
 			if b.suppressDisabled(perr) {
-				return model.BreakdownResult{},
-					false, nil
+				return model.BreakdownResult{}, false, nil
 			}
 			return model.BreakdownResult{}, true, perr
 		}
@@ -206,7 +202,7 @@ func (b *breaker) runBreakdown(
 	}
 
 	// Call the BreakdownFunc.
-	unwrapResult, err := rules.Breakdown(
+	outcome, err := rules.Breakdown(
 		input, &b.State)
 	if err != nil {
 		// A breakdown denial attributed to a disabled rule
@@ -217,30 +213,28 @@ func (b *breaker) runBreakdown(
 		}
 		return model.BreakdownResult{}, true, err
 	}
-	if unwrapResult == nil {
-		// Hook declined to unwrap (e.g. cd just
-		// mutated state). No inner commands.
+	disposition, valid := outcome.Disposition()
+	if !valid {
+		return model.BreakdownResult{}, true, fmt.Errorf(
+			"%s breakdown returned no outcome", baseName)
+	}
+	if disposition == model.OuterFallThrough {
 		return model.BreakdownResult{}, false, nil
 	}
+	work := outcome.Work()
 
-	// Process the UnwrapResult. If the hook returned an
-	// empty result (no commands, no files, no code), the
-	// command is safe (e.g. command -v, trap -l, bare
-	// xargs).
 	var result model.BreakdownResult
-	if len(unwrapResult.Commands) == 0 &&
-		len(unwrapResult.CodeStrings) == 0 &&
-		len(unwrapResult.ScanFiles) == 0 &&
-		len(unwrapResult.CodeSnippets) == 0 {
+	if disposition == model.OuterSafe ||
+		(len(work.Commands) == 0 &&
+			len(work.CodeStrings) == 0 &&
+			len(work.ScanFiles) == 0 &&
+			len(work.CodeSnippets) == 0) {
 		result.Safe = true
 	}
 
-	// Apply env-var assignments the wrapper sets on its inner
-	// command (e.g. env NAME=val cmd): record each name on the
-	// EnvVars deny axis and extract command substitutions from
-	// each value, exactly as a leading assignment on a top-level
-	// command would be handled.
-	for _, assign := range unwrapResult.Assigns {
+	// Apply env-var assignments the wrapper sets on its inner command. Record
+	// each name on the EnvVars axis and scan substitutions from each value.
+	for _, assign := range work.Assigns {
 		if assign.Name != nil {
 			result.Assigns = append(
 				result.Assigns, assign.Name.Value)
@@ -253,14 +247,13 @@ func (b *breaker) runBreakdown(
 		if assignErr != nil {
 			return model.BreakdownResult{}, true, assignErr
 		}
-
 		result.Merge(inner)
 	}
 
-	// ShellWords expand before a handled wrapper starts, so they always use
-	// the outer working directory rather than a wrapper-scoped one.
+	// ShellWords expand before a handled wrapper starts, so they always use the
+	// outer working directory rather than a wrapper-scoped one.
 	if expansion == needsExpansion {
-		for _, shellWord := range unwrapResult.ShellWords {
+		for _, shellWord := range work.ShellWords {
 			inner, shellErr := b.extractSubsFromWord(shellWord)
 			if shellErr != nil {
 				return model.BreakdownResult{}, true, shellErr
@@ -270,14 +263,14 @@ func (b *breaker) runBreakdown(
 	}
 
 	innerExpansion := expansion
-	if directory := unwrapResult.WorkingDirectory; directory != nil {
+	if directory := work.WorkingDirectory; directory != nil {
 		if expansion == needsExpansion {
 			inner, directoryErr := b.extractSubsFromWord(directory)
 			if directoryErr != nil {
 				return model.BreakdownResult{}, true, directoryErr
 			}
 			result.Merge(inner)
-			for _, words := range unwrapResult.Commands {
+			for _, words := range work.Commands {
 				for _, commandWord := range words {
 					inner, wordErr := b.extractSubsFromWord(commandWord)
 					if wordErr != nil {
@@ -295,9 +288,8 @@ func (b *breaker) runBreakdown(
 		innerExpansion = expansionScanned
 	}
 
-	// Process inner commands directly through the AST
-	// walker — no print→reparse round trip.
-	for _, words := range unwrapResult.Commands {
+	// Process inner commands directly through the AST walker.
+	for _, words := range work.Commands {
 		call := &syntax.CallExpr{Args: words}
 		var inner model.BreakdownResult
 		var innerErr error
@@ -308,56 +300,52 @@ func (b *breaker) runBreakdown(
 			inner, innerErr = b.processCallExpr(call, depth)
 		}
 		if innerErr != nil {
-			return model.BreakdownResult{},
-				true, innerErr
+			return model.BreakdownResult{}, true, innerErr
 		}
 		result.Merge(inner)
 	}
 
-	// Re-parse code strings (resolved text from
-	// bash -c, eval, trap) through breakdownAt.
-	for _, code := range unwrapResult.CodeStrings {
-		inner, innerErr := b.breakdownAt(
-			code, depth+1)
+	// Re-parse code strings (resolved text from bash -c,
+	// eval, trap) through breakdownAt.
+	for _, code := range work.CodeStrings {
+		inner, innerErr := b.breakdownAt(code, depth+1)
 		if innerErr != nil {
-			return model.BreakdownResult{},
-				true, innerErr
+			return model.BreakdownResult{}, true, innerErr
 		}
 		result.Merge(inner)
 	}
 
-	// Transfer code snippets from unwrap result.
+	// Transfer extracted code snippets.
 	// Set SourceScript to the full command args if the
 	// breakdown function left it unset.
-	for i := range unwrapResult.CodeSnippets {
-		if unwrapResult.CodeSnippets[i].SourceScript == nil {
-			unwrapResult.CodeSnippets[i].SourceScript =
+	for i := range work.CodeSnippets {
+		if work.CodeSnippets[i].SourceScript == nil {
+			work.CodeSnippets[i].SourceScript =
 				cmdArgs
 		}
 	}
 	result.CodeSnippets = append(
 		result.CodeSnippets,
-		unwrapResult.CodeSnippets...)
+		work.CodeSnippets...)
 
 	// Scan files with automatic isolation.
-	for _, path := range unwrapResult.ScanFiles {
+	for _, path := range work.ScanFiles {
 		restore := b.isolateForBash()
 		b.RootScript = path
 		inner, scanErr := b.scanFile(path, depth)
 		restore()
 		if scanErr != nil {
-			return model.BreakdownResult{}, true,
-				fmt.Errorf(
-					"%s: %v. Fix the issue and "+
-						"retry, or run the script "+
-						"directly (%s)",
-					path, scanErr,
-					word.DirectPath(path))
+			return model.BreakdownResult{}, true, fmt.Errorf(
+				"%s: %v. Fix the issue and "+
+					"retry, or run the script "+
+					"directly (%s)",
+				path, scanErr,
+				word.DirectPath(path))
 		}
 		result.Merge(inner)
 	}
 
-	return result, !unwrapResult.KeepOuter, nil
+	return result, disposition != model.OuterKeep, nil
 }
 
 // scanFile reads a script file relative to cwd, parses it,
@@ -645,12 +633,9 @@ func (b *breaker) processCallExprWithExpansion(
 
 	// --- BreakdownFunc dispatch ---
 	//
-	// If the registry has a BreakdownFunc for this
-	// command, call it to extract inner commands or
-	// mutate breakdown state. When inner commands are
-	// returned, they replace the outer command (the
-	// outer is not emitted). When the hook returns nil,
-	// the outer command falls through to flattening.
+	// If the registry has a BreakdownFunc for this command, call it to extract
+	// inner commands, choose the outer command's disposition, or mutate
+	// breakdown state.
 	//
 	// Path-invoked commands (./cmd, /usr/bin/cmd) are
 	// controlled by PathMode: Deny rejects them (a
@@ -678,10 +663,9 @@ func (b *breaker) processCallExprWithExpansion(
 				}
 			}
 			if !skipBreakdown {
-				inner, replaced, bdErr :=
-					b.runBreakdown(
-						baseName, ce.Args,
-						depth, expansion)
+				inner, replaced, bdErr := b.runBreakdown(
+					baseName, ce.Args,
+					depth, expansion)
 				if bdErr != nil {
 					return model.BreakdownResult{},
 						bdErr
@@ -690,10 +674,8 @@ func (b *breaker) processCallExprWithExpansion(
 				if replaced && !keepOuter {
 					return result, nil
 				}
-				// Hook returned nil — fall through
-				// to flattening (e.g. cd updated
-				// Cwd, bare bash falls to rules
-				// deny).
+				// The outcome kept the outer command, so continue with
+				// normal flattening.
 			}
 		}
 	}

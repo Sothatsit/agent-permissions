@@ -49,26 +49,26 @@ var flockParser = model.NewFullParser(
 func breakdownFlock(
 	input model.ParseResult,
 	_ *model.State,
-) (*model.UnwrapResult, error) {
+) (model.BreakdownOutcome, error) {
 	pos := input.Positionals
 	if len(pos) == 0 {
 		// No lock file — flock errors at runtime; nothing runs.
-		return &model.UnwrapResult{}, nil
+		return model.Safe(), nil
 	}
 	rest := pos[1:] // pos[0] is the lock file/dir/fd
 	if len(rest) == 0 {
-		return &model.UnwrapResult{}, nil
+		return model.Safe(), nil
 	}
 	if word.DefinitelyEqual(rest[0], "-c") ||
 		word.DefinitelyEqual(rest[0], "--command") {
 		if len(rest) < 2 {
-			return &model.UnwrapResult{}, nil
+			return model.Safe(), nil
 		}
-		return &model.UnwrapResult{
+		return model.ReplaceOuter(model.BreakdownWork{
 			CodeStrings: []string{word.Text(rest[1])},
-		}, nil
+		}), nil
 	}
-	return &model.UnwrapResult{
+	return model.ReplaceOuter(model.BreakdownWork{
 		Commands: [][]*syntax.Word{rest},
-	}, nil
+	}), nil
 }

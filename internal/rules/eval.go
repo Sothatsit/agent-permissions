@@ -14,15 +14,15 @@ import (
 func breakdownEval(
 	input model.ParseResult,
 	_ *model.State,
-) (*model.UnwrapResult, error) {
+) (model.BreakdownOutcome, error) {
 	if len(input.Raw) == 0 {
-		return &model.UnwrapResult{}, nil
+		return model.Safe(), nil
 	}
 	// Every arg must be static — eval with a variable
 	// could execute anything.
 	for _, w := range input.Raw {
 		if !word.Static(w) {
-			return nil, &model.RuleError{
+			return model.BreakdownOutcome{}, &model.RuleError{
 				Def: evalUnverified,
 				Reason: fmt.Sprintf(
 					"eval contains %s — cannot verify "+
@@ -43,7 +43,7 @@ func breakdownEval(
 		b.WriteString(word.Text(w))
 	}
 	code := b.String()
-	return &model.UnwrapResult{
+	return model.ReplaceOuter(model.BreakdownWork{
 		CodeStrings: []string{code},
-	}, nil
+	}), nil
 }

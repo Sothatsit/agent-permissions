@@ -95,8 +95,8 @@ func TestFilterByConfigNilsBreakdownAndParser(t *testing.T) {
 			Parser: rawParser{},
 			Breakdown: func(
 				model.ParseResult, *model.State,
-			) (*model.UnwrapResult, error) {
-				return nil, nil
+			) (model.BreakdownOutcome, error) {
+				return model.FallThrough(), nil
 			},
 			BreakdownDef: def,
 		},

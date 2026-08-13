@@ -15,7 +15,7 @@ import (
 func breakdownFind(
 	input model.ParseResult,
 	_ *model.State,
-) (*model.UnwrapResult, error) {
+) (model.BreakdownOutcome, error) {
 	var commands [][]*syntax.Word
 
 	for i := 0; i < len(input.Raw); i++ {
@@ -46,11 +46,10 @@ func breakdownFind(
 	}
 
 	if len(commands) == 0 {
-		return nil, nil
+		return model.FallThrough(), nil
 	}
 
-	return &model.UnwrapResult{
-		Commands:  commands,
-		KeepOuter: true,
-	}, nil
+	return model.KeepOuter(model.BreakdownWork{
+		Commands: commands,
+	}), nil
 }

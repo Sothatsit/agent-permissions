@@ -6,12 +6,12 @@ import (
 )
 
 // breakdownUnset checks for -f (unset functions) and
-// records it in state. Returns nil so unset falls
+// records it in state. It falls through so unset reaches
 // through to normal flattening and pattern matching.
 func breakdownUnset(
 	input model.ParseResult,
 	state *model.State,
-) (*model.UnwrapResult, error) {
+) (model.BreakdownOutcome, error) {
 	for _, w := range input.Raw {
 		if word.DefinitelyHasPrefix(w, "-") &&
 			word.DefinitelyContains(w, "f") {
@@ -19,5 +19,5 @@ func breakdownUnset(
 			break
 		}
 	}
-	return nil, nil
+	return model.FallThrough(), nil
 }

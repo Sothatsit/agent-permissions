@@ -10,33 +10,33 @@ import (
 
 // breakdownBash handles bash/sh inner command extraction.
 //
-// For --version/--help: returns empty (read-only, nothing
+// For --version/--help: returns Safe (read-only, nothing
 // to check).
-// For -n (syntax check): returns empty (doesn't execute).
+// For -n (syntax check): returns Safe (doesn't execute).
 // For -c "string": extracts and returns the code string
 // as a command to re-parse.
 // For script.sh positional: returns the file path for
 // scanning.
-// For bare bash or unrecognised flags: returns nil (fall
-// through to the rules layer, which denies bare bash).
+// For bare bash or unrecognised flags: falls through to
+// the rules layer, which denies bare bash.
 func breakdownBash(
 	input model.ParseResult,
 	state *model.State,
-) (*model.UnwrapResult, error) {
+) (model.BreakdownOutcome, error) {
 	// --version and --help print info and exit without
 	// executing anything. Allow when they're the sole
 	// argument.
 	if len(input.Raw) == 1 &&
 		(word.DefinitelyEqual(input.Raw[0], "--version") ||
 			word.DefinitelyEqual(input.Raw[0], "--help")) {
-		return &model.UnwrapResult{}, nil
+		return model.Safe(), nil
 	}
 
 	// -n only checks syntax without executing anything.
 	// Allow when it's the sole flag.
 	if len(input.PossibleFlags) == 1 &&
 		input.PossibleFlags[0].Name == "-n" {
-		return &model.UnwrapResult{}, nil
+		return model.Safe(), nil
 	}
 
 	// Check PossibleFlags for -c. The caller
@@ -52,15 +52,15 @@ func breakdownBash(
 		// the -c body runs.
 		for _, other := range input.PossibleFlags {
 			if other.Name != "-c" {
-				return nil, nil
+				return model.FallThrough(), nil
 			}
 		}
 		if pf.Value == nil {
-			return nil, nil
+			return model.FallThrough(), nil
 		}
 		if reason := word.ExpansionReason(
 			pf.Value); reason != "" {
-			return nil, &model.RuleError{
+			return model.BreakdownOutcome{}, &model.RuleError{
 				Def: bashUnverified,
 				Reason: fmt.Sprintf(
 					"bash -c: code comes from %s "+
@@ -73,11 +73,11 @@ func breakdownBash(
 		}
 		code := word.Text(pf.Value)
 		if code == "" {
-			return &model.UnwrapResult{}, nil
+			return model.Safe(), nil
 		}
-		return &model.UnwrapResult{
+		return model.ReplaceOuter(model.BreakdownWork{
 			CodeStrings: []string{code},
-		}, nil
+		}), nil
 	}
 
 	// No -c flag. Check for script file: the first arg
@@ -87,19 +87,19 @@ func breakdownBash(
 	// can't verify the invocation — fall through to the
 	// rules layer deny.
 	if len(input.Raw) == 0 {
-		return nil, nil
+		return model.FallThrough(), nil
 	}
 	if word.MayHavePrefix(input.Raw[0], "-") {
-		return nil, nil
+		return model.FallThrough(), nil
 	}
 
 	scriptWord := input.Raw[0]
 	if !word.Static(scriptWord) {
-		return nil, nil
+		return model.FallThrough(), nil
 	}
 	path := word.Text(scriptWord)
 	if state.Cwd == "" && !filepath.IsAbs(path) {
-		return nil, &model.RuleError{
+		return model.BreakdownOutcome{}, &model.RuleError{
 			Def: bashUnverified,
 			Reason: fmt.Sprintf(
 				"%s: cannot verify file — working "+
@@ -109,9 +109,9 @@ func breakdownBash(
 				path, word.DirectPath(path)),
 		}
 	}
-	return &model.UnwrapResult{
+	return model.ReplaceOuter(model.BreakdownWork{
 		ScanFiles: []string{path},
-	}, nil
+	}), nil
 }
 
 // hookFormatBashDenial is a HookFunc for bash/sh. Always

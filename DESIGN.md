@@ -672,14 +672,13 @@ this:
   command never runs and the hook treats `-v` as the (unknown)
   command name.
 
-- `UnwrapResult.Assigns` is the abstraction: a wrapper now reports
-  the environment assignments it applies to its inner command, and
-  the framework records each name on the EnvVars deny axis and
-  extracts command substitutions from each value. This makes
-  `UnwrapResult` the complete description of an unwrapped
-  command — commands, code, files, snippets, and assigns — so a
-  wrapper that sets env vars carries that part forward instead of
-  dropping it.
+- `BreakdownWork.Assigns` carries the environment assignments a wrapper
+  applies to its inner command. The framework records each name on the EnvVars
+  deny axis and extracts command substitutions from each value. This makes
+  `BreakdownWork` the complete description of the work extracted from a
+  command: inner commands, code, files, snippets, assignments, and a scoped
+  working directory. A wrapper that sets env vars cannot silently drop that
+  part of the command.
 
 - `env` is the one wrapper that honours a leading `NAME=val`, so it
   uses `Assigns`: `env LD_PRELOAD=/x.so cmd` is a real injection and

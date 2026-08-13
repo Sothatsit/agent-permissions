@@ -81,15 +81,15 @@ type sedInterpretation struct {
 func breakdownSed(
 	input model.ParseResult,
 	state *model.State,
-) (*model.UnwrapResult, error) {
-	result := &model.UnwrapResult{ShellWords: input.Raw}
+) (model.BreakdownOutcome, error) {
+	work := model.BreakdownWork{ShellWords: input.Raw}
 	var interpretations []sedInterpretation
 	for _, mode := range []sedParseMode{
 		sedGNUDefault, sedGNUPosix, sedBSD,
 	} {
 		parsed, valid, err := parseSedInterpretation(input.Raw, mode)
 		if err != nil {
-			return nil, &model.RuleError{
+			return model.BreakdownOutcome{}, &model.RuleError{
 				Def:    sedCommandExec,
 				Reason: err.Error(),
 			}
@@ -102,7 +102,7 @@ func breakdownSed(
 	// No supported interpretation can identify the program operands. Treat
 	// even invalid-looking syntax as unverified because sed may come from PATH.
 	if len(interpretations) == 0 {
-		return nil, &model.RuleError{
+		return model.BreakdownOutcome{}, &model.RuleError{
 			Def:    sedCommandExec,
 			Reason: "cannot verify sed option syntax",
 		}
@@ -111,7 +111,10 @@ func breakdownSed(
 		interpretations, func(p sedInterpretation) bool {
 			return p.infoOnly
 		}) {
-		return result, nil
+		if len(input.Raw) == 0 {
+			return model.Safe(), nil
+		}
+		return model.ReplaceOuter(work), nil
 	}
 
 	for _, parsed := range interpretations {
@@ -125,7 +128,7 @@ func breakdownSed(
 				continue
 			}
 			if !word.Static(operand.word) || word.HasUnquotedGlob(operand.word) {
-				return nil, &model.RuleError{
+				return model.BreakdownOutcome{}, &model.RuleError{
 					Def: sedCommandExec,
 					Reason: "sed input before -- can become an option " +
 						"at runtime - put -- before dynamic input files",
@@ -138,26 +141,33 @@ func breakdownSed(
 		interpretations, func(p sedInterpretation) bool {
 			return p.sandboxed
 		}) {
-		return result, nil
+		if len(input.Raw) == 0 {
+			return model.Safe(), nil
+		}
+		return model.ReplaceOuter(work), nil
 	}
 
 	seen := make(map[string]bool)
+	var snippets []model.CodeSnippet
 	for _, parsed := range interpretations {
-		snippets, err := sedProgramSnippets(parsed.sources, state.Cwd)
+		programs, err := sedProgramSnippets(parsed.sources, state.Cwd)
 		if err != nil {
-			return nil, err
+			return model.BreakdownOutcome{}, err
 		}
-		for _, snippet := range snippets {
+		for _, snippet := range programs {
 			key := snippet.SourceFile + "\x00" + snippet.Code
 			if seen[key] {
 				continue
 			}
 			seen[key] = true
-			result.CodeSnippets = append(result.CodeSnippets, snippet)
+			snippets = append(snippets, snippet)
 		}
 	}
-
-	return result, nil
+	work.CodeSnippets = append(work.CodeSnippets, snippets...)
+	if len(input.Raw) == 0 {
+		return model.Safe(), nil
+	}
+	return model.ReplaceOuter(work), nil
 }
 
 func parseSedInterpretation(

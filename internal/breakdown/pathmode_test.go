@@ -17,16 +17,16 @@ func stubBreakdown(called *bool) model.BreakdownFunc {
 	return func(
 		input model.ParseResult,
 		_ *model.State,
-	) (*model.UnwrapResult, error) {
+	) (model.BreakdownOutcome, error) {
 		*called = true
 		if len(input.Raw) == 0 {
-			return &model.UnwrapResult{}, nil
+			return model.Safe(), nil
 		}
-		return &model.UnwrapResult{
+		return model.ReplaceOuter(model.BreakdownWork{
 			Commands: [][]*syntax.Word{
 				input.Raw,
 			},
-		}, nil
+		}), nil
 	}
 }
 

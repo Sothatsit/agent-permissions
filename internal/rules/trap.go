@@ -12,23 +12,23 @@ import (
 func breakdownTrap(
 	input model.ParseResult,
 	_ *model.State,
-) (*model.UnwrapResult, error) {
+) (model.BreakdownOutcome, error) {
 	if len(input.Raw) == 0 {
-		return &model.UnwrapResult{}, nil
+		return model.Safe(), nil
 	}
 
 	// Strict: opaque first arg falls through to the
 	// static check below, which rejects it.
 	if word.DefinitelyEqual(input.Raw[0], "-l") ||
 		word.DefinitelyEqual(input.Raw[0], "-p") {
-		return &model.UnwrapResult{}, nil
+		return model.Safe(), nil
 	}
 
 	codeIdx := 0
 	if word.DefinitelyEqual(input.Raw[0], "--") {
 		codeIdx = 1
 		if codeIdx >= len(input.Raw) {
-			return &model.UnwrapResult{}, nil
+			return model.Safe(), nil
 		}
 	}
 
@@ -37,11 +37,11 @@ func breakdownTrap(
 	// Empty string or "-" means ignore/reset signal.
 	if word.DefinitelyEqual(codeWord, "") ||
 		word.DefinitelyEqual(codeWord, "-") {
-		return &model.UnwrapResult{}, nil
+		return model.Safe(), nil
 	}
 
 	if !word.Static(codeWord) {
-		return nil, &model.RuleError{
+		return model.BreakdownOutcome{}, &model.RuleError{
 			Def: trapUnverified,
 			Reason: "trap: cannot verify command — use " +
 				"a literal string instead of a " +
@@ -49,7 +49,7 @@ func breakdownTrap(
 		}
 	}
 
-	return &model.UnwrapResult{
+	return model.ReplaceOuter(model.BreakdownWork{
 		CodeStrings: []string{word.Text(codeWord)},
-	}, nil
+	}), nil
 }

@@ -39,18 +39,18 @@ type interpreterConfig struct {
 // breakdownInterpreter returns a BreakdownFunc that
 // handles interpreter commands generically:
 //
-//   - Info flags → nil (fall through to permissions).
-//   - Fallthrough flags → nil (fall through).
+//   - Info flags → fall through to permissions.
+//   - Fallthrough flags → fall through.
 //   - Code flags → extract inline code as a CodeSnippet.
 //   - Positional → read script file as a CodeSnippet.
-//   - Bare invocation → nil (fall through).
+//   - Bare invocation → fall through.
 func breakdownInterpreter(
 	cfg interpreterConfig,
 ) model.BreakdownFunc {
 	return func(
 		input model.ParseResult,
 		state *model.State,
-	) (*model.UnwrapResult, error) {
+	) (model.BreakdownOutcome, error) {
 		// Collect flags in a single pass. Code flags
 		// take priority — python3 --version -c "code"
 		// must scan the code, not skip because of
@@ -82,18 +82,18 @@ func breakdownInterpreter(
 		// interpreter actually runs it.
 		if codeFlag == nil {
 			if sawFallthrough {
-				return nil, nil
+				return model.FallThrough(), nil
 			}
 			if sawInfo &&
 				len(input.Positionals) == 0 {
-				return nil, nil
+				return model.FallThrough(), nil
 			}
 		}
 
 		// Inline code extraction.
 		if codeFlag != nil {
 			if codeFlag.Value == nil {
-				return nil, &model.RuleError{
+				return model.BreakdownOutcome{}, &model.RuleError{
 					Def: cfg.unverified,
 					Reason: fmt.Sprintf(
 						"%s requires a code argument",
@@ -102,7 +102,7 @@ func breakdownInterpreter(
 			}
 			if reason := word.ExpansionReason(
 				codeFlag.Value); reason != "" {
-				return nil, &model.RuleError{
+				return model.BreakdownOutcome{}, &model.RuleError{
 					Def: cfg.unverified,
 					Reason: fmt.Sprintf(
 						"%s %s: code comes from %s"+
@@ -114,29 +114,29 @@ func breakdownInterpreter(
 			}
 			code := word.Text(codeFlag.Value)
 			if code == "" {
-				return &model.UnwrapResult{
+				return model.ReplaceOuter(model.BreakdownWork{
 					ShellWords: input.Raw,
-				}, nil
+				}), nil
 			}
-			return &model.UnwrapResult{
+			return model.ReplaceOuter(model.BreakdownWork{
 				CodeSnippets: []model.CodeSnippet{{
 					Language: cfg.lang,
 					Code:     code,
 				}},
 				ShellWords: input.Raw,
-			}, nil
+			}), nil
 		}
 
 		// No positionals — bare invocation or
 		// flags-only. Fall through to permissions.
 		if len(input.Positionals) == 0 {
-			return nil, nil
+			return model.FallThrough(), nil
 		}
 
 		// First positional is the script file.
 		scriptWord := input.Positionals[0]
 		if !word.Static(scriptWord) {
-			return nil, &model.RuleError{
+			return model.BreakdownOutcome{}, &model.RuleError{
 				Def: cfg.unverified,
 				Reason: "script path contains " +
 					"expansion — cannot determine " +
@@ -146,11 +146,11 @@ func breakdownInterpreter(
 
 		path := word.Text(scriptWord)
 		if path == "" {
-			return nil, nil
+			return model.FallThrough(), nil
 		}
 
 		if state.Cwd == "" && !filepath.IsAbs(path) {
-			return nil, &model.RuleError{
+			return model.BreakdownOutcome{}, &model.RuleError{
 				Def: cfg.unverified,
 				Reason: fmt.Sprintf(
 					"%s: cannot verify file — "+
@@ -163,20 +163,20 @@ func breakdownInterpreter(
 		data, err := model.ReadScript(
 			path, state.Cwd)
 		if err != nil {
-			return nil, &model.RuleError{
+			return model.BreakdownOutcome{}, &model.RuleError{
 				Def: cfg.unverified,
 				Reason: fmt.Sprintf(
 					"%s: %v", path, err),
 			}
 		}
 
-		return &model.UnwrapResult{
+		return model.ReplaceOuter(model.BreakdownWork{
 			CodeSnippets: []model.CodeSnippet{{
 				Language:   cfg.lang,
 				Code:       string(data),
 				SourceFile: path,
 			}},
 			ShellWords: input.Raw,
-		}, nil
+		}), nil
 	}
 }

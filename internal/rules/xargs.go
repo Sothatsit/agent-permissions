@@ -66,11 +66,14 @@ var xargsParser, _xargsBaseBreakdown = wrapperBreakdown(
 func breakdownXargs(
 	input model.ParseResult,
 	state *model.State,
-) (*model.UnwrapResult, error) {
-	result, err := _xargsBaseBreakdown(input, state)
-	if err != nil || result == nil ||
-		len(result.Commands) == 0 {
-		return result, err
+) (model.BreakdownOutcome, error) {
+	outcome, err := _xargsBaseBreakdown(input, state)
+	if err != nil {
+		return model.BreakdownOutcome{}, err
+	}
+	work := outcome.Work()
+	if len(work.Commands) == 0 {
+		return outcome, nil
 	}
 
 	// The remaining checks (ambiguous/empty -I, command
@@ -78,7 +81,7 @@ func breakdownXargs(
 	// disabled, skip them and return the already-extracted
 	// inner command for normal checking.
 	if !state.RuleConfig.For(xargsUnverified).Enabled {
-		return result, nil
+		return outcome, nil
 	}
 
 	// Find the -I/--replace replacement string.
@@ -96,7 +99,7 @@ func breakdownXargs(
 		}
 	}
 	if replCount > 1 {
-		return nil, &model.RuleError{
+		return model.BreakdownOutcome{}, &model.RuleError{
 			Def: xargsUnverified,
 			Reason: "multiple -I/--replace flags " +
 				"— ambiguous",
@@ -107,22 +110,22 @@ func breakdownXargs(
 		// is nonsensical and could mask intent. No -I flag
 		// at all also lands here (replCount == 0).
 		if replCount > 0 {
-			return nil, &model.RuleError{
+			return model.BreakdownOutcome{}, &model.RuleError{
 				Def: xargsUnverified,
 				Reason: "-I/--replace with empty " +
 					"replacement string",
 			}
 		}
-		return result, nil
+		return outcome, nil
 	}
 
 	// If the replacement string appears in the
 	// command name, the command to execute comes
 	// from stdin.
-	cmd := result.Commands[0]
+	cmd := work.Commands[0]
 	if len(cmd) > 0 &&
 		word.MayContain(cmd[0], replStr) {
-		return nil, &model.RuleError{
+		return model.BreakdownOutcome{}, &model.RuleError{
 			Def: xargsUnverified,
 			Reason: "-I replacement string in command " +
 				"name — command to execute comes " +
@@ -130,5 +133,5 @@ func breakdownXargs(
 		}
 	}
 
-	return result, nil
+	return outcome, nil
 }

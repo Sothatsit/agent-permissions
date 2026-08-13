@@ -19,7 +19,7 @@ import (
 func breakdownCd(
 	input model.ParseResult,
 	state *model.State,
-) (*model.UnwrapResult, error) {
+) (model.BreakdownOutcome, error) {
 	// Only resolve when unconditional (depth 0), the
 	// command is cd (not pushd/popd), and the target
 	// is a single static word.
@@ -31,12 +31,12 @@ func breakdownCd(
 		// cd - goes to $OLDPWD, which we do not track.
 		if word.DefinitelyEqual(input.Raw[0], "-") {
 			state.Cwd = ""
-			return nil, nil
+			return model.FallThrough(), nil
 		}
 		state.SetWorkingDirectory(input.Raw[0])
-		return nil, nil
+		return model.FallThrough(), nil
 	}
 	// Anything else: directory unknown.
 	state.Cwd = ""
-	return nil, nil
+	return model.FallThrough(), nil
 }

@@ -22,19 +22,22 @@ type awkProgramSources struct {
 func breakdownAwk(
 	input model.ParseResult,
 	state *model.State,
-) (*model.UnwrapResult, error) {
-	result := &model.UnwrapResult{ShellWords: input.Raw}
+) (model.BreakdownOutcome, error) {
+	work := model.BreakdownWork{ShellWords: input.Raw}
 	sources, err := parseAwkSources(input.Raw)
 	if err != nil {
-		return nil, err
+		return model.BreakdownOutcome{}, err
 	}
 
 	snippets, err := readAwkPrograms(sources, state.Cwd)
 	if err != nil {
-		return nil, err
+		return model.BreakdownOutcome{}, err
 	}
-	result.CodeSnippets = append(result.CodeSnippets, snippets...)
-	return result, nil
+	work.CodeSnippets = append(work.CodeSnippets, snippets...)
+	if len(input.Raw) == 0 {
+		return model.Safe(), nil
+	}
+	return model.ReplaceOuter(work), nil
 }
 
 func parseAwkSources(args []*syntax.Word) (awkProgramSources, error) {

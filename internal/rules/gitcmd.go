@@ -19,7 +19,7 @@ import (
 func breakdownGit(
 	input model.ParseResult,
 	_ *model.State,
-) (*model.UnwrapResult, error) {
+) (model.BreakdownOutcome, error) {
 	args := input.Raw
 	var stripped []*syntax.Word
 	found := false
@@ -29,7 +29,7 @@ func breakdownGit(
 
 		if word.DefinitelyEqual(w, "-C") {
 			if i+1 >= len(args) {
-				return nil, fmt.Errorf(
+				return model.BreakdownOutcome{}, fmt.Errorf(
 					"git -C requires a path argument")
 			}
 			found = true
@@ -49,16 +49,16 @@ func breakdownGit(
 	}
 
 	if !found {
-		return nil, nil
+		return model.FallThrough(), nil
 	}
 
 	result := make([]*syntax.Word, 0, len(stripped)+1)
 	result = append(result, word.Lit(input.Name))
 	result = append(result, stripped...)
 
-	return &model.UnwrapResult{
+	return model.ReplaceOuter(model.BreakdownWork{
 		Commands: [][]*syntax.Word{result},
-	}, nil
+	}), nil
 }
 
 // gitBranchParser classifies git branch flags. Unknown

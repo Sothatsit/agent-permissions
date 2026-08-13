@@ -20,8 +20,10 @@ func denyWrapper(
 ) model.BreakdownFunc {
 	return func(
 		_ model.ParseResult, _ *model.State,
-	) (*model.UnwrapResult, error) {
-		return nil, &model.RuleError{Def: def, Reason: reason}
+	) (model.BreakdownOutcome, error) {
+		return model.BreakdownOutcome{}, &model.RuleError{
+			Def: def, Reason: reason,
+		}
 	}
 }
 

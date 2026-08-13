@@ -48,12 +48,12 @@ var envParser, _envBaseBreakdown = wrapperBreakdown(
 func breakdownEnv(
 	input model.ParseResult,
 	state *model.State,
-) (*model.UnwrapResult, error) {
-	result, err := _envBaseBreakdown(input, state)
-	if err != nil || result == nil {
-		// Error or declined.
-		return result, err
+) (model.BreakdownOutcome, error) {
+	outcome, err := _envBaseBreakdown(input, state)
+	if err != nil {
+		return model.BreakdownOutcome{}, err
 	}
+	work := outcome.Work()
 
 	// GNU env retains only the final -C value and changes directory once, so a
 	// relative final value resolves against the wrapper's incoming directory.
@@ -65,21 +65,22 @@ func breakdownEnv(
 			flagValues = append(flagValues, input.Flags[i].Value)
 		}
 		if isDirectory {
-			if result.WorkingDirectory != nil {
+			if work.WorkingDirectory != nil {
 				flagValues = append(
-					flagValues, result.WorkingDirectory)
+					flagValues, work.WorkingDirectory)
 			}
-			result.WorkingDirectory = input.Flags[i].Value
+			work.WorkingDirectory = input.Flags[i].Value
 		}
 	}
-	result.ShellWords = flagValues
-	if len(result.Commands) == 0 {
-		// Bare env has no inner command, but -C values can still contain shell
-		// substitutions that run before env reports the missing command.
-		return result, nil
+	work.ShellWords = flagValues
+	if len(work.Commands) == 0 {
+		if work.WorkingDirectory == nil && len(work.ShellWords) == 0 {
+			return model.Safe(), nil
+		}
+		return model.ReplaceOuter(work), nil
 	}
 
-	words := result.Commands[0]
+	words := work.Commands[0]
 	var assigns []*syntax.Assign
 	i := 0
 	for i < len(words) {
@@ -100,13 +101,19 @@ func breakdownEnv(
 		i++
 	}
 
-	out := &model.UnwrapResult{
+	out := model.BreakdownWork{
 		Assigns:          assigns,
 		ShellWords:       flagValues,
-		WorkingDirectory: result.WorkingDirectory,
+		WorkingDirectory: work.WorkingDirectory,
 	}
 	if rest := words[i:]; len(rest) > 0 {
 		out.Commands = [][]*syntax.Word{rest}
 	}
-	return out, nil
+	if len(out.Assigns) == 0 &&
+		len(out.Commands) == 0 &&
+		out.WorkingDirectory == nil &&
+		len(out.ShellWords) == 0 {
+		return model.Safe(), nil
+	}
+	return model.ReplaceOuter(out), nil
 }
