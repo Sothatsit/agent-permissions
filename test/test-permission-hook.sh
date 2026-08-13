@@ -7204,7 +7204,7 @@ assert_contains "perl: -we combined deny" \
 
 # After -e "code", Perl continues parsing its own flags
 # (unlike Python). Flag-like args are rejected; non-flag
-# positionals are accepted via StopAtPositional.
+# positionals are accepted once leading flag parsing ends.
 out=$(_run_hook 'perl -e "print 42" --flag')
 assert_contains "perl: -e unknown flag deny" \
     "$(_decision "$out")" "deny"

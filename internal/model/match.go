@@ -22,41 +22,12 @@ type FlagMatcher struct {
 func (m *FlagMatcher) Match(
 	input ParseResult,
 ) (bool, ParseResult, string) {
-	if input.FullyParsed {
-		return m.matchParsed(input)
-	}
-	return m.matchPossible(input)
-}
-
-// matchParsed checks structured Flags from a FullParser.
-func (m *FlagMatcher) matchParsed(
-	input ParseResult,
-) (bool, ParseResult, string) {
-	for _, f := range input.Flags {
-		if !m.nameMatches(f.Name) {
-			continue
-		}
-		if !m.valueMatchesParsed(f) {
-			continue
-		}
-		return true, input, f.Name
-	}
-	return false, ParseResult{}, ""
-}
-
-// matchPossible checks heuristically extracted
-// PossibleFlags. Long flags (--) use exact name matching.
-// Short flags (-) use contains matching to handle
-// clustered forms.
-func (m *FlagMatcher) matchPossible(
-	input ParseResult,
-) (bool, ParseResult, string) {
 	for _, pf := range input.PossibleFlags {
 		if strings.HasPrefix(pf.Name, "--") {
 			if !m.nameMatches(pf.Name) {
 				continue
 			}
-			if !m.valueMatchesParsed(pf) {
+			if !m.valueMatchesFlag(pf) {
 				continue
 			}
 			return true, input, pf.Name
@@ -117,9 +88,9 @@ func (m *FlagMatcher) nameMatches(name string) bool {
 	return false
 }
 
-// valueMatchesParsed checks a parsed flag's value using
-// conservative word operations (over-match on opaque).
-func (m *FlagMatcher) valueMatchesParsed(
+// valueMatchesFlag checks a flag's value using conservative word operations
+// (over-match on opaque).
+func (m *FlagMatcher) valueMatchesFlag(
 	f ParsedFlag,
 ) bool {
 	if m.ValueCouldContain == "" &&
@@ -172,27 +143,7 @@ type SubcmdMatcher struct {
 func (m *SubcmdMatcher) Match(
 	input ParseResult,
 ) (bool, ParseResult, string) {
-	if input.FullyParsed {
-		if len(input.Positionals) == 0 {
-			return false, ParseResult{}, ""
-		}
-		w := input.Positionals[0]
-		for _, name := range m.Names {
-			if word.MayEqual(w, name) {
-				child := ParseResult{
-					Raw:         input.Raw,
-					FullyParsed: true,
-					Flags:       input.Flags,
-					Positionals: input.Positionals[1:],
-				}
-				return true, child, name
-			}
-		}
-		return false, ParseResult{}, ""
-	}
-
-	// Not fully parsed: match first raw arg if it
-	// doesn't look like a flag.
+	// Match the first raw argument if it does not look like a flag.
 	if len(input.Raw) == 0 {
 		return false, ParseResult{}, ""
 	}

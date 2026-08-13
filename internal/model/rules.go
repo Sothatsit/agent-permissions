@@ -23,24 +23,22 @@ type ParsedFlag struct {
 	Value *syntax.Word
 }
 
-// ParseResult holds parsed command arguments. When
-// FullyParsed is true, Flags and Positionals are
-// authoritative. Otherwise, PossibleFlags is populated
-// from raw args heuristically.
+// ParseResult carries command arguments through breakdown and rule matching.
+// Parsers populate Flags and Positionals for Breakdown. Permission evaluation
+// populates PossibleFlags conservatively from Raw.
 type ParseResult struct {
 	// Name is the resolved command name (e.g.
 	// "python3", "bash"). Set by the breakdown
 	// framework so breakdown functions can inspect
 	// which command they're handling.
-	Name        string
-	Raw         []*syntax.Word
-	FullyParsed bool
+	Name string
+	Raw  []*syntax.Word
 
-	// Populated when FullyParsed:
+	// Populated by a Parser for Breakdown:
 	Flags       []ParsedFlag
 	Positionals []*syntax.Word
 
-	// Populated when NOT FullyParsed:
+	// Populated by permission evaluation:
 	PossibleFlags []ParsedFlag
 }
 
@@ -124,9 +122,9 @@ type CommandRules struct {
 	OwnsAllPatterns      bool
 	OwnedPatternPrefixes [][]string
 	PatternPrefixSkips   []PatternPrefixSkip
-	// Parser converts raw Word args into structured
-	// ParseResult. If nil, PossibleFlags are populated
-	// heuristically.
+	// Parser structures raw arguments for Breakdown. The permissions phase
+	// always matches possible flags conservatively, so a Parser requires a
+	// Breakdown.
 	Parser Parser
 	// Breakdown handles the unwrapping phase: extracting
 	// inner commands, scanning files, or mutating
@@ -144,12 +142,11 @@ type CommandRules struct {
 	// matched. Nil means fall through to the permissions
 	// pattern layer.
 	Default *Action
-	// Unverified is the rule gating this command's
-	// fail-closed denials — the Default above (nil'd by the
-	// registry filter when disabled) and the "cannot verify"
-	// errors the Parser or Breakdown produce for this command
-	// (skipped in place by those functions when disabled). A
-	// nil Unverified leaves those denials always-on.
+	// Unverified gates this command's fail-closed denials: the Default above
+	// (nil'd by the registry filter when disabled) and the "cannot verify"
+	// errors produced while parsing or running Breakdown. A disabled rule
+	// suppresses those errors in breakdown. A nil Unverified leaves the
+	// denials always on.
 	Unverified *RuleDef
 	// Rules are evaluated during the permissions phase.
 	Rules []Rule
@@ -174,8 +171,8 @@ type Matcher interface {
 	)
 }
 
-// Parser converts raw Word args into a structured
-// ParseResult.
+// Parser converts raw Word arguments into a structured ParseResult for a
+// BreakdownFunc.
 type Parser interface {
 	Parse(args []*syntax.Word) (ParseResult, error)
 }

@@ -100,6 +100,7 @@ var gitBranchParser = model.NewFullParser(
 		{Name: "-c", Arg: true},
 		{Name: "-u", Arg: true},
 	},
+	model.InterspersedFlags,
 	"unrecognised flag",
 )
 
@@ -201,6 +202,7 @@ var gitTagParser = model.NewFullParser(
 		{Name: "-F", Arg: true},
 		{Name: "-u", Arg: true},
 	},
+	model.InterspersedFlags,
 	"unrecognised flag",
 )
 

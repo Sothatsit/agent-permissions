@@ -32,8 +32,10 @@ func wrapperBreakdown(
 	def wrapperDef,
 ) (*model.FullParser, model.BreakdownFunc) {
 	p := model.NewFullParser(
-		def.flags, "unrecognised flag")
-	p.StopAtPositional = true
+		def.flags,
+		model.LeadingFlagsOnly,
+		"unrecognised flag",
+	)
 
 	breakdown := func(
 		input model.ParseResult,

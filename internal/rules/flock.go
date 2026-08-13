@@ -7,16 +7,12 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-// flockParser parses flock's leading options. -c/--command is
-// deliberately omitted: in flock's grammar it follows the lock
-// file (flock FILE -c CMD), so StopAtPositional leaves it as a
-// positional that breakdownFlock inspects directly. A -c before
-// the lock file is an invalid form and fails closed as an
-// unrecognised flag.
-var flockParser = newFlockParser()
-
-func newFlockParser() *model.FullParser {
-	p := model.NewFullParser([]model.FlagDef{
+// flockParser parses flock's leading options. -c/--command is deliberately
+// omitted because it follows the lock file in flock's grammar. Leading-only
+// parsing leaves it as a positional for breakdownFlock to inspect. A -c before
+// the lock file is invalid and fails closed as an unrecognised flag.
+var flockParser = model.NewFullParser(
+	[]model.FlagDef{
 		{Name: "--conflict-exit-code", Arg: true},
 		{Name: "--exclusive"},
 		{Name: "--nonblock"},
@@ -40,10 +36,10 @@ func newFlockParser() *model.FullParser {
 		{Name: "-F"},
 		{Name: "-h"},
 		{Name: "-V"},
-	}, "unrecognised flag")
-	p.StopAtPositional = true
-	return p
-}
+	},
+	model.LeadingFlagsOnly,
+	"unrecognised flag",
+)
 
 // breakdownFlock unwraps flock. Its first positional is the
 // lock file/dir/fd (skip it). What follows is either an inner

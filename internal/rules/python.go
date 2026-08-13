@@ -17,8 +17,7 @@ var syntaxPython = &langSyntax{
 }
 
 // pythonFlags defines all recognised Python interpreter
-// flags. Sorted longest-first so cluster splitting
-// handles -OO before -O.
+// flags.
 var pythonFlags = []model.FlagDef{
 	{Name: "--version"}, {Name: "--help"},
 	{Name: "-OO"},
@@ -38,12 +37,11 @@ var pythonFlags = []model.FlagDef{
 	{Name: "-V"}, {Name: "-x"},
 }
 
-var pythonParser = func() *model.FullParser {
-	p := model.NewFullParser(
-		pythonFlags, "unrecognised Python flag")
-	p.StopAtPositional = true
-	return p
-}()
+var pythonParser = model.NewFullParser(
+	pythonFlags,
+	model.LeadingFlagsOnly,
+	"unrecognised Python flag",
+)
 
 var breakdownPython = breakdownInterpreter(
 	interpreterConfig{

@@ -38,6 +38,7 @@ var ghApiParser = model.NewFullParser(
 		{Name: "-p", Arg: true},
 		{Name: "-t", Arg: true},
 	},
+	model.InterspersedFlags,
 	"unrecognised flag",
 )
 

@@ -15,13 +15,11 @@ var syntaxRuby = &langSyntax{
 }
 
 // rubyFlags defines recognised Ruby interpreter flags.
-// Sorted longest-first for cluster splitting.
 var rubyFlags = []model.FlagDef{
 	{Name: "--disable"}, {Name: "--version"},
 	{Name: "--enable"}, {Name: "--help"},
-	// Flags that consume the next argument. Unlike
-	// Python's -c, Ruby continues parsing its own flags
-	// after -e (StopAtPositional handles non-flag args).
+	// Unlike Python's -c, Ruby continues parsing its own flags after -e.
+	// Leading-only parsing handles script arguments after a file name.
 	{Name: "-e", Arg: true},
 	{Name: "-r", Arg: true},
 	{Name: "-I", Arg: true},
@@ -37,12 +35,11 @@ var rubyFlags = []model.FlagDef{
 	{Name: "-y"},
 }
 
-var rubyParser = func() *model.FullParser {
-	p := model.NewFullParser(
-		rubyFlags, "unrecognised Ruby flag")
-	p.StopAtPositional = true
-	return p
-}()
+var rubyParser = model.NewFullParser(
+	rubyFlags,
+	model.LeadingFlagsOnly,
+	"unrecognised Ruby flag",
+)
 
 var breakdownRuby = breakdownInterpreter(
 	interpreterConfig{

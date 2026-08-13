@@ -13,8 +13,5 @@ type rawParser struct{}
 func (rawParser) Parse(
 	args []*syntax.Word,
 ) (model.ParseResult, error) {
-	return model.ParseResult{
-		Raw:         args,
-		FullyParsed: true,
-	}, nil
+	return model.ParseResult{Raw: args}, nil
 }

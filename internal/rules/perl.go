@@ -19,12 +19,10 @@ var syntaxPerl = &langSyntax{
 }
 
 // perlFlags defines recognised Perl interpreter flags.
-// Sorted longest-first for cluster splitting.
 var perlFlags = []model.FlagDef{
 	{Name: "--version"}, {Name: "--help"},
-	// Flags that consume the next argument. Unlike
-	// Python's -c, Perl continues parsing its own flags
-	// after -e (StopAtPositional handles non-flag args).
+	// Unlike Python's -c, Perl continues parsing its own flags after -e.
+	// Leading-only parsing handles script arguments after a file name.
 	{Name: "-e", Arg: true},
 	{Name: "-E", Arg: true},
 	{Name: "-F", Arg: true},
@@ -43,12 +41,11 @@ var perlFlags = []model.FlagDef{
 	{Name: "-W"}, {Name: "-x"}, {Name: "-X"},
 }
 
-var perlParser = func() *model.FullParser {
-	p := model.NewFullParser(
-		perlFlags, "unrecognised Perl flag")
-	p.StopAtPositional = true
-	return p
-}()
+var perlParser = model.NewFullParser(
+	perlFlags,
+	model.LeadingFlagsOnly,
+	"unrecognised Perl flag",
+)
 
 var breakdownPerl = breakdownInterpreter(
 	interpreterConfig{

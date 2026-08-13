@@ -17,7 +17,7 @@ func TestFullParser(t *testing.T) {
 		{Name: "--output", Arg: true},
 		{Name: "-v"},
 		{Name: "-o", Arg: true},
-	}, "")
+	}, InterspersedFlags, "")
 
 	result, err := p.Parse(word.FromStrings(
 		[]string{
@@ -26,9 +26,6 @@ func TestFullParser(t *testing.T) {
 		}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-	if !result.FullyParsed {
-		t.Error("expected FullyParsed")
 	}
 	if len(result.Flags) != 2 {
 		t.Fatalf("got %d flags, want 2",
@@ -57,7 +54,7 @@ func TestFullParser(t *testing.T) {
 func TestFullParserUnknownFlag(t *testing.T) {
 	p := NewFullParser([]FlagDef{
 		{Name: "-v"},
-	}, "custom reason")
+	}, InterspersedFlags, "custom reason")
 
 	_, err := p.Parse(word.FromStrings(
 		[]string{"-v", "--unknown"}))
@@ -73,7 +70,7 @@ func TestFullParserUnknownFlag(t *testing.T) {
 func TestFullParserLongEquals(t *testing.T) {
 	p := NewFullParser([]FlagDef{
 		{Name: "--method", Arg: true},
-	}, "")
+	}, InterspersedFlags, "")
 
 	result, err := p.Parse(word.FromStrings(
 		[]string{"--method=POST"}))
@@ -95,7 +92,7 @@ func TestFullParserLongEquals(t *testing.T) {
 func TestFullParserPrefixWithValue(t *testing.T) {
 	p := NewFullParser([]FlagDef{
 		{Name: "-n", Prefix: true},
-	}, "")
+	}, InterspersedFlags, "")
 
 	result, err := p.Parse(word.FromStrings(
 		[]string{"-n5"}))
@@ -116,7 +113,7 @@ func TestFullParserPrefixWithValue(t *testing.T) {
 func TestFullParserPrefixBare(t *testing.T) {
 	p := NewFullParser([]FlagDef{
 		{Name: "-n", Prefix: true},
-	}, "")
+	}, InterspersedFlags, "")
 
 	result, err := p.Parse(word.FromStrings(
 		[]string{"-n"}))
@@ -137,7 +134,7 @@ func TestFullParserPrefixBare(t *testing.T) {
 func TestFullParserPrefixUnknown(t *testing.T) {
 	p := NewFullParser([]FlagDef{
 		{Name: "-n", Prefix: true},
-	}, "")
+	}, InterspersedFlags, "")
 
 	_, err := p.Parse(word.FromStrings(
 		[]string{"-x5"}))
@@ -151,7 +148,7 @@ func TestFullParserPrefixUnknown(t *testing.T) {
 func TestFullParserClusterBooleans(t *testing.T) {
 	p := NewFullParser([]FlagDef{
 		{Name: "-a"}, {Name: "-b"}, {Name: "-c"},
-	}, "")
+	}, InterspersedFlags, "")
 	result, err := p.Parse(word.FromStrings(
 		[]string{"-abc"}))
 	if err != nil {
@@ -174,7 +171,7 @@ func TestFullParserClusterArgMid(t *testing.T) {
 	p := NewFullParser([]FlagDef{
 		{Name: "-a"},
 		{Name: "-c", Arg: true},
-	}, "")
+	}, InterspersedFlags, "")
 	result, err := p.Parse(word.FromStrings(
 		[]string{"-acvalue"}))
 	if err != nil {
@@ -201,7 +198,7 @@ func TestFullParserClusterArgEnd(t *testing.T) {
 	p := NewFullParser([]FlagDef{
 		{Name: "-a"},
 		{Name: "-c", Arg: true},
-	}, "")
+	}, InterspersedFlags, "")
 	result, err := p.Parse(word.FromStrings(
 		[]string{"-ac", "value"}))
 	if err != nil {
@@ -226,7 +223,7 @@ func TestFullParserClusterArgEndMissing(
 	p := NewFullParser([]FlagDef{
 		{Name: "-a"},
 		{Name: "-c", Arg: true},
-	}, "")
+	}, InterspersedFlags, "")
 	_, err := p.Parse(word.FromStrings(
 		[]string{"-ac"}))
 	if err == nil {
@@ -234,12 +231,12 @@ func TestFullParserClusterArgEndMissing(
 	}
 }
 
-func TestFullParserClusterGreedy(t *testing.T) {
+func TestFullParserSortsForGreedyClusterMatching(t *testing.T) {
 	p := NewFullParser([]FlagDef{
-		{Name: "-OO"},
 		{Name: "-O"},
 		{Name: "-u"},
-	}, "")
+		{Name: "-OO"},
+	}, InterspersedFlags, "")
 	result, err := p.Parse(word.FromStrings(
 		[]string{"-OOu"}))
 	if err != nil {
@@ -263,7 +260,7 @@ func TestFullParserClusterPrefix(t *testing.T) {
 	p := NewFullParser([]FlagDef{
 		{Name: "-n", Prefix: true},
 		{Name: "-v"},
-	}, "")
+	}, InterspersedFlags, "")
 	result, err := p.Parse(word.FromStrings(
 		[]string{"-vn5"}))
 	if err != nil {
@@ -288,7 +285,7 @@ func TestFullParserClusterPrefix(t *testing.T) {
 func TestFullParserClusterUnknown(t *testing.T) {
 	p := NewFullParser([]FlagDef{
 		{Name: "-a"},
-	}, "test reason")
+	}, InterspersedFlags, "test reason")
 	_, err := p.Parse(word.FromStrings(
 		[]string{"-ax"}))
 	if err == nil {
@@ -304,7 +301,7 @@ func TestFullParserClusterUnknown(t *testing.T) {
 func TestFullParserClusterNonStatic(t *testing.T) {
 	p := NewFullParser([]FlagDef{
 		{Name: "-a"}, {Name: "-b"},
-	}, "test reason")
+	}, InterspersedFlags, "test reason")
 	w := &syntax.Word{Parts: []syntax.WordPart{
 		&syntax.Lit{Value: "-a"},
 		&syntax.ParamExp{
@@ -318,13 +315,65 @@ func TestFullParserClusterNonStatic(t *testing.T) {
 	}
 }
 
-func TestFullParserStopAtPositional(t *testing.T) {
+func TestFullParserFlagPlacement(t *testing.T) {
+	for _, tt := range []struct {
+		name            string
+		placement       FlagPlacement
+		wantFlagCount   int
+		wantPositionals []string
+	}{
+		{
+			name:            "interspersed flags",
+			placement:       InterspersedFlags,
+			wantFlagCount:   1,
+			wantPositionals: []string{"script.py"},
+		},
+		{
+			name:            "leading flags only",
+			placement:       LeadingFlagsOnly,
+			wantPositionals: []string{"script.py", "-v"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p := NewFullParser(
+				[]FlagDef{{Name: "-v"}},
+				tt.placement,
+				"",
+			)
+
+			result, err := p.Parse(word.FromStrings(
+				[]string{"script.py", "-v"}))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(result.Flags) != tt.wantFlagCount {
+				t.Errorf("got %d flags, want %d",
+					len(result.Flags), tt.wantFlagCount)
+			}
+			if len(result.Positionals) !=
+				len(tt.wantPositionals) {
+				t.Fatalf("got %d positionals, want %d",
+					len(result.Positionals),
+					len(tt.wantPositionals))
+			}
+			for i, want := range tt.wantPositionals {
+				if got := word.Text(
+					result.Positionals[i]); got != want {
+					t.Errorf(
+						"positional %d = %q, want %q",
+						i, got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestFullParserLeadingFlagsOnly(t *testing.T) {
 	p := NewFullParser([]FlagDef{
 		{Name: "--verbose"},
 		{Name: "-v"},
 		{Name: "-u"},
-	}, "")
-	p.StopAtPositional = true
+	}, LeadingFlagsOnly, "")
 
 	// After the first positional, flags belong to
 	// the positional (e.g. script args after a file).
@@ -363,8 +412,7 @@ func TestFullParserTerminalStandalone(t *testing.T) {
 	p := NewFullParser([]FlagDef{
 		{Name: "-c", Arg: true, Terminal: true},
 		{Name: "-v"},
-	}, "")
-	p.StopAtPositional = true
+	}, LeadingFlagsOnly, "")
 
 	// After -c "code", remaining args should be
 	// treated as positionals, not flags.
@@ -409,8 +457,7 @@ func TestFullParserTerminalCluster(t *testing.T) {
 	p := NewFullParser([]FlagDef{
 		{Name: "-c", Arg: true, Terminal: true},
 		{Name: "-B"},
-	}, "")
-	p.StopAtPositional = true
+	}, LeadingFlagsOnly, "")
 
 	// -Bc is a cluster where -c is terminal. After
 	// its value, remaining args are positionals.
@@ -442,15 +489,39 @@ func TestFullParserTerminalCluster(t *testing.T) {
 	}
 }
 
-func TestNewFullParserPanicsUnsorted(t *testing.T) {
+func TestFullParserOwnsFlagDefinitions(t *testing.T) {
+	flags := []FlagDef{
+		{Name: "-ab"},
+		{Name: "-c"},
+	}
+	p := NewFullParser(flags, InterspersedFlags, "")
+	flags[0] = FlagDef{Name: "-xy"}
+
+	result, err := p.Parse(word.FromStrings(
+		[]string{"-abc"}))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Flags) != 2 {
+		t.Fatalf("got %d flags, want 2",
+			len(result.Flags))
+	}
+	if result.Flags[0].Name != "-ab" ||
+		result.Flags[1].Name != "-c" {
+		t.Errorf("flags = %+v, want -ab, -c",
+			result.Flags)
+	}
+}
+
+func TestNewFullParserRejectsDuplicateFlags(t *testing.T) {
 	defer func() {
-		if r := recover(); r == nil {
+		if recover() == nil {
 			t.Error(
-				"expected panic for unsorted flags")
+				"expected panic for duplicate flags")
 		}
 	}()
 	NewFullParser([]FlagDef{
 		{Name: "-a"},
-		{Name: "--verbose"},
-	}, "")
+		{Name: "-a", Arg: true},
+	}, InterspersedFlags, "")
 }

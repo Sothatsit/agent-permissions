@@ -17,7 +17,6 @@ var syntaxNode = &langSyntax{
 }
 
 // nodeFlags defines recognised Node.js interpreter flags.
-// Sorted longest-first for cluster splitting.
 var nodeFlags = []model.FlagDef{
 	{Name: "--inspect-brk", Arg: true},
 	{Name: "--version"}, {Name: "--require", Arg: true},
@@ -26,9 +25,8 @@ var nodeFlags = []model.FlagDef{
 	{Name: "--print", Arg: true},
 	{Name: "--help"},
 	{Name: "--eval", Arg: true},
-	// Flags that consume the next argument. Unlike
-	// Python's -c, Node continues parsing its own flags
-	// after -e (StopAtPositional handles non-flag args).
+	// Unlike Python's -c, Node continues parsing its own flags after -e.
+	// Leading-only parsing handles script arguments after a file name.
 	{Name: "-e", Arg: true},
 	{Name: "-p", Arg: true},
 	{Name: "-r", Arg: true},
@@ -40,12 +38,11 @@ var nodeFlags = []model.FlagDef{
 	{Name: "-v"},
 }
 
-var nodeParser = func() *model.FullParser {
-	p := model.NewFullParser(
-		nodeFlags, "unrecognised Node flag")
-	p.StopAtPositional = true
-	return p
-}()
+var nodeParser = model.NewFullParser(
+	nodeFlags,
+	model.LeadingFlagsOnly,
+	"unrecognised Node flag",
+)
 
 var breakdownNode = breakdownInterpreter(
 	interpreterConfig{

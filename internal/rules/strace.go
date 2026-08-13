@@ -5,7 +5,6 @@ import "github.com/sothatsit/agent-permissions/internal/model"
 var straceParser, breakdownStrace = wrapperBreakdown(
 	wrapperDef{
 		flags: []model.FlagDef{
-			// Long flags (sorted longest-first).
 			{Name: "--summary-syscall-overhead", Arg: true},
 			{Name: "--stack-trace-frame-limit", Arg: true},
 			{Name: "--relative-timestamps"},

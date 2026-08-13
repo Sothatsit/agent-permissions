@@ -1,7 +1,9 @@
 package model
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/sothatsit/agent-permissions/internal/word"
@@ -17,48 +19,60 @@ type FlagDef struct {
 	Terminal bool // remaining args become positionals
 }
 
+// FlagPlacement describes where a command accepts flags
+// relative to its positional arguments.
+type FlagPlacement int
+
+const (
+	// InterspersedFlags allows flags after positional
+	// arguments until an explicit "--".
+	InterspersedFlags FlagPlacement = iota
+	// LeadingFlagsOnly makes the first positional argument
+	// end flag parsing.
+	LeadingFlagsOnly
+)
+
 // FullParser classifies flags by their FlagDef. Unknown
 // flags cause a parse error. Use NewFullParser to create.
 type FullParser struct {
 	flags      []FlagDef
 	flagMap    map[string]FlagDef
+	placement  FlagPlacement
 	unknownMsg string
-
-	// StopAtPositional makes the first positional
-	// argument end flag parsing — all subsequent args
-	// become positionals. Required for commands like
-	// python where the script file absorbs remaining
-	// args: python -u script.py --script-flag
-	StopAtPositional bool
 }
 
-// NewFullParser creates a FullParser from a flag list.
-// Flags must be sorted by name length descending
-// (longest first) — this ensures greedy matching in
-// cluster splitting (e.g. -OO matches before -O).
-// Panics if the list is not sorted.
+// NewFullParser creates a FullParser from a flag list and
+// the command's flag-placement grammar.
 func NewFullParser(
-	flags []FlagDef, unknownReason string,
+	flags []FlagDef,
+	placement FlagPlacement,
+	unknownReason string,
 ) *FullParser {
-	for i := 1; i < len(flags); i++ {
-		if len(flags[i].Name) >
-			len(flags[i-1].Name) {
-			panic(fmt.Sprintf(
-				"FullParser flags not sorted: "+
-					"%s (len %d) after %s (len %d)",
-				flags[i].Name,
-				len(flags[i].Name),
-				flags[i-1].Name,
-				len(flags[i-1].Name)))
-		}
+	if placement != InterspersedFlags &&
+		placement != LeadingFlagsOnly {
+		panic(fmt.Sprintf(
+			"invalid flag placement: %d", placement))
 	}
 
+	parserFlags := slices.Clone(flags)
+	slices.SortStableFunc(
+		parserFlags,
+		func(a, b FlagDef) int {
+			return cmp.Compare(
+				len(b.Name), len(a.Name))
+		})
+
 	p := &FullParser{
-		flags:      flags,
-		flagMap:    make(map[string]FlagDef, len(flags)),
+		flags:      parserFlags,
+		flagMap:    make(map[string]FlagDef, len(parserFlags)),
+		placement:  placement,
 		unknownMsg: unknownReason,
 	}
-	for _, f := range flags {
+	for _, f := range parserFlags {
+		if _, exists := p.flagMap[f.Name]; exists {
+			panic(fmt.Sprintf(
+				"duplicate flag definition: %s", f.Name))
+		}
 		p.flagMap[f.Name] = f
 	}
 	return p
@@ -67,10 +81,7 @@ func NewFullParser(
 func (p *FullParser) Parse(
 	args []*syntax.Word,
 ) (ParseResult, error) {
-	result := ParseResult{
-		Raw:         args,
-		FullyParsed: true,
-	}
+	result := ParseResult{Raw: args}
 
 	endOfFlags := false
 	for i := 0; i < len(args); i++ {
@@ -86,7 +97,7 @@ func (p *FullParser) Parse(
 				args[i], "-") {
 			result.Positionals = append(
 				result.Positionals, args[i])
-			if p.StopAtPositional {
+			if p.placement == LeadingFlagsOnly {
 				endOfFlags = true
 			}
 			continue
@@ -197,8 +208,8 @@ func (p *FullParser) Parse(
 
 // splitCluster splits combined short flags (e.g. -uBs)
 // into individual flags using greedy left-to-right
-// matching. flags is sorted longest-first so -OO
-// matches before -O. When an Arg or Prefix flag appears
+// matching. The constructor stores flags longest-first so
+// -OO matches before -O. When an Arg or Prefix flag appears
 // mid-cluster, the remaining characters become its value.
 func (p *FullParser) splitCluster(
 	text string,
