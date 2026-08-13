@@ -57,7 +57,7 @@ func TestSuggestPatternKnownCommandUnknownSubcmd(
 				Mode: MatchTrailing},
 		}},
 	})
-	p.Rules = map[string]*model.CommandRules{
+	p.rules = map[string]*model.CommandRules{
 		"git": {},
 	}
 	got := p.buildPermissionPattern(
@@ -125,7 +125,7 @@ func TestSuggestPatternRulesRegistryOnly(t *testing.T) {
 	// Command in rules registry but no patterns at
 	// all — prefix depth 1 is known from registry.
 	p := &Permissions{
-		Rules: map[string]*model.CommandRules{
+		rules: map[string]*model.CommandRules{
 			"git": {},
 		},
 	}
@@ -146,7 +146,7 @@ func TestSuggestPatternMaxTwoLevels(t *testing.T) {
 				Mode: MatchTrailing},
 		}},
 	})
-	p.Rules = map[string]*model.CommandRules{
+	p.rules = map[string]*model.CommandRules{
 		"npm": {},
 	}
 	got := p.buildPermissionPattern(

@@ -5,9 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/sothatsit/agent-permissions/internal/breakdown"
 	"github.com/sothatsit/agent-permissions/internal/perms"
-	"github.com/sothatsit/agent-permissions/internal/rules"
 	"github.com/sothatsit/agent-permissions/internal/word"
 )
 
@@ -31,21 +29,11 @@ func check(args []string) error {
 		return err
 	}
 
-	registry, snippetRules := rules.Registry()
 	resolved, err := perms.Resolve(configDir, cwd)
 	if err != nil {
 		return err
 	}
-	// Prune disabled declarative rules so check evaluates
-	// against the same effective registry the hook does.
-	rules.FilterByConfig(
-		registry, snippetRules, resolved.RuleConfig)
-	resolved.Permissions.Rules = registry
-	resolved.Permissions.SnippetRules = snippetRules
-
-	// Same rule config the hook resolves (presets + .agents).
-	br, brErr := breakdown.Breakdown(
-		cmd, cwd, registry, resolved.RuleConfig)
+	br, brErr := resolved.Breakdown(cmd)
 
 	fmt.Println("Command:")
 	fmt.Printf("  %s\n", cmd)

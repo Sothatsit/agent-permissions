@@ -28,6 +28,33 @@ func TestLoadPresetCatalogRejectsInvalidExternalPreset(t *testing.T) {
 	}
 }
 
+func TestResolveReturnsEvaluationReadyPermissions(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv(presets.PresetDirsEnv, "")
+	t.Setenv(presets.EnforcedPresetDirsEnv, "")
+	t.Setenv(presets.EnforcedPresetsEnv, "")
+
+	resolved, err := Resolve("", "")
+	if err != nil {
+		t.Fatalf("resolve permissions: %v", err)
+	}
+	breakdownResult, err := resolved.Breakdown(
+		"tar --to-command=sh -cf a.tar x")
+	if err != nil {
+		t.Fatalf("break down command: %v", err)
+	}
+
+	result := resolved.Permissions.Check(breakdownResult)
+	if result.Decision != model.Deny {
+		t.Fatalf("got %v, want deny", result.Decision)
+	}
+	if !strings.Contains(
+		result.Reason, "(from rule:tar.command-execution)",
+	) {
+		t.Fatalf("denial does not name tar rule: %q", result.Reason)
+	}
+}
+
 func TestPolicySnapshotRemainsStableAcrossFileChanges(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")

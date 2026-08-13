@@ -28,11 +28,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/sothatsit/agent-permissions/internal/breakdown"
 	"github.com/sothatsit/agent-permissions/internal/harness"
 	"github.com/sothatsit/agent-permissions/internal/model"
 	"github.com/sothatsit/agent-permissions/internal/perms"
-	"github.com/sothatsit/agent-permissions/internal/rules"
 )
 
 // version is set at build time via ldflags.
@@ -165,34 +163,19 @@ func runClaudeHook() error {
 		return err
 	}
 
-	registry, snippetRules := rules.Registry()
-
 	resolved, err := perms.Resolve(configDir, input.CWD)
 	if err != nil {
 		return fmt.Errorf(
 			"failed to load permissions: %v", err)
 	}
-	// Prune the registry to the resolved rule config before
-	// either layer runs: disabled declarative rules vanish,
-	// so the breakdown and permissions layers below see only
-	// the rules actually in effect.
-	rules.FilterByConfig(
-		registry, snippetRules, resolved.RuleConfig)
 	permissions := resolved.Permissions
-	permissions.Rules = registry
-	permissions.SnippetRules = snippetRules
 	// claude-hook is the Claude-Code-bound entrypoint, so
 	// swap the loader's Placeholder harness for the real
 	// one — the user-visible text will reference
 	// /permissions etc.
 	permissions.Harness = harness.ClaudeCode{}
 
-	// Parse the bash command with the resolved per-rule
-	// config (which rules fire); check resolves it the same
-	// way via perms.Resolve.
-	br, err := breakdown.Breakdown(
-		input.ToolInput.Command, input.CWD,
-		registry, resolved.RuleConfig)
+	br, err := resolved.Breakdown(input.ToolInput.Command)
 	if err != nil {
 		r := perms.DenyResult(breakdownDenialReason(err))
 		return writeDecision(model.Deny, r.Reason)

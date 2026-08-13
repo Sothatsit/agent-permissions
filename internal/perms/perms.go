@@ -105,8 +105,10 @@ type Permissions struct {
 	// degrade their policy. The hot path ignores these.
 	Warnings []ConfigWarning
 
-	Rules        map[string]*model.CommandRules
-	SnippetRules map[string]*model.SnippetLang
+	// Resolve installs these maps in one filter pass. rules is the same
+	// command registry used by Resolved.Breakdown.
+	rules        map[string]*model.CommandRules
+	snippetRules map[string]*model.SnippetLang
 
 	// PathDirs is the set of directories on the hook
 	// process's PATH, used to decide whether an absolute-
@@ -663,7 +665,7 @@ func (p *Permissions) checkSnippet(
 	}
 
 	// Run snippet rules for this language.
-	lang := p.SnippetRules[snippet.Language]
+	lang := p.snippetRules[snippet.Language]
 	if lang == nil || len(lang.Rules) == 0 {
 		return commandCheck{decision: model.Allow}
 	}
@@ -757,9 +759,9 @@ func (p *Permissions) checkOne(
 
 	// 1. Rules layer — operates on Words directly,
 	// no string conversion needed.
-	if p.Rules != nil {
+	if p.rules != nil {
 		if action := Evaluate(
-			p.Rules, name, cmd.Args[1:],
+			p.rules, name, cmd.Args[1:],
 		); action != nil {
 			subject, desc := splitRuleReason(
 				action.Reason)
@@ -1348,8 +1350,8 @@ func (p *Permissions) prefixKnown(
 	prefix []string,
 ) bool {
 	// Rules registry keys cover depth 1 (command name).
-	if len(prefix) == 1 && p.Rules != nil {
-		if _, ok := p.Rules[prefix[0]]; ok {
+	if len(prefix) == 1 && p.rules != nil {
+		if _, ok := p.rules[prefix[0]]; ok {
 			return true
 		}
 	}

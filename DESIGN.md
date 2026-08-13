@@ -494,27 +494,23 @@ Because rule config is shared across harnesses, the multi-harness
 `check` (future) breaks a command down once and varies only the
 pattern-layer `Check` per harness.
 
-**Enforcement.** Reading and resolution are wired (`perms.Resolve`
-returns the resolved `RuleConfigs`, threaded into the breakdown by
-both the hook and `check`), and both layers honour config through
-two complementary mechanisms. The declarative layers are pruned by
-the registry filter (`rules.FilterByConfig`, run once after
-resolution and before either layer evaluates): a disabled rule's
-node and subtree are dropped from the rule trees, a command's
-`Default` is nil'd when its `Unverified` rule is disabled, and a
-disabled language's snippet rules are dropped before the scan. The
-imperative paths gate at runtime: wrapper deny-flags and `xargs`
-consult `State.RuleConfig` directly, and every other "cannot
-verify" breakdown denial (bash/eval/trap/command/interpreters,
-plus interpreter parser failures) returns a `model.RuleError`
-carrying its `Unverified` def, which `runBreakdown` suppresses
-when that rule is disabled — the command then falls through to the
-permissions layer instead of being denied. Because the filter
-encodes every declarative decision and the parser path is dead in
-practice (any parse failure is caught in the breakdown first), the
-permissions layer needs no rule config of its own: a pruned node
-never matches, a nil'd `Default` never fires, a dropped language
-scans clean.
+**Enforcement.** `perms.Resolve` builds one registry, filters it against the
+resolved rule config, and returns an evaluation-ready `Resolved`. Its breakdown
+and permissions phases share that registry, so callers cannot omit filtering or
+give the phases different rule maps. The declarative layers are pruned by the
+registry filter: a disabled rule's node and subtree are dropped from the rule
+trees, a command's `Default` is nil'd when its `Unverified` rule is disabled,
+and a disabled language's snippet rules are dropped before the scan. The
+imperative paths gate at runtime: wrapper deny-flags and `xargs` consult
+`State.RuleConfig` directly, and every other "cannot verify" breakdown denial
+(bash/eval/trap/command/interpreters, plus interpreter parser failures) returns
+a `model.RuleError` carrying its `Unverified` def. `runBreakdown` suppresses
+that error when the rule is disabled, so the command falls through to the
+permissions layer instead of being denied. Because the filter encodes every
+declarative decision and the parser path is dead in practice (any parse failure
+is caught in the breakdown first), the permissions layer needs no rule config
+of its own: a pruned node never matches, a nil'd `Default` never fires, and a
+dropped language scans clean.
 
 `rules.ValidateRegistry` asserts the attribution invariant — every
 node that can produce a restrictive decision has a governing

@@ -11,30 +11,36 @@ import (
 	"strings"
 
 	"github.com/sothatsit/agent-permissions/internal/agentconfig"
+	"github.com/sothatsit/agent-permissions/internal/breakdown"
 	"github.com/sothatsit/agent-permissions/internal/harness"
 	"github.com/sothatsit/agent-permissions/internal/model"
 	"github.com/sothatsit/agent-permissions/internal/rules"
 	"github.com/sothatsit/agent-permissions/presets"
 )
 
-// Resolved is one harness's full resolution: the normal
-// source chain and enforced policy to evaluate, plus the
-// resolved per-rule config the breakdown consults.
-// RuleConfig is harness-agnostic —
-// it comes only from presets and .agents, never from a
-// harness's native settings — so when multi-harness support
-// lands each harness's Resolved shares the same RuleConfig
-// and differs only in its native Sources.
+// Resolved is one evaluation-ready policy. Permissions and Breakdown share
+// one registry filtered by the resolved rule config.
 type Resolved struct {
 	Permissions *Permissions
-	RuleConfig  model.RuleConfigs
+
+	cwd        string
+	registry   map[string]*model.CommandRules
+	ruleConfig model.RuleConfigs
 }
 
-// Resolve reads every config source and returns the full
-// resolved view: the Permissions to evaluate against (with
-// per-source attribution) and the resolved per-rule config.
-// Used by both the hook and the `check` subcommand so they
-// resolve identically.
+// Breakdown extracts the commands this policy must evaluate. It uses the
+// working directory and filtered registry captured during resolution.
+func (r *Resolved) Breakdown(
+	command string,
+) (model.BreakdownResult, error) {
+	return breakdown.Breakdown(
+		command, r.cwd, r.registry, r.ruleConfig)
+}
+
+// Resolve reads every config source and returns an evaluation-ready policy.
+// Its breakdown and permissions phases share one registry filtered by the
+// resolved rule config. The hook and `check` use this path so they resolve and
+// evaluate identically.
 //
 // configDir is CLAUDE_CONFIG_DIR (defaults to ~/.claude).
 // cwd is the project directory. Either may be empty;
@@ -84,6 +90,11 @@ func (snapshot *PolicySnapshot) Resolve(
 	selected := selectPresets(
 		snapshot.presets.available,
 		globalAgent, projectAgent, localAgent)
+	ruleConfig := resolveRuleConfig(
+		globalAgent, projectAgent, localAgent, selected)
+	registry, snippetRules := rules.Registry()
+	rules.FilterByConfig(
+		registry, snippetRules, ruleConfig)
 
 	// Build sources highest → lowest priority. Each
 	// source-load may return ConfigWarnings for malformed
@@ -144,13 +155,15 @@ func (snapshot *PolicySnapshot) Resolve(
 	}
 
 	return &Resolved{
-		RuleConfig: resolveRuleConfig(
-			globalAgent, projectAgent, localAgent,
-			selected),
+		cwd:        snapshot.cwd,
+		registry:   registry,
+		ruleConfig: ruleConfig,
 		Permissions: &Permissions{
 			Sources:         sources,
 			EnforcedSources: enforcedSources,
 			Warnings:        warnings,
+			rules:           registry,
+			snippetRules:    snippetRules,
 			PathDirs:        parsePathDirs(os.Getenv("PATH")),
 			// Resolve doesn't know which harness is the
 			// consumer. Tools that produce harness-bound
