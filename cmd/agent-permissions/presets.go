@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -52,35 +51,33 @@ func listPresets(args []string) error {
 		return fmt.Errorf("usage: presets list")
 	}
 
-	global, globalPath, err := loadAgentConfig(
-		globalConfigPath)
+	cwd, err := os.Getwd()
 	if err != nil {
-		return err
+		return fmt.Errorf("cwd: %v", err)
 	}
-	project, projectPath, err := loadAgentConfig(
-		projectConfigPath)
-	if err != nil {
-		return err
-	}
-	local, localPath, err := loadAgentConfig(
-		localConfigPath)
+	snapshot, err := perms.LoadPolicySnapshot(cwd)
 	if err != nil {
 		return err
 	}
 
-	selecting := pickPresetSelector(global, project, local)
+	global := snapshot.AgentConfig(perms.AgentConfigGlobal)
+	project := snapshot.AgentConfig(perms.AgentConfigProject)
+	local := snapshot.AgentConfig(perms.AgentConfigLocal)
+
+	selecting := pickPresetSelector(
+		global.Config, project.Config, local.Config)
 
 	// Show which file owns preset selection so this view matches the hook.
 	fmt.Println("Configs:")
 	fmt.Printf(
 		"  ~ %s\n",
-		describeConfig(globalPath, global))
+		describeConfig(global.Path, global.Config))
 	fmt.Printf(
 		"  cwd: %s\n",
-		describeConfig(projectPath, project))
+		describeConfig(project.Path, project.Config))
 	fmt.Printf(
 		"  cwd-local: %s\n",
-		describeConfig(localPath, local))
+		describeConfig(local.Path, local.Config))
 	if dirs := os.Getenv(
 		presets.PresetDirsEnv); dirs != "" {
 		fmt.Printf(
@@ -105,13 +102,7 @@ func listPresets(args []string) error {
 	// Classify every available preset. Enforced presets are
 	// always active; ordinary external and embedded presets
 	// follow the user's selection.
-	all, err := presets.All()
-	if err != nil {
-		return err
-	}
-	if err := perms.ValidateExternalPresets(all); err != nil {
-		return err
-	}
+	all := snapshot.Presets()
 	rows := make([]classifiedPreset, 0, len(all))
 	for _, p := range all {
 		rows = append(rows, classifiedPreset{
@@ -225,8 +216,8 @@ func classifyPreset(
 
 // pickPresetSelector returns the most-specific config that specifies preset
 // selection. It checks local, then project, then global. It returns nil when
-// none has an opinion. This mirrors SelectPresets in the resolver so the
-// preset list reports the same effective state the hook applies.
+// none has an opinion. This mirrors the resolver's selection so the preset
+// list reports the same effective state the hook applies.
 func pickPresetSelector(
 	global, project, local *agentconfig.Config,
 ) *agentconfig.Config {
@@ -273,54 +264,6 @@ func classify(
 		}
 	}
 	return presetState{enabled: true}
-}
-
-// loadAgentConfig reads the file at path and returns
-// (config, displayPath, err). A missing file produces a
-// nil config. Callers treat that as "no opinion from this
-// source", matching the hook's behaviour.
-func loadAgentConfig(
-	pathFn func() (string, error),
-) (*agentconfig.Config, string, error) {
-	path, err := pathFn()
-	if err != nil {
-		return nil, "", err
-	}
-	c, err := agentconfig.Load(path)
-	if err != nil {
-		return nil, "", err
-	}
-	return c, path, nil
-}
-
-func globalConfigPath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("home: %v", err)
-	}
-	return filepath.Join(
-		home, ".agents", "permissions.json"), nil
-}
-
-func projectConfigPath() (string, error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("cwd: %v", err)
-	}
-	return filepath.Join(
-		cwd, ".agents", "permissions.json"), nil
-}
-
-// localConfigPath is the project-scoped override that sits
-// above the committed project config; project-only, with no
-// global counterpart (mirroring Claude's settings.local.json).
-func localConfigPath() (string, error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("cwd: %v", err)
-	}
-	return filepath.Join(
-		cwd, ".agents", "permissions.local.json"), nil
 }
 
 func describeConfig(

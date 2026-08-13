@@ -27,7 +27,7 @@ func contains(s []string, want string) bool {
 }
 
 func TestSelectPresetsAllByDefault(t *testing.T) {
-	got := SelectPresets(presets.MustEmbedded(), nil, nil, nil)
+	got := selectPresets(presets.MustEmbedded(), nil, nil, nil)
 	all := presets.MustEmbedded()
 	if len(got) != len(all) {
 		t.Errorf(
@@ -39,7 +39,7 @@ func TestSelectPresetsAllByDefault(t *testing.T) {
 func TestSelectPresetsEnabledWhitelist(t *testing.T) {
 	enabled := []string{"git", "languages"}
 	c := &agentconfig.Config{EnabledPresets: &enabled}
-	got := presetNames(SelectPresets(presets.MustEmbedded(), c, nil, nil))
+	got := presetNames(selectPresets(presets.MustEmbedded(), c, nil, nil))
 	if len(got) != 2 ||
 		!contains(got, "git") ||
 		!contains(got, "languages") {
@@ -51,7 +51,7 @@ func TestSelectPresetsEnabledWhitelist(t *testing.T) {
 func TestSelectPresetsDisabledBlacklist(t *testing.T) {
 	disabled := []string{"git"}
 	c := &agentconfig.Config{DisabledPresets: &disabled}
-	got := presetNames(SelectPresets(presets.MustEmbedded(), c, nil, nil))
+	got := presetNames(selectPresets(presets.MustEmbedded(), c, nil, nil))
 	if contains(got, "git") {
 		t.Errorf("expected git to be excluded; got %v", got)
 	}
@@ -70,7 +70,7 @@ func TestSelectPresetsBothFields(t *testing.T) {
 		EnabledPresets:  &enabled,
 		DisabledPresets: &disabled,
 	}
-	got := presetNames(SelectPresets(presets.MustEmbedded(), c, nil, nil))
+	got := presetNames(selectPresets(presets.MustEmbedded(), c, nil, nil))
 	if len(got) != 2 ||
 		!contains(got, "git") ||
 		!contains(got, "languages") {
@@ -88,7 +88,7 @@ func TestSelectPresetsProjectOverridesGlobal(t *testing.T) {
 	project := &agentconfig.Config{
 		EnabledPresets: &projectEnabled,
 	}
-	got := presetNames(SelectPresets(presets.MustEmbedded(), global, project, nil))
+	got := presetNames(selectPresets(presets.MustEmbedded(), global, project, nil))
 	if contains(got, "git") {
 		t.Errorf(
 			"project should have overridden global; "+
@@ -116,7 +116,7 @@ func TestSelectPresetsLocalOverridesProject(t *testing.T) {
 	local := &agentconfig.Config{
 		EnabledPresets: &localEnabled,
 	}
-	got := presetNames(SelectPresets(
+	got := presetNames(selectPresets(
 		presets.MustEmbedded(), global, project, local))
 	if len(got) != 1 || !contains(got, "containers") {
 		t.Errorf(
@@ -136,7 +136,7 @@ func TestSelectPresetsLocalFallthroughWhenSilent(t *testing.T) {
 			Commands: map[string]string{"some-cmd:*": ""},
 		},
 	}
-	got := presetNames(SelectPresets(presets.MustEmbedded(), nil, project, local))
+	got := presetNames(selectPresets(presets.MustEmbedded(), nil, project, local))
 	if len(got) != 1 || !contains(got, "languages") {
 		t.Errorf(
 			"expected project selection (languages), got %v",
@@ -158,7 +158,7 @@ func TestSelectPresetsProjectFallthroughWhenSilent(t *testing.T) {
 			},
 		},
 	}
-	got := presetNames(SelectPresets(presets.MustEmbedded(), global, project, nil))
+	got := presetNames(selectPresets(presets.MustEmbedded(), global, project, nil))
 	if len(got) != 1 || !contains(got, "git") {
 		t.Errorf(
 			"expected global selection (git), got %v",
@@ -174,7 +174,7 @@ func TestSelectPresetsIncludesExternal(t *testing.T) {
 		[]*presets.Preset{{Name: "dug-test"}},
 		presets.MustEmbedded()...)
 
-	got := presetNames(SelectPresets(pool, nil, nil, nil))
+	got := presetNames(selectPresets(pool, nil, nil, nil))
 	if !contains(got, "dug-test") {
 		t.Errorf(
 			"external preset missing from default "+
@@ -185,7 +185,7 @@ func TestSelectPresetsIncludesExternal(t *testing.T) {
 	c := &agentconfig.Config{
 		DisabledPresets: &disabled,
 	}
-	got = presetNames(SelectPresets(pool, c, nil, nil))
+	got = presetNames(selectPresets(pool, c, nil, nil))
 	if contains(got, "dug-test") {
 		t.Errorf(
 			"disabled-presets should drop the external "+
@@ -204,7 +204,7 @@ func TestSelectPresetsCannotDisableEnforced(t *testing.T) {
 		EnabledPresets:  &enabled,
 		DisabledPresets: &disabled,
 	}
-	got := presetNames(SelectPresets(pool, c, nil, nil))
+	got := presetNames(selectPresets(pool, c, nil, nil))
 	if !contains(got, "dug-enforced") {
 		t.Errorf("enforced preset was disabled: %v", got)
 	}
@@ -224,7 +224,7 @@ func TestValidateExternalPresetsRejectsMalformedPatterns(
 			EnvVars:  map[string]string{"BAD-NAME": "x"},
 		},
 	}
-	err := ValidateExternalPresets([]*presets.Preset{p})
+	err := validateExternalPresets([]*presets.Preset{p})
 	if err == nil {
 		t.Fatal("expected malformed external preset error")
 	}
@@ -247,7 +247,7 @@ func TestValidateExternalPresetsRejectsUnknownRule(
 			"git.branch-writs": {Enabled: true},
 		},
 	}
-	err := ValidateExternalPresets([]*presets.Preset{p})
+	err := validateExternalPresets([]*presets.Preset{p})
 	if err == nil || !strings.Contains(
 		err.Error(), "git.branch-writs",
 	) {
@@ -266,7 +266,7 @@ func TestValidateExternalPresetsRejectsEnforcedRuleOff(
 			"git.branch-writes": {Enabled: false},
 		},
 	}
-	err := ValidateExternalPresets([]*presets.Preset{p})
+	err := validateExternalPresets([]*presets.Preset{p})
 	if err == nil || !strings.Contains(
 		err.Error(), "must have Enabled true",
 	) {
@@ -313,7 +313,7 @@ func TestValidateExternalPresetsRejectsRuleOwnedPatterns(
 					},
 				},
 			}
-			err := ValidateExternalPresets(
+			err := validateExternalPresets(
 				[]*presets.Preset{p})
 			if err == nil {
 				t.Fatal("expected rule-owned pattern error")
@@ -355,7 +355,7 @@ func TestValidateExternalPresetsAllowsPatternLayerCommands(
 					Commands: map[string]string{pattern: "x"},
 				},
 			}
-			if err := ValidateExternalPresets(
+			if err := validateExternalPresets(
 				[]*presets.Preset{p},
 			); err != nil {
 				t.Fatalf("valid pattern rejected: %v", err)

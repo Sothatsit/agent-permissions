@@ -60,13 +60,11 @@ func setup(args []string) error {
 			"stat %s: %v", path, err)
 	}
 
-	all, err := presets.All()
+	catalog, err := perms.LoadPresetCatalog()
 	if err != nil {
-		return fmt.Errorf("presets: %v", err)
-	}
-	if err := perms.ValidateExternalPresets(all); err != nil {
 		return err
 	}
+	all := catalog.Presets()
 
 	body, err := buildSetupTemplate()
 	if err != nil {

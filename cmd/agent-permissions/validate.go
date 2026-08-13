@@ -52,10 +52,16 @@ func validate(args []string) error {
 		return err
 	}
 
-	resolved, err := perms.Resolve(configDir, cwd)
+	snapshot, err := perms.LoadPolicySnapshot(cwd)
 	if err != nil {
 		return err
 	}
+	resolved, err := snapshot.Resolve(configDir)
+	if err != nil {
+		return err
+	}
+	all := snapshot.Presets()
+	agentConfigs := snapshot.AgentConfigs()
 
 	emptyReasons := collectEmptyReasons(
 		resolved.Permissions)
@@ -76,10 +82,6 @@ func validate(args []string) error {
 	// worth reporting because attribution then names only the
 	// preset, leaving the output unable to say which directory
 	// a decision came from.
-	all, err := presets.All()
-	if err != nil {
-		return err
-	}
 	if dupes := presets.DuplicateNames(all); len(dupes) > 0 {
 		fmt.Printf(
 			"Note: %d preset %s supplied by more than one "+
@@ -94,18 +96,10 @@ func validate(args []string) error {
 
 	// Collect every hard problem before deciding the exit
 	// code, so one run reports them all.
-	unknownRules, err := collectUnknownRules()
-	if err != nil {
-		return err
-	}
-	unknownPresets, err := collectUnknownPresets()
-	if err != nil {
-		return err
-	}
-	disabledEnforced, err := collectDisabledEnforcedPresets()
-	if err != nil {
-		return err
-	}
+	unknownRules := collectUnknownRules(agentConfigs)
+	unknownPresets := collectUnknownPresets(agentConfigs, all)
+	disabledEnforced := collectDisabledEnforcedPresets(
+		agentConfigs, all)
 	warnings := resolved.Permissions.Warnings
 
 	total := len(unknownRules) +
@@ -183,68 +177,30 @@ func printUnknownRefs(
 	fmt.Println()
 }
 
-// forEachUserAgentConfig invokes fn for each user .agents
-// config that exists, in perms.Resolve's precedence order
-// (local before project before global) and with the same
-// source label Resolve attaches — the global file gets the
-// "~/..." literal rather than its expanded path. When cwd is
-// the home directory the project and global permissions.json
-// paths resolve to one file; it is visited once, as the
-// higher-precedence project source, matching the dedup in
-// Resolve so validate doesn't double-count it. The local
-// override has a distinct filename, so it never collides.
-func forEachUserAgentConfig(
-	fn func(cfg *agentconfig.Config, source string),
-) error {
-	srcs := []struct {
-		pathFn func() (string, error)
-		label  string // "" => use the resolved path
-	}{
-		{localConfigPath, ""},
-		{projectConfigPath, ""},
-		{globalConfigPath, "~/.agents/permissions.json"},
-	}
-	var seen string
-	for _, s := range srcs {
-		cfg, path, err := loadAgentConfig(s.pathFn)
-		if err != nil {
-			return err
-		}
-		if cfg == nil || path == seen {
-			continue
-		}
-		seen = path
-		source := s.label
-		if source == "" {
-			source = path
-		}
-		fn(cfg, source)
-	}
-	return nil
-}
-
 // collectUnknownRules returns rule IDs in the user .agents
 // configs that are not known catalog rules — typos that would
 // otherwise silently no-op. External presets are checked when
 // they load; the embedded-preset invariant covers shipped IDs.
-func collectUnknownRules() ([]unknownRef, error) {
+func collectUnknownRules(
+	configs []perms.AgentConfigSource,
+) []unknownRef {
 	var out []unknownRef
-	err := forEachUserAgentConfig(
-		func(cfg *agentconfig.Config, source string) {
-			ids := make([]string, 0, len(cfg.Rules))
-			for id := range cfg.Rules {
-				ids = append(ids, id)
+	for _, loaded := range configs {
+		ids := make([]string, 0, len(loaded.Config.Rules))
+		for id := range loaded.Config.Rules {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		for _, id := range ids {
+			if !rules.IsRuleID(id) {
+				out = append(out, unknownRef{
+					source: loaded.SourceName,
+					value:  id,
+				})
 			}
-			sort.Strings(ids)
-			for _, id := range ids {
-				if !rules.IsRuleID(id) {
-					out = append(out, unknownRef{
-						source: source, value: id,
-					})
-				}
-			}
-		})
-	return out, err
+		}
+	}
+	return out
 }
 
 // collectUnknownPresets returns preset names referenced by
@@ -253,39 +209,37 @@ func collectUnknownRules() ([]unknownRef, error) {
 // external). A typo there silently no-ops (filterByName
 // just never matches it) — the same failure mode
 // collectUnknownRules guards for rule IDs.
-func collectUnknownPresets() ([]unknownRef, error) {
-	all, err := presets.All()
-	if err != nil {
-		return nil, err
-	}
+func collectUnknownPresets(
+	configs []perms.AgentConfigSource,
+	all []*presets.Preset,
+) []unknownRef {
 	known := map[string]bool{}
 	for _, p := range all {
 		known[p.Name] = true
 	}
 	var out []unknownRef
-	err = forEachUserAgentConfig(
-		func(cfg *agentconfig.Config, source string) {
-			names := presetSelectionNames(cfg)
-			sort.Strings(names)
-			for _, name := range names {
-				if !known[name] {
-					out = append(out, unknownRef{
-						source: source, value: name,
-					})
-				}
+	for _, loaded := range configs {
+		names := presetSelectionNames(loaded.Config)
+		sort.Strings(names)
+		for _, name := range names {
+			if !known[name] {
+				out = append(out, unknownRef{
+					source: loaded.SourceName,
+					value:  name,
+				})
 			}
-		})
-	return out, err
+		}
+	}
+	return out
 }
 
 // collectDisabledEnforcedPresets returns enforced names in
 // disabled-presets. Selection deliberately ignores them, so
 // validate reports the otherwise silent failed override.
-func collectDisabledEnforcedPresets() ([]unknownRef, error) {
-	all, err := presets.All()
-	if err != nil {
-		return nil, err
-	}
+func collectDisabledEnforcedPresets(
+	configs []perms.AgentConfigSource,
+	all []*presets.Preset,
+) []unknownRef {
 	enforced := map[string]bool{}
 	for _, p := range all {
 		if p.Enforced {
@@ -293,23 +247,23 @@ func collectDisabledEnforcedPresets() ([]unknownRef, error) {
 		}
 	}
 	var out []unknownRef
-	err = forEachUserAgentConfig(
-		func(cfg *agentconfig.Config, source string) {
-			if cfg.DisabledPresets == nil {
-				return
+	for _, loaded := range configs {
+		if loaded.Config.DisabledPresets == nil {
+			continue
+		}
+		names := append(
+			[]string{}, *loaded.Config.DisabledPresets...)
+		sort.Strings(names)
+		for _, name := range names {
+			if enforced[name] {
+				out = append(out, unknownRef{
+					source: loaded.SourceName,
+					value:  name,
+				})
 			}
-			names := append(
-				[]string{}, *cfg.DisabledPresets...)
-			sort.Strings(names)
-			for _, name := range names {
-				if enforced[name] {
-					out = append(out, unknownRef{
-						source: source, value: name,
-					})
-				}
-			}
-		})
-	return out, err
+		}
+	}
+	return out
 }
 
 // presetSelectionNames returns every preset name the config

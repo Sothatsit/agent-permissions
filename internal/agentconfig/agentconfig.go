@@ -16,7 +16,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
+	"slices"
 
 	"github.com/sothatsit/agent-permissions/internal/atomicfile"
 	"github.com/sothatsit/agent-permissions/internal/configjson"
@@ -58,6 +60,36 @@ type Config struct {
 	// another file"; empty = "explicitly nothing".
 	EnabledPresets  *[]string
 	DisabledPresets *[]string
+}
+
+// Clone returns an independent copy of the config.
+func (c *Config) Clone() *Config {
+	if c == nil {
+		return nil
+	}
+
+	cloned := *c
+	cloned.Allow = cloneTier(c.Allow)
+	cloned.SoftAsk = cloneTier(c.SoftAsk)
+	cloned.Ask = cloneTier(c.Ask)
+	cloned.Deny = cloneTier(c.Deny)
+	cloned.Rules = maps.Clone(c.Rules)
+	if c.EnabledPresets != nil {
+		enabled := slices.Clone(*c.EnabledPresets)
+		cloned.EnabledPresets = &enabled
+	}
+	if c.DisabledPresets != nil {
+		disabled := slices.Clone(*c.DisabledPresets)
+		cloned.DisabledPresets = &disabled
+	}
+	return &cloned
+}
+
+func cloneTier(tier TierEntries) TierEntries {
+	return TierEntries{
+		Commands: maps.Clone(tier.Commands),
+		EnvVars:  maps.Clone(tier.EnvVars),
+	}
 }
 
 // HasPresetSelection reports whether the config specifies

@@ -94,9 +94,20 @@ out=$(_sc_run "$h" setup 2>&1 || true)
 assert_contains "setup refuses overwrite without --force" \
     "$out" "already exists"
 
-# --force overwrites.
-out=$(_sc_run "$h" setup --force 2>&1)
+# --force is also the repair path for a malformed config. It
+# must overwrite the file without trying to load it first.
+printf '%s\n' '{malformed' > "$h/.agents/permissions.json"
+rc=0
+out=$(_sc_run "$h" setup --force 2>&1) || rc=$?
+assert_rc "setup --force repairs malformed config" 0 "$rc"
 assert_contains "setup --force overwrites" "$out" "Wrote"
+if jq empty "$h/.agents/permissions.json" >/dev/null 2>&1; then
+    echo "PASS: setup --force writes valid JSON"
+    passed=$((passed + 1))
+else
+    echo "FAIL: setup --force left malformed JSON"
+    failed=$((failed + 1))
+fi
 
 # setup reports enforced policy separately and says preset
 # selection cannot remove it.

@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -60,6 +61,36 @@ type Preset struct {
 	Ask         TierEntries                 `json:"Ask"`
 	Deny        TierEntries                 `json:"Deny"`
 	Rules       map[string]model.RuleConfig `json:"Rules,omitempty"`
+}
+
+// Clone returns an independent copy of the preset.
+func (p *Preset) Clone() *Preset {
+	if p == nil {
+		return nil
+	}
+
+	cloned := *p
+	cloned.Allow = cloneTier(p.Allow)
+	cloned.SoftAsk = cloneTier(p.SoftAsk)
+	cloned.Ask = cloneTier(p.Ask)
+	cloned.Deny = cloneTier(p.Deny)
+	cloned.Rules = maps.Clone(p.Rules)
+	return &cloned
+}
+
+func cloneTier(tier TierEntries) TierEntries {
+	return TierEntries{
+		Commands: maps.Clone(tier.Commands),
+		EnvVars:  maps.Clone(tier.EnvVars),
+	}
+}
+
+func clonePresets(all []*Preset) []*Preset {
+	out := make([]*Preset, len(all))
+	for i, preset := range all {
+		out[i] = preset.Clone()
+	}
+	return out
 }
 
 var (
@@ -248,14 +279,7 @@ func All() ([]*Preset, error) {
 		len(enforced)+len(ext)+len(embedded))
 	all = append(all, enforced...)
 	all = append(all, ext...)
-	// Copy the embedded presets: Embedded() hands out one
-	// cached slice per process, and EnforcedPresetsEnv marks
-	// presets in place, which would otherwise persist past
-	// this call.
-	for _, p := range embedded {
-		copied := *p
-		all = append(all, &copied)
-	}
+	all = append(all, clonePresets(embedded)...)
 
 	if err := markEnforced(
 		all, os.Getenv(EnforcedPresetsEnv),

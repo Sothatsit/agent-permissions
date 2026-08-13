@@ -67,75 +67,23 @@ type Resolved struct {
 func Resolve(
 	configDir, cwd string,
 ) (*Resolved, error) {
-	home, err := homeDir()
+	snapshot, err := LoadPolicySnapshot(cwd)
 	if err != nil {
-		// Fail closed: an unresolvable HOME means we
-		// can't load ~/.agents/permissions.json or
-		// (when configDir is empty) ~/.claude/settings.json.
-		// Bubble the error so the hook returns deny
-		// rather than silently running a different
-		// policy than the user expects.
-		return nil, fmt.Errorf(
-			"resolve home directory: %v", err)
-	}
-
-	homeAgentPath := filepath.Join(
-		home, ".agents", "permissions.json")
-	globalAgent, err := agentconfig.Load(homeAgentPath)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"global agent config: %v", err)
-	}
-
-	var projectAgent *agentconfig.Config
-	if cwd != "" {
-		projectAgentPath := filepath.Join(
-			cwd, ".agents", "permissions.json")
-		if projectAgentPath == homeAgentPath {
-			// cwd is the home directory, so the project
-			// and global agent configs are the same file.
-			// Keep it once as the higher-precedence
-			// project source: otherwise the file's entries
-			// load twice — harmless to decisions (identical
-			// patterns) but double-counted by `validate`.
-			projectAgent = globalAgent
-			globalAgent = nil
-		} else {
-			projectAgent, err = agentconfig.Load(
-				projectAgentPath)
-			if err != nil {
-				return nil, fmt.Errorf(
-					"project agent config: %v", err)
-			}
-		}
-	}
-
-	// The project-local override is project-scoped only, so
-	// it loads from cwd just like the committed project
-	// config but with no global counterpart.
-	var localAgent *agentconfig.Config
-	if cwd != "" {
-		localAgentPath := filepath.Join(
-			cwd, ".agents", "permissions.local.json")
-		localAgent, err = agentconfig.Load(localAgentPath)
-		if err != nil {
-			return nil, fmt.Errorf(
-				"local agent config: %v", err)
-		}
-	}
-
-	pool, err := presets.All()
-	if err != nil {
-		// Fail closed: a broken external preset source
-		// means site policy has silently vanished, so
-		// deny rather than run with weaker policy.
-		return nil, fmt.Errorf("presets: %v", err)
-	}
-	if err := ValidateExternalPresets(pool); err != nil {
 		return nil, err
 	}
-	selected := SelectPresets(
-		pool, globalAgent, projectAgent, localAgent)
+	return snapshot.Resolve(configDir)
+}
+
+// Resolve builds the effective policy from this captured shared policy and
+// the harness-native Claude settings selected by configDir.
+func (snapshot *PolicySnapshot) Resolve(
+	configDir string,
+) (*Resolved, error) {
+	globalAgent, projectAgent, localAgent :=
+		snapshot.resolutionConfigs()
+	selected := selectPresets(
+		snapshot.presets.available,
+		globalAgent, projectAgent, localAgent)
 
 	// Build sources highest → lowest priority. Each
 	// source-load may return ConfigWarnings for malformed
@@ -156,14 +104,14 @@ func Resolve(
 		return nil
 	}
 
-	if cwd != "" {
+	if snapshot.cwd != "" {
 		if err := addClaude(filepath.Join(
-			cwd, ".claude", "settings.local.json"),
+			snapshot.cwd, ".claude", "settings.local.json"),
 			"local settings"); err != nil {
 			return nil, err
 		}
 		if err := addClaude(filepath.Join(
-			cwd, ".claude", "settings.json"),
+			snapshot.cwd, ".claude", "settings.json"),
 			"project settings"); err != nil {
 			return nil, err
 		}
@@ -177,21 +125,9 @@ func Resolve(
 		}
 	}
 
-	if localAgent != nil {
+	for _, loaded := range snapshot.AgentConfigs() {
 		src, w := fromAgentConfig(
-			localAgent.Path, localAgent)
-		sources = append(sources, src)
-		warnings = append(warnings, w...)
-	}
-	if projectAgent != nil {
-		src, w := fromAgentConfig(
-			projectAgent.Path, projectAgent)
-		sources = append(sources, src)
-		warnings = append(warnings, w...)
-	}
-	if globalAgent != nil {
-		src, w := fromAgentConfig(
-			"~/.agents/permissions.json", globalAgent)
+			loaded.SourceName, loaded.Config)
 		sources = append(sources, src)
 		warnings = append(warnings, w...)
 	}
@@ -245,13 +181,13 @@ func parsePathDirs(path string) map[string]struct{} {
 	return dirs
 }
 
-// ValidateExternalPresets rejects semantic mistakes that
+// validateExternalPresets rejects semantic mistakes that
 // structural JSON decoding cannot catch. External presets
 // carry organisation policy, so dropping a bad entry or
 // silently ignoring a rule typo would weaken that policy.
 // User config keeps the warning-only behavior so users can
 // diagnose and repair a bad entry without losing the hook.
-func ValidateExternalPresets(
+func validateExternalPresets(
 	all []*presets.Preset,
 ) error {
 	registry, _ := rules.Registry()
@@ -514,14 +450,14 @@ func globLanguagesOverlap(a, b string) bool {
 	return false
 }
 
-// SelectPresets returns the presets from all (kept in the
+// selectPresets returns the presets from all (kept in the
 // given order) selected by the most-specific agent config
 // that specifies preset selection — local, else project,
 // else global — otherwise every preset. `enabled-presets`
 // narrows ordinary external and embedded presets to a
 // whitelist; `disabled-presets` then filters that result.
 // Enforced presets are always retained.
-func SelectPresets(
+func selectPresets(
 	all []*presets.Preset,
 	global, project, local *agentconfig.Config,
 ) []*presets.Preset {
@@ -846,9 +782,4 @@ func sortEnvVarPatterns(patterns []EnvVarPattern) {
 	sort.Slice(patterns, func(i, j int) bool {
 		return patterns[i].Raw < patterns[j].Raw
 	})
-}
-
-// homeDir is overridable in tests.
-var homeDir = func() (string, error) {
-	return os.UserHomeDir()
 }
