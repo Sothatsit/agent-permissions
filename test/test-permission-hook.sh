@@ -1905,6 +1905,16 @@ out=$(_run_hook 'command -v ssh')
 assert_contains "allow: command -v read-only lookup" \
     "$(_decision "$out")" "allow"
 
+# A read-only lookup still owns its shell expansions. The
+# substitution runs before command sees the lookup operand.
+out=$(_run_hook 'command -v "$(ssh evil)"')
+assert_contains "deny: command -v scans operand substitution" \
+    "$(_decision "$out")" "deny"
+assert_contains "command -v extracts substituted ssh" \
+    "$(_reason "$out")" "ssh:*"
+assert_contains "command -v attributes substituted ssh" \
+    "$(_reason "$out")" "preset:escape-hatches"
+
 # exec is an exec wrapper: it unwraps to the inner command,
 # whose policy governs (exec replaces the shell, but the inner
 # command is what runs).
@@ -2196,6 +2206,13 @@ assert_contains "deny: flock -c runs denied ssh" "$(_decision "$out")" "deny"
 out=$(_run_hook 'flock /tmp/lock')
 assert_contains "allow: flock file-only" "$(_decision "$out")" "allow"
 
+# The lock operand still undergoes shell expansion before flock sees it.
+out=$(_run_hook 'flock "$(ssh evil)"')
+assert_contains "deny: flock scans lock substitution" \
+    "$(_decision "$out")" "deny"
+assert_contains "flock extracts substituted ssh" \
+    "$(_reason "$out")" "ssh:*"
+
 # --- Privilege/personality wrappers: denied (unmodellable) ---
 
 out=$(_run_hook 'runuser -u user git status')
@@ -2299,6 +2316,21 @@ assert_contains "deny: timeout -s denied" "$(_decision "$out")" "deny"
 
 out=$(_run_hook 'timeout --signal=KILL 5 ssh evil')
 assert_contains "deny: timeout --signal= denied" "$(_decision "$out")" "deny"
+
+# Wrapper options are expanded by the shell before the wrapper
+# runs, even when the wrapper consumes their values itself.
+out=$(_run_hook 'timeout --signal "$(ssh evil)" 5 git status')
+assert_contains "deny: timeout scans consumed flag substitution" \
+    "$(_decision "$out")" "deny"
+assert_contains "timeout extracts substituted ssh" \
+    "$(_reason "$out")" "ssh:*"
+assert_contains "timeout attributes substituted ssh" \
+    "$(_reason "$out")" "preset:escape-hatches"
+_timeout_signal_ssh_count=$(
+    _reason "$out" | grep -o 'ssh:\*' | wc -l || true
+)
+assert_contains "timeout reports substituted ssh once" \
+    "$_timeout_signal_ssh_count" "1"
 
 out=$(_run_hook 'timeout --foreground 5 ssh evil')
 assert_contains "deny: timeout --foreground denied" "$(_decision "$out")" "deny"
@@ -3080,9 +3112,8 @@ assert_contains "allow: find -exec chmod allowed" "$(_decision "$out")" "allow"
 out=$(_run_hook 'find . -name "*.txt" -exec grep pattern {} +')
 assert_contains "allow: find -exec + allowed inner allowed" "$(_decision "$out")" "allow"
 
-# find with -ok and -exec — -ok must still be caught after -exec
-# extraction. The current bug: returning an UnwrapResult for the
-# -exec skips the rules layer check on the outer find argv.
+# find with -ok and -exec: extracting -exec must retain the outer
+# find so its -ok flag still reaches the rules layer.
 out=$(_run_hook 'find . -ok rm {} \; -exec git status \;')
 assert_contains "deny: find -ok with -exec still denied" \
     "$(_decision "$out")" "deny"
@@ -4508,6 +4539,13 @@ assert_contains "allow: trap reset to default" \
 out=$(_run_hook 'trap')
 assert_contains "allow: trap list (no args)" \
     "$(_decision "$out")" "allow"
+
+# Listing signals still expands later operands before the builtin runs.
+out=$(_run_hook 'trap -l "$(ssh evil)"')
+assert_contains "deny: trap list scans operand substitution" \
+    "$(_decision "$out")" "deny"
+assert_contains "trap list extracts substituted ssh" \
+    "$(_reason "$out")" "ssh:*"
 
 # trap in compound: trap with allowed + allowed command.
 out=$(_run_hook 'trap "echo done" EXIT && ls -la')

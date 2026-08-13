@@ -82,7 +82,6 @@ func breakdownSed(
 	input model.ParseResult,
 	state *model.State,
 ) (model.BreakdownOutcome, error) {
-	work := model.BreakdownWork{ShellWords: input.Raw}
 	var interpretations []sedInterpretation
 	for _, mode := range []sedParseMode{
 		sedGNUDefault, sedGNUPosix, sedBSD,
@@ -111,10 +110,7 @@ func breakdownSed(
 		interpretations, func(p sedInterpretation) bool {
 			return p.infoOnly
 		}) {
-		if len(input.Raw) == 0 {
-			return model.Safe(), nil
-		}
-		return model.ReplaceOuter(work), nil
+		return model.Safe(), nil
 	}
 
 	for _, parsed := range interpretations {
@@ -141,10 +137,7 @@ func breakdownSed(
 		interpretations, func(p sedInterpretation) bool {
 			return p.sandboxed
 		}) {
-		if len(input.Raw) == 0 {
-			return model.Safe(), nil
-		}
-		return model.ReplaceOuter(work), nil
+		return model.Safe(), nil
 	}
 
 	seen := make(map[string]bool)
@@ -163,11 +156,12 @@ func breakdownSed(
 			snippets = append(snippets, snippet)
 		}
 	}
-	work.CodeSnippets = append(work.CodeSnippets, snippets...)
-	if len(input.Raw) == 0 {
+	if len(snippets) == 0 {
 		return model.Safe(), nil
 	}
-	return model.ReplaceOuter(work), nil
+	return model.ReplaceOuter(model.BreakdownWork{
+		CodeSnippets: snippets,
+	}), nil
 }
 
 func parseSedInterpretation(

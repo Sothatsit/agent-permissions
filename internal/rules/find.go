@@ -9,9 +9,9 @@ import (
 
 // breakdownFind extracts inner commands from -exec and
 // -execdir clauses. Uses KeepOuter so the outer find
-// command is also emitted — the rules layer handles
-// dangerous flags (-ok, -okdir) and normal flattening
-// catches cmd subs in other args.
+// command still reaches the rules layer, which handles
+// dangerous flags (-ok, -okdir). The framework scans
+// words outside each inner command separately.
 func breakdownFind(
 	input model.ParseResult,
 	_ *model.State,
@@ -19,10 +19,9 @@ func breakdownFind(
 	var commands [][]*syntax.Word
 
 	for i := 0; i < len(input.Raw); i++ {
-		// Strict: if the arg is opaque, we can't
-		// know it's -exec — skip it. The outer find
-		// is still emitted (KeepOuter) so opaque
-		// args get caught by cmd-sub extraction.
+		// Strict: if the arg is opaque, we cannot know
+		// whether it is -exec, so leave it with the
+		// outer command.
 		if !word.DefinitelyEqual(input.Raw[i], "-exec") &&
 			!word.DefinitelyEqual(input.Raw[i], "-execdir") {
 			continue

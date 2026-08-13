@@ -674,11 +674,20 @@ this:
 
 - `BreakdownWork.Assigns` carries the environment assignments a wrapper
   applies to its inner command. The framework records each name on the EnvVars
-  deny axis and extracts command substitutions from each value. This makes
-  `BreakdownWork` the complete description of the work extracted from a
-  command: inner commands, code, files, snippets, assignments, and a scoped
-  working directory. A wrapper that sets env vars cannot silently drop that
-  part of the command.
+  deny axis, compares the original arguments with the inner command words, and
+  scans anything the wrapper consumed. Substitutions in assignments, flags,
+  and otherwise safe operations therefore cannot disappear with the outer
+  command. Forwarded words normally remain the inner command's responsibility,
+  so nested argv wrappers scan each word once. A cwd-scoped wrapper scans its
+  whole argv before changing directory because that is when the shell expands
+  it.
+
+- Shell code strings are excluded from the new consumed-argument scan. Their
+  text crosses a second shell-expansion boundary, so treating them like argv
+  can double-count a substitution or mistake generated text for known source.
+  The existing cwd-wrapper pre-scan is one known overlap. Modelling that
+  boundary is separate from making argv wrappers account for every argument
+  they consume.
 
 - `env` is the one wrapper that honours a leading `NAME=val`, so it
   uses `Assigns`: `env LD_PRELOAD=/x.so cmd` is a real injection and

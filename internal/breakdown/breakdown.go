@@ -152,16 +152,33 @@ func (b *breaker) suppressDisabled(err error) bool {
 	return false
 }
 
+type breakdownRun struct {
+	extracted model.BreakdownResult
+	outer     model.OuterDisposition
+	expansion shellExpansion
+}
+
+type outerRetention uint8
+
+const (
+	outerMayBeReplaced outerRetention = iota
+	retainOuterCommand
+)
+
 // runBreakdown calls the BreakdownFunc for a command and processes its
-// outcome. It returns the extracted work and whether the outcome replaces the
-// outer command.
+// outcome.
 func (b *breaker) runBreakdown(
 	baseName string,
 	cmdArgs []*syntax.Word,
 	depth int,
 	expansion shellExpansion,
-) (model.BreakdownResult, bool, error) {
+	retention outerRetention,
+) (breakdownRun, error) {
 	rules := b.registry[baseName]
+	fallThrough := breakdownRun{
+		outer:     model.OuterFallThrough,
+		expansion: expansion,
+	}
 
 	// Parse args (without command name) using the
 	// command's parser, or populate possible flags
@@ -191,9 +208,9 @@ func (b *breaker) runBreakdown(
 				}
 			}
 			if b.suppressDisabled(perr) {
-				return model.BreakdownResult{}, false, nil
+				return fallThrough, nil
 			}
-			return model.BreakdownResult{}, true, perr
+			return breakdownRun{}, perr
 		}
 		parsed.Name = baseName
 		input = parsed
@@ -209,17 +226,17 @@ func (b *breaker) runBreakdown(
 		// is dropped — the command falls through to the
 		// permissions layer instead of being denied.
 		if b.suppressDisabled(err) {
-			return model.BreakdownResult{}, false, nil
+			return fallThrough, nil
 		}
-		return model.BreakdownResult{}, true, err
+		return breakdownRun{}, err
 	}
 	disposition, valid := outcome.Disposition()
 	if !valid {
-		return model.BreakdownResult{}, true, fmt.Errorf(
+		return breakdownRun{}, fmt.Errorf(
 			"%s breakdown returned no outcome", baseName)
 	}
 	if disposition == model.OuterFallThrough {
-		return model.BreakdownResult{}, false, nil
+		return fallThrough, nil
 	}
 	work := outcome.Work()
 
@@ -232,75 +249,80 @@ func (b *breaker) runBreakdown(
 		result.Safe = true
 	}
 
-	// Apply env-var assignments the wrapper sets on its inner command. Record
-	// each name on the EnvVars axis and scan substitutions from each value.
+	// A handled outcome may consume argv before normal flattening. Scan only the
+	// original words it did not pass to an inner command. Code strings keep their
+	// existing reparse-only behavior because their runtime source has a separate
+	// expansion boundary.
+	outcomeReplacesOuter := disposition == model.OuterSafe ||
+		disposition == model.OuterReplace
+	forwarded := make(map[*syntax.Word]struct{})
+	for _, command := range work.Commands {
+		for _, commandWord := range command {
+			forwarded[commandWord] = struct{}{}
+		}
+	}
+	if expansion == needsExpansion && len(work.CodeStrings) == 0 {
+		for _, arg := range args {
+			if _, ok := forwarded[arg]; ok {
+				continue
+			}
+			inner, wordErr := b.extractSubsFromWord(arg)
+			if wordErr != nil {
+				return breakdownRun{}, wordErr
+			}
+			result.Merge(inner)
+		}
+	}
+	outerExpansion := expansion
+	if disposition == model.OuterSafe {
+		outerExpansion = expansionScanned
+	}
+	outerDisposition := disposition
+	if retention == retainOuterCommand && outcomeReplacesOuter {
+		outerDisposition = model.OuterKeep
+	}
+
+	// Record env-var assignments the wrapper applies to its inner command. Their
+	// source words were omitted from Commands and scanned above.
 	for _, assign := range work.Assigns {
 		if assign.Name != nil {
 			result.Assigns = append(
 				result.Assigns, assign.Name.Value)
 		}
-		if expansion == expansionScanned {
-			continue
-		}
-		inner, assignErr := b.processAssign(
-			assign, quotedTextArithmetic)
-		if assignErr != nil {
-			return model.BreakdownResult{}, true, assignErr
-		}
-		result.Merge(inner)
-	}
-
-	// ShellWords expand before a handled wrapper starts, so they always use the
-	// outer working directory rather than a wrapper-scoped one.
-	if expansion == needsExpansion {
-		for _, shellWord := range work.ShellWords {
-			inner, shellErr := b.extractSubsFromWord(shellWord)
-			if shellErr != nil {
-				return model.BreakdownResult{}, true, shellErr
-			}
-			result.Merge(inner)
-		}
 	}
 
 	innerExpansion := expansion
 	if directory := work.WorkingDirectory; directory != nil {
+		// The invoking shell expands an env -C command's complete argv before
+		// env changes directory. Account for the forwarded words under the
+		// incoming cwd, then suppress their inner rescan.
 		if expansion == needsExpansion {
-			inner, directoryErr := b.extractSubsFromWord(directory)
-			if directoryErr != nil {
-				return model.BreakdownResult{}, true, directoryErr
-			}
-			result.Merge(inner)
 			for _, words := range work.Commands {
 				for _, commandWord := range words {
 					inner, wordErr := b.extractSubsFromWord(commandWord)
 					if wordErr != nil {
-						return model.BreakdownResult{}, true, wordErr
+						return breakdownRun{}, wordErr
 					}
 					result.Merge(inner)
 				}
 			}
+			innerExpansion = expansionScanned
 		}
-
 		restoreCwd := b.saveCwd()
 		defer restoreCwd()
 		b.CwdChanged = false
 		b.SetWorkingDirectory(directory)
-		innerExpansion = expansionScanned
 	}
 
-	// Process inner commands directly through the AST walker.
+	// Process inner commands directly through the AST walker. A retained outer
+	// command owns their expansions; a replacing wrapper passes that ownership
+	// to the inner command.
 	for _, words := range work.Commands {
 		call := &syntax.CallExpr{Args: words}
-		var inner model.BreakdownResult
-		var innerErr error
-		if innerExpansion == expansionScanned {
-			inner, innerErr =
-				b.processCallExprWithScannedExpansion(call, depth)
-		} else {
-			inner, innerErr = b.processCallExpr(call, depth)
-		}
+		inner, innerErr := b.processCallExprWithExpansion(
+			call, depth, innerExpansion)
 		if innerErr != nil {
-			return model.BreakdownResult{}, true, innerErr
+			return breakdownRun{}, innerErr
 		}
 		result.Merge(inner)
 	}
@@ -310,7 +332,7 @@ func (b *breaker) runBreakdown(
 	for _, code := range work.CodeStrings {
 		inner, innerErr := b.breakdownAt(code, depth+1)
 		if innerErr != nil {
-			return model.BreakdownResult{}, true, innerErr
+			return breakdownRun{}, innerErr
 		}
 		result.Merge(inner)
 	}
@@ -335,7 +357,7 @@ func (b *breaker) runBreakdown(
 		inner, scanErr := b.scanFile(path, depth)
 		restore()
 		if scanErr != nil {
-			return model.BreakdownResult{}, true, fmt.Errorf(
+			return breakdownRun{}, fmt.Errorf(
 				"%s: %v. Fix the issue and "+
 					"retry, or run the script "+
 					"directly (%s)",
@@ -345,7 +367,15 @@ func (b *breaker) runBreakdown(
 		result.Merge(inner)
 	}
 
-	return result, disposition != model.OuterKeep, nil
+	flattenExpansion := outerExpansion
+	if outerDisposition == model.OuterKeep {
+		flattenExpansion = expansionScanned
+	}
+	return breakdownRun{
+		extracted: result,
+		outer:     outerDisposition,
+		expansion: flattenExpansion,
+	}, nil
 }
 
 // scanFile reads a script file relative to cwd, parses it,
@@ -646,7 +676,7 @@ func (b *breaker) processCallExprWithExpansion(
 		rules := b.registry[baseName]
 		if rules != nil && rules.Breakdown != nil {
 			skipBreakdown := false
-			keepOuter := hasPath
+			retention := outerMayBeReplaced
 			if hasPath {
 				switch rules.PathMode {
 				case model.PathDeny:
@@ -660,18 +690,22 @@ func (b *breaker) processCallExprWithExpansion(
 							cmdName, baseName)
 				case model.PathSkip:
 					skipBreakdown = true
+				case model.PathAllow:
+					retention = retainOuterCommand
 				}
 			}
 			if !skipBreakdown {
-				inner, replaced, bdErr := b.runBreakdown(
+				run, bdErr := b.runBreakdown(
 					baseName, ce.Args,
-					depth, expansion)
+					depth, expansion, retention)
 				if bdErr != nil {
 					return model.BreakdownResult{},
 						bdErr
 				}
-				result.Merge(inner)
-				if replaced && !keepOuter {
+				result.Merge(run.extracted)
+				expansion = run.expansion
+				if run.outer == model.OuterSafe ||
+					run.outer == model.OuterReplace {
 					return result, nil
 				}
 				// The outcome kept the outer command, so continue with

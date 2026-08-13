@@ -57,27 +57,15 @@ func breakdownEnv(
 
 	// GNU env retains only the final -C value and changes directory once, so a
 	// relative final value resolves against the wrapper's incoming directory.
-	var flagValues []*syntax.Word
 	for i := range input.Flags {
 		isDirectory := input.Flags[i].Name == "-C" ||
 			input.Flags[i].Name == "--chdir"
-		if input.Flags[i].Value != nil && !isDirectory {
-			flagValues = append(flagValues, input.Flags[i].Value)
-		}
 		if isDirectory {
-			if work.WorkingDirectory != nil {
-				flagValues = append(
-					flagValues, work.WorkingDirectory)
-			}
 			work.WorkingDirectory = input.Flags[i].Value
 		}
 	}
-	work.ShellWords = flagValues
 	if len(work.Commands) == 0 {
-		if work.WorkingDirectory == nil && len(work.ShellWords) == 0 {
-			return model.Safe(), nil
-		}
-		return model.ReplaceOuter(work), nil
+		return model.Safe(), nil
 	}
 
 	words := work.Commands[0]
@@ -103,7 +91,6 @@ func breakdownEnv(
 
 	out := model.BreakdownWork{
 		Assigns:          assigns,
-		ShellWords:       flagValues,
 		WorkingDirectory: work.WorkingDirectory,
 	}
 	if rest := words[i:]; len(rest) > 0 {
@@ -111,8 +98,7 @@ func breakdownEnv(
 	}
 	if len(out.Assigns) == 0 &&
 		len(out.Commands) == 0 &&
-		out.WorkingDirectory == nil &&
-		len(out.ShellWords) == 0 {
+		out.WorkingDirectory == nil {
 		return model.Safe(), nil
 	}
 	return model.ReplaceOuter(out), nil

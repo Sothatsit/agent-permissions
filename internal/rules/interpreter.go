@@ -114,16 +114,13 @@ func breakdownInterpreter(
 			}
 			code := word.Text(codeFlag.Value)
 			if code == "" {
-				return model.ReplaceOuter(model.BreakdownWork{
-					ShellWords: input.Raw,
-				}), nil
+				return model.Safe(), nil
 			}
 			return model.ReplaceOuter(model.BreakdownWork{
 				CodeSnippets: []model.CodeSnippet{{
 					Language: cfg.lang,
 					Code:     code,
 				}},
-				ShellWords: input.Raw,
 			}), nil
 		}
 
@@ -176,7 +173,6 @@ func breakdownInterpreter(
 				Code:       string(data),
 				SourceFile: path,
 			}},
-			ShellWords: input.Raw,
 		}), nil
 	}
 }

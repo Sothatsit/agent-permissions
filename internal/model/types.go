@@ -269,15 +269,16 @@ type CodeSnippet struct {
 // additive: a wrapper can produce several kinds of work.
 type BreakdownWork struct {
 	// WorkingDirectory scopes the inner work to this directory. The framework
-	// scans its shell substitutions under the outer state, resolves it with the
-	// same rules as cd, then restores the outer state.
+	// scans its source word under the outer state, resolves this directory with
+	// the same rules as cd, then restores the outer state.
 	WorkingDirectory *syntax.Word
 	// Commands to recurse into. Each slice of Words is
 	// processed directly through the AST walker (no
 	// print-and-reparse round trip). Use this for inner
 	// commands that are already structured as separate
 	// arg Words (e.g. timeout 5 [ls -la], find -exec
-	// [git status] ;).
+	// [git status] ;). Preserve the original Word pointers
+	// so the framework can tell which outer args were forwarded.
 	Commands [][]*syntax.Word
 	// CodeStrings to recurse into. Each string is
 	// re-parsed through breakdownAt. Use this for code
@@ -288,10 +289,10 @@ type BreakdownWork struct {
 	CodeStrings []string
 	// Assigns are environment-variable assignments the wrapper applies to its
 	// inner command (e.g. env NAME=val cmd). The framework records each name on
-	// the EnvVars deny axis and extracts command substitutions from each value.
-	// Exec-style wrappers (timeout, nohup, ...) leave this nil: they exec the
-	// inner command directly via execvp, so a leading NAME=val is the program
-	// name, not an assignment.
+	// the EnvVars deny axis. Their source words are absent from Commands, so the
+	// framework scans them as consumed arguments. Exec-style wrappers (timeout,
+	// nohup, ...) leave this nil: they exec the inner command directly via
+	// execvp, so a leading NAME=val is the program name, not an assignment.
 	Assigns []*syntax.Assign
 	// ScanFiles lists file paths to scan directly (e.g.
 	// bash script.sh). The framework handles isolation
@@ -302,10 +303,6 @@ type BreakdownWork struct {
 	// transfers these to BreakdownResult for the
 	// orchestrator to scan.
 	CodeSnippets []CodeSnippet
-	// ShellWords contains words that the outer shell still expands before a
-	// handled wrapper runs. The framework extracts command and process
-	// substitutions even though the outer command itself is replaced.
-	ShellWords []*syntax.Word
 }
 
 func (w BreakdownWork) empty() bool {
@@ -314,8 +311,7 @@ func (w BreakdownWork) empty() bool {
 		len(w.CodeStrings) == 0 &&
 		len(w.Assigns) == 0 &&
 		len(w.ScanFiles) == 0 &&
-		len(w.CodeSnippets) == 0 &&
-		len(w.ShellWords) == 0
+		len(w.CodeSnippets) == 0
 }
 
 // OuterDisposition is the framework action selected by a BreakdownOutcome.
@@ -345,7 +341,8 @@ func FallThrough() BreakdownOutcome {
 }
 
 // Safe removes an outer command that the hook has fully checked and found to
-// contain no work.
+// contain no work. The framework still scans its original arguments for shell
+// expansions.
 func Safe() BreakdownOutcome {
 	return BreakdownOutcome{disposition: OuterSafe}
 }
