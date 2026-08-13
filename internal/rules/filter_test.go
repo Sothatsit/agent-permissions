@@ -86,6 +86,31 @@ func TestFilterByConfigNilsDefault(t *testing.T) {
 	}
 }
 
+// Removing a disabled Breakdown removes its parser too, preserving the
+// parser-ownership invariant in the filtered registry.
+func TestFilterByConfigNilsBreakdownAndParser(t *testing.T) {
+	def := &model.RuleDef{ID: "foo.breakdown"}
+	reg := map[string]*model.CommandRules{
+		"foo": {
+			Parser: rawParser{},
+			Breakdown: func(
+				model.ParseResult, *model.State,
+			) (*model.UnwrapResult, error) {
+				return nil, nil
+			},
+			BreakdownDef: def,
+		},
+	}
+
+	FilterByConfig(reg, nil, model.RuleConfigs{})
+	if reg["foo"].Breakdown != nil {
+		t.Fatal("disabled Breakdown should be removed")
+	}
+	if reg["foo"].Parser != nil {
+		t.Fatal("disabled Breakdown's Parser should be removed")
+	}
+}
+
 // A disabled language's snippet rules are dropped entirely so
 // the permissions layer scans nothing for it.
 func TestFilterByConfigDropsDisabledSnippetLang(t *testing.T) {
@@ -108,6 +133,17 @@ func TestValidateRegistryPassesOnRealRegistry(t *testing.T) {
 	reg, snips := Registry()
 	if err := ValidateRegistry(reg, snips); err != nil {
 		t.Fatalf("real registry should pass: %v", err)
+	}
+}
+
+// Parsing belongs to breakdown so parser failures follow the same configurable
+// error path.
+func TestValidateRegistryCatchesParserWithoutBreakdown(t *testing.T) {
+	reg := map[string]*model.CommandRules{
+		"foo": {Parser: rawParser{}},
+	}
+	if err := ValidateRegistry(reg, nil); err == nil {
+		t.Fatal("Parser without Breakdown should fail")
 	}
 }
 

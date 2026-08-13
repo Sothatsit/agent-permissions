@@ -22,34 +22,7 @@ func Evaluate(
 	}
 
 	input := model.ParseResult{Name: name, Raw: args}
-	if cr.Parser != nil {
-		parsed, err := cr.Parser.Parse(args)
-		if err != nil {
-			// A parser failure is this command's "cannot
-			// verify" denial, governed by its Unverified
-			// rule. This path does NOT gate on rule
-			// config, and doesn't need to: every command
-			// with a Parser also has a Breakdown func, so
-			// runBreakdown parses first — a failure there
-			// aborts before this layer runs, and a success
-			// there means this re-parse also succeeds. So
-			// this branch is dead for the current
-			// registry. If a Parser-only command with an
-			// Unverified rule is ever added, this path
-			// becomes reachable and would deny even when
-			// that rule is disabled — gate it on config
-			// then (the breakdown already does).
-			return &model.Action{
-				Decision: model.Deny,
-				Reason:   err.Error(),
-				Def:      cr.Unverified,
-			}
-		}
-		parsed.Name = name
-		input = parsed
-	} else {
-		model.PopulatePossibleFlags(&input)
-	}
+	model.PopulatePossibleFlags(&input)
 
 	result := evaluateRules(cr.Rules, input, name, nil)
 	if result != nil {

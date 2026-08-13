@@ -15,7 +15,7 @@ import (
 //
 //   - Prune a rule-tree node whose Def is disabled, taking its whole subtree.
 //   - Nil a command's fail-closed Default when Unverified is disabled.
-//   - Remove a Breakdown governed wholly by a disabled BreakdownDef.
+//   - Remove a Breakdown and its Parser when BreakdownDef is disabled.
 //   - Drop a disabled SnippetLang so that language is no longer scanned.
 //
 // Other imperative breakdown funcs receive State.RuleConfig and gate
@@ -35,6 +35,7 @@ func FilterByConfig(
 		}
 		if cr.BreakdownDef != nil &&
 			!rc.For(cr.BreakdownDef).Enabled {
+			cr.Parser = nil
 			cr.Breakdown = nil
 		}
 		cr.Rules = filterRules(cr.Rules, rc)
@@ -65,16 +66,13 @@ func filterRules(
 	return out
 }
 
-// ValidateRegistry asserts the attribution invariant: every
-// node that can produce a restrictive decision (deny, ask, or
-// soft-ask) has a governing RuleDef reachable on its path, so
-// the decision can be named and disabled. Without it, a
-// restrictive node would render "(from rule:)" with no ID, the
-// user could not disable it, and the registry filter could not
-// prune it — a silent, permanently-on rule. It depends only on
-// the static registry, so a violation is a coding mistake; a
-// test calls this and the (cheap) check could also be wired
-// into `validate`. It is deliberately NOT on the hook path.
+// ValidateRegistry asserts the registry's structural and attribution
+// invariants. A Parser must belong to a Breakdown, where parser errors honour
+// rule configuration. Every node that can produce a restrictive decision
+// (deny, ask, or soft-ask) must have a governing RuleDef reachable on its path,
+// so the decision can be named and disabled. The registry is static, so a
+// violation is a coding mistake. This check is deliberately not on the hook
+// path.
 func ValidateRegistry(
 	registry map[string]*model.CommandRules,
 	snippets map[string]*model.SnippetLang,
@@ -88,6 +86,10 @@ func ValidateRegistry(
 	sort.Strings(cmds)
 	for _, name := range cmds {
 		cr := registry[name]
+		if cr.Parser != nil && cr.Breakdown == nil {
+			problems = append(problems, fmt.Sprintf(
+				"%s: Parser has no Breakdown", name))
+		}
 		// A command's Default is governed by its Unverified
 		// rule; a restrictive Default with no Unverified
 		// could never be disabled.
@@ -118,7 +120,7 @@ func ValidateRegistry(
 
 	if len(problems) > 0 {
 		return fmt.Errorf(
-			"registry attribution violations:\n  %s",
+			"registry violations:\n  %s",
 			strings.Join(problems, "\n  "))
 	}
 	return nil

@@ -500,25 +500,22 @@ and permissions phases share that registry, so callers cannot omit filtering or
 give the phases different rule maps. The declarative layers are pruned by the
 registry filter: a disabled rule's node and subtree are dropped from the rule
 trees, a command's `Default` is nil'd when its `Unverified` rule is disabled,
-and a disabled language's snippet rules are dropped before the scan. The
-imperative paths gate at runtime: wrapper deny-flags and `xargs` consult
-`State.RuleConfig` directly, and every other "cannot verify" breakdown denial
-(bash/eval/trap/command/interpreters, plus interpreter parser failures) returns
-a `model.RuleError` carrying its `Unverified` def. `runBreakdown` suppresses
-that error when the rule is disabled, so the command falls through to the
-permissions layer instead of being denied. Because the filter encodes every
-declarative decision and the parser path is dead in practice (any parse failure
-is caught in the breakdown first), the permissions layer needs no rule config
-of its own: a pruned node never matches, a nil'd `Default` never fires, and a
-dropped language scans clean.
+and a disabled language's snippet rules are dropped before the scan. Imperative
+paths such as wrapper deny-flags and `xargs` consult `State.RuleConfig`
+directly. Rule-attributed parser and breakdown errors carry a `model.RuleError`
+with their `Unverified` def. Command parsers belong to breakdown, and registry
+validation rejects a parser without a breakdown function. `runBreakdown`
+suppresses an attributed error when its rule is disabled, so the command falls
+through to the permissions layer instead of being denied. The permissions
+layer does not parse again or need rule config of its own. A pruned node never
+matches, a nil'd `Default` never fires, and a dropped language scans clean.
 
-`rules.ValidateRegistry` asserts the attribution invariant — every
-node that can produce a restrictive decision has a governing
-`RuleDef` reachable on its path, so the decision can be named and
-disabled. It depends only on the static registry (a violation is a
-coding mistake, not a config one), so a Go test runs it against the
-shipped registry rather than burning the check on every hook
-invocation; it is structured so `validate` could call it too.
+`rules.ValidateRegistry` asserts these structural and attribution invariants.
+Every parser belongs to a breakdown, and every node that can produce a
+restrictive decision has a governing `RuleDef` reachable on its path, so the
+decision can be named and disabled. These facts depend only on the static
+registry. A Go test checks them against the shipped registry rather than
+repeating the check on every hook invocation.
 
 **Attribution.** Every rule decision carries its `RuleDef` so
 output names the exact ID to disable. `model.Action` holds a

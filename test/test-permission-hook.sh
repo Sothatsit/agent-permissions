@@ -2543,6 +2543,20 @@ assert_not_contains "rule-config: disabled eval.unverified no longer denies" \
     "$(_decision "$out")" "deny"
 _clear_agent_config
 
+# Parser failures belong to breakdown, where they obey their unverified rule.
+# Disabling that rule must not let permissions recreate the same denial.
+out=$(_run_hook 'python3 --definitely-not-a-python-flag')
+assert_contains "rule-config: python.unverified denies unknown flag" \
+    "$(_decision "$out")" "deny"
+assert_contains "rule-config: python parser denial attributes the rule ID" \
+    "$(_reason "$out")" "(from rule:python.unverified)"
+_write_agent_config \
+    '{"Rules":{"python.unverified":{"Enabled":false}}}'
+out=$(_run_hook 'python3 --definitely-not-a-python-flag')
+assert_not_contains "rule-config: disabled python.unverified no longer denies" \
+    "$(_decision "$out")" "deny"
+_clear_agent_config
+
 # --- Local .agents override: permissions.local.json wins ---
 #
 # permissions.local.json is the highest-priority .agents source
