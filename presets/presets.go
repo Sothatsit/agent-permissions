@@ -10,9 +10,7 @@
 package presets
 
 import (
-	"bytes"
 	"embed"
-	"encoding/json"
 	"fmt"
 	"io/fs"
 	"maps"
@@ -383,79 +381,17 @@ func parseAll() ([]*Preset, error) {
 	return presets, nil
 }
 
-// parseOne parses a single preset file. It rejects unknown
-// fields at every level and reports the legacy flat-array
-// tier shape with a migration hint. Shipped-data invariants
-// that go beyond the schema live in test/test-presets.sh.
+// parseOne parses a single preset file and rejects unknown fields at every
+// level. Shipped-data invariants beyond the schema live in test/test-presets.sh.
 func parseOne(
 	filename string, data []byte,
 ) (*Preset, error) {
-	generic, err := configjson.DecodeObject(data)
-	if err != nil {
-		return nil, fmt.Errorf("parse %s: %v", filename, err)
-	}
-	if err := checkSchemaKeys(generic); err != nil {
-		return nil, fmt.Errorf("%s: %w", filename, err)
-	}
-
-	for _, tierName := range []string{
-		"Allow", "SoftAsk", "Ask", "Deny",
-	} {
-		value, exists := generic[tierName]
-		if !exists {
-			continue
-		}
-		if _, isArray := value.([]any); isArray {
-			return nil, fmt.Errorf(
-				"%s: %q must be an object with "+
-					"Commands/EnvVars keys, got an array",
-				filename, tierName)
-		}
-	}
-
 	var p Preset
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&p); err != nil {
+	if err := configjson.Decode(data, &p); err != nil {
 		return nil, fmt.Errorf(
 			"decode %s: %v", filename, err)
 	}
 
 	p.Name = strings.TrimSuffix(filename, ".json")
 	return &p, nil
-}
-
-func checkSchemaKeys(root map[string]any) error {
-	if err := configjson.CheckKeys(
-		root,
-		"description", "Allow", "SoftAsk", "Ask", "Deny", "Rules",
-	); err != nil {
-		return err
-	}
-
-	for _, tierName := range []string{
-		"Allow", "SoftAsk", "Ask", "Deny",
-	} {
-		tier, ok := configjson.ObjectAt(root, tierName)
-		if !ok {
-			continue
-		}
-		if err := configjson.CheckKeys(
-			tier, "Commands", "EnvVars",
-		); err != nil {
-			return fmt.Errorf("%s: %w", tierName, err)
-		}
-	}
-
-	rules, ok := configjson.ObjectAt(root, "Rules")
-	if !ok {
-		return nil
-	}
-	if err := configjson.CheckObjectValueKeys(
-		rules, "Enabled",
-	); err != nil {
-		return fmt.Errorf("Rules.%w", err)
-	}
-
-	return nil
 }

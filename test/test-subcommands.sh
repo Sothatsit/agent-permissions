@@ -37,9 +37,7 @@ export AGENT_PERMISSIONS_PRESET_DIRS=""
 export AGENT_PERMISSIONS_ENFORCED_PRESET_DIRS=""
 
 _fresh_home() {
-    local h="$_sc_tmpdir/h-$RANDOM"
-    mkdir -p "$h"
-    echo "$h"
+    mktemp -d "$_sc_tmpdir/h.XXXXXX"
 }
 
 # Strip ANSI colours that some terminals add to subcommand
@@ -295,6 +293,30 @@ _sc_run "$h" install >/dev/null
 contents=$(cat "$h/.claude/settings.json")
 assert_contains "install: preserves large JSON integers" \
     "$contents" "9007199254740993"
+
+# Duplicate fields are ambiguous. Refuse them before merging so an existing
+# hooks value cannot disappear when the settings file is rewritten.
+h=$(_fresh_home)
+mkdir -p "$h/.claude"
+cat > "$h/.claude/settings.json" <<'EOF'
+{"hooks":{"PreToolUse":[
+  {"matcher":"Bash","hooks":[
+    {"type":"command","command":"my-existing-logger"}
+  ]}
+]},"hooks":{}}
+EOF
+cp "$h/.claude/settings.json" "$h/settings.before.json"
+rc=0
+out=$(_sc_run "$h" install) || rc=$?
+assert_rc "install: rejects duplicate hooks" 2 "$rc"
+assert_contains "install: reports duplicate hooks" "$out" "duplicate"
+if cmp -s "$h/settings.before.json" "$h/.claude/settings.json"; then
+    echo "PASS: install: duplicate hooks leave settings untouched"
+    passed=$((passed + 1))
+else
+    echo "FAIL: install: duplicate hooks changed settings"
+    failed=$((failed + 1))
+fi
 
 # A null document is not a settings object. Refuse it rather than replacing
 # content the installer does not understand.

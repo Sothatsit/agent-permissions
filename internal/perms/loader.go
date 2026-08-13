@@ -1,7 +1,6 @@
 package perms
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/sothatsit/agent-permissions/internal/agentconfig"
 	"github.com/sothatsit/agent-permissions/internal/breakdown"
+	"github.com/sothatsit/agent-permissions/internal/configjson"
 	"github.com/sothatsit/agent-permissions/internal/harness"
 	"github.com/sothatsit/agent-permissions/internal/model"
 	"github.com/sothatsit/agent-permissions/internal/rules"
@@ -640,15 +640,34 @@ func loadClaudeSettings(
 		}
 		return nil, nil, err
 	}
-	var settings struct {
-		Permissions struct {
-			Allow   []string `json:"allow"`
-			SoftAsk []string `json:"softAsk"`
-			Ask     []string `json:"ask"`
-			Deny    []string `json:"deny"`
-		} `json:"permissions"`
+	var settings map[string]any
+	if err := configjson.Decode(data, &settings); err != nil {
+		return nil, nil, fmt.Errorf(
+			"invalid JSON in %s: %v", path, err)
 	}
-	if err := json.Unmarshal(data, &settings); err != nil {
+	permissions, err := readClaudePermissions(settings)
+	if err != nil {
+		return nil, nil, fmt.Errorf(
+			"invalid JSON in %s: %v", path, err)
+	}
+	allow, err := readClaudePermissionList(permissions, "allow")
+	if err != nil {
+		return nil, nil, fmt.Errorf(
+			"invalid JSON in %s: %v", path, err)
+	}
+	softAsk, err := readClaudePermissionList(
+		permissions, "softAsk")
+	if err != nil {
+		return nil, nil, fmt.Errorf(
+			"invalid JSON in %s: %v", path, err)
+	}
+	ask, err := readClaudePermissionList(permissions, "ask")
+	if err != nil {
+		return nil, nil, fmt.Errorf(
+			"invalid JSON in %s: %v", path, err)
+	}
+	deny, err := readClaudePermissionList(permissions, "deny")
+	if err != nil {
 		return nil, nil, fmt.Errorf(
 			"invalid JSON in %s: %v", path, err)
 	}
@@ -657,17 +676,62 @@ func loadClaudeSettings(
 	var warnings []ConfigWarning
 	src.Allow.Commands, warnings = appendParsedClaude(
 		warnings, path,
-		settings.Permissions.Allow, src.Allow.Commands)
+		allow, src.Allow.Commands)
 	src.SoftAsk.Commands, warnings = appendParsedClaude(
 		warnings, path,
-		settings.Permissions.SoftAsk, src.SoftAsk.Commands)
+		softAsk, src.SoftAsk.Commands)
 	src.Ask.Commands, warnings = appendParsedClaude(
 		warnings, path,
-		settings.Permissions.Ask, src.Ask.Commands)
+		ask, src.Ask.Commands)
 	src.Deny.Commands, warnings = appendParsedClaude(
 		warnings, path,
-		settings.Permissions.Deny, src.Deny.Commands)
+		deny, src.Deny.Commands)
 	return &src, warnings, nil
+}
+
+func readClaudePermissions(
+	settings map[string]any,
+) (map[string]any, error) {
+	value, exists := settings["permissions"]
+	if !exists || value == nil {
+		return nil, nil
+	}
+
+	permissions, ok := value.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("permissions must be an object")
+	}
+
+	return permissions, nil
+}
+
+func readClaudePermissionList(
+	permissions map[string]any, key string,
+) ([]string, error) {
+	value, exists := permissions[key]
+	if !exists || value == nil {
+		return nil, nil
+	}
+
+	items, ok := value.([]any)
+	if !ok {
+		return nil, fmt.Errorf("permissions.%s must be an array", key)
+	}
+
+	entries := make([]string, len(items))
+	for i, item := range items {
+		if item == nil {
+			continue
+		}
+		entry, ok := item.(string)
+		if !ok {
+			return nil, fmt.Errorf(
+				"permissions.%s[%d] must be a string", key, i)
+		}
+		entries[i] = entry
+	}
+
+	return entries, nil
 }
 
 // parseTier parses one tier's entries (commands and env

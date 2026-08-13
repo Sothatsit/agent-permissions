@@ -13,7 +13,6 @@
 package agentconfig
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -128,43 +127,14 @@ func Load(path string) (*Config, error) {
 	return Parse(path, data)
 }
 
-// Parse parses the given JSON data. Exposed so callers
-// (e.g. the `check` subcommand printing a breakdown) can
-// hand in already-read bytes.
+// Parse parses JSON bytes that a caller has already read. This lets commands
+// such as check decode a captured snapshot without reading the file again.
 //
-// Tier fields that arrive as a JSON array (legacy flat
-// shape) produce a clear migration error rather than a
-// silent reinterpretation — pre-release, no compatibility
-// shim warranted.
+// Legacy flat tier arrays fail typed decoding rather than being silently
+// reinterpreted.
 func Parse(path string, data []byte) (*Config, error) {
-	generic, err := configjson.DecodeObject(data)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"invalid JSON in %s: %v", path, err)
-	}
-	if err := checkSchemaKeys(generic); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-
-	for _, tierName := range []string{
-		"Allow", "SoftAsk", "Ask", "Deny",
-	} {
-		value, exists := generic[tierName]
-		if !exists {
-			continue
-		}
-		if _, isArray := value.([]any); isArray {
-			return nil, fmt.Errorf(
-				"%s: %q must be an object with "+
-					"Commands/EnvVars keys, got an array",
-				path, tierName)
-		}
-	}
-
 	var raw rawConfig
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&raw); err != nil {
+	if err := configjson.Decode(data, &raw); err != nil {
 		return nil, fmt.Errorf(
 			"invalid JSON in %s: %v", path, err)
 	}
@@ -179,42 +149,6 @@ func Parse(path string, data []byte) (*Config, error) {
 		EnabledPresets:  raw.EnabledPresets,
 		DisabledPresets: raw.DisabledPresets,
 	}, nil
-}
-
-func checkSchemaKeys(root map[string]any) error {
-	if err := configjson.CheckKeys(
-		root,
-		"Allow", "SoftAsk", "Ask", "Deny", "Rules",
-		"enabled-presets", "disabled-presets",
-	); err != nil {
-		return err
-	}
-
-	for _, tierName := range []string{
-		"Allow", "SoftAsk", "Ask", "Deny",
-	} {
-		tier, ok := configjson.ObjectAt(root, tierName)
-		if !ok {
-			continue
-		}
-		if err := configjson.CheckKeys(
-			tier, "Commands", "EnvVars",
-		); err != nil {
-			return fmt.Errorf("%s: %w", tierName, err)
-		}
-	}
-
-	rules, ok := configjson.ObjectAt(root, "Rules")
-	if !ok {
-		return nil
-	}
-	if err := configjson.CheckObjectValueKeys(
-		rules, "Enabled",
-	); err != nil {
-		return fmt.Errorf("Rules.%w", err)
-	}
-
-	return nil
 }
 
 // Save writes the config back to its Path. The write goes

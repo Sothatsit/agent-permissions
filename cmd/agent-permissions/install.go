@@ -1,16 +1,15 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/sothatsit/agent-permissions/internal/atomicfile"
+	"github.com/sothatsit/agent-permissions/internal/configjson"
 	"github.com/sothatsit/agent-permissions/internal/word"
 	"mvdan.cc/sh/v3/syntax"
 )
@@ -84,17 +83,7 @@ func installClaudeCode(binPath string) error {
 		return fmt.Errorf("read %s: %w", path, err)
 	}
 	var root map[string]any
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	if err := decoder.Decode(&root); err != nil {
-		return fmt.Errorf(
-			"invalid JSON in %s: %w", path, err)
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); err != io.EOF {
-		if err == nil {
-			err = errors.New("multiple JSON values")
-		}
+	if err := configjson.Decode(data, &root); err != nil {
 		return fmt.Errorf(
 			"invalid JSON in %s: %w", path, err)
 	}

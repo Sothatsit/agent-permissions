@@ -1,6 +1,8 @@
 package perms
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -24,6 +26,62 @@ func contains(s []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func writeClaudeSettings(t *testing.T, body string) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	return path
+}
+
+func TestLoadClaudeSettingsRejectsDuplicatePermission(t *testing.T) {
+	path := writeClaudeSettings(t, `{
+  "permissions": {
+    "deny": ["Bash(ssh:*)"],
+    "deny": []
+  }
+}`)
+
+	_, _, err := loadClaudeSettings(path)
+	if err == nil {
+		t.Fatal("expected duplicate deny field to be rejected")
+	}
+	if !strings.Contains(err.Error(), "duplicate") ||
+		!strings.Contains(err.Error(), "deny") {
+		t.Fatalf("expected duplicate deny error, got %v", err)
+	}
+}
+
+func TestLoadClaudeSettingsAllowsUnknownFieldsAndNull(t *testing.T) {
+	path := writeClaudeSettings(t, `{
+  "future": {"items": [null, {"large": 9007199254740993}]},
+	"permissions": {
+		"allow": [null],
+		"ask": null,
+		"deny": ["Bash(ssh:*)"],
+		"future": null
+	}
+}`)
+
+	src, warnings, err := loadClaudeSettings(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+	if len(src.Allow.Commands) != 0 {
+		t.Fatalf("null allow entry decoded as %v", src.Allow.Commands)
+	}
+	if len(src.Deny.Commands) != 1 ||
+		src.Deny.Commands[0].Raw != "ssh:*" {
+		t.Fatalf("deny commands = %v, want ssh:*", src.Deny.Commands)
+	}
 }
 
 func TestSelectPresetsAllByDefault(t *testing.T) {

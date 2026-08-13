@@ -202,6 +202,41 @@ func TestLoadDirsRejectsNullValues(t *testing.T) {
 	}
 }
 
+func TestLoadDirsRejectsDuplicateKeys(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		key  string
+	}{
+		{
+			"top-level tier",
+			`{"Deny": {}, "Deny": {"Commands": {}}}`,
+			"Deny",
+		},
+		{
+			"rule field",
+			`{"Rules": {"git.branch-writes": {` +
+				`"Enabled": true, "Enabled": false}}}`,
+			"Enabled",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writePreset(t, dir, "bad.json", tt.body)
+			_, err := LoadDirs(dir)
+			if err == nil ||
+				!strings.Contains(err.Error(), "duplicate") ||
+				!strings.Contains(err.Error(), tt.key) {
+				t.Errorf(
+					"expected duplicate %s error, got %v",
+					tt.key, err)
+			}
+		})
+	}
+}
+
 func TestAllWithoutEnvIsEmbedded(t *testing.T) {
 	t.Setenv(PresetDirsEnv, "")
 	t.Setenv(EnforcedPresetDirsEnv, "")

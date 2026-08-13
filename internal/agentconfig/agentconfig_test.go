@@ -181,6 +181,39 @@ func TestParseRejectsNullValues(t *testing.T) {
 	}
 }
 
+func TestParseRejectsDuplicateKeys(t *testing.T) {
+	tests := []struct {
+		name string
+		data string
+		key  string
+	}{
+		{
+			"top-level tier",
+			`{"Deny": {}, "Deny": {"Commands": {}}}`,
+			"Deny",
+		},
+		{
+			"rule field",
+			`{"Rules": {"git.branch-writes": {` +
+				`"Enabled": true, "Enabled": false}}}`,
+			"Enabled",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Parse("test.json", []byte(tt.data))
+			if err == nil ||
+				!strings.Contains(err.Error(), "duplicate") ||
+				!strings.Contains(err.Error(), tt.key) {
+				t.Errorf(
+					"expected duplicate %s error, got %v",
+					tt.key, err)
+			}
+		})
+	}
+}
+
 func TestSaveLoadRoundtrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "perms.json")
