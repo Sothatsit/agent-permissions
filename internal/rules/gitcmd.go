@@ -12,7 +12,7 @@ import (
 // breakdownGit strips -C <path> from git's global
 // options so the command matches permission patterns
 // written for plain git <subcommand>. -C only changes
-// git's working directory — no security implication.
+// git's working directory - no security implication.
 // Scanning stops at the first non-flag arg (the
 // subcommand), so subcommand-level -C flags (e.g.
 // git branch -C) are not affected.
@@ -44,7 +44,7 @@ func breakdownGit(
 			break
 		}
 
-		// Other global flag — keep it.
+		// Other global flag - keep it.
 		stripped = append(stripped, w)
 	}
 

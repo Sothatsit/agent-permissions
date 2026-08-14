@@ -52,7 +52,7 @@ func breakdownFlock(
 ) (model.BreakdownOutcome, error) {
 	pos := input.Positionals
 	if len(pos) == 0 {
-		// No lock file — flock errors at runtime; nothing runs.
+		// No lock file - flock errors at runtime; nothing runs.
 		return model.Safe(), nil
 	}
 	rest := pos[1:] // pos[0] is the lock file/dir/fd

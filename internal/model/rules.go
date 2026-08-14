@@ -14,7 +14,7 @@ import (
 // original AST structure for opacity checking.
 type ParsedFlag struct {
 	// Name is the flag name (e.g. "-c", "--signal").
-	// Always a resolved string — flag names are static.
+	// Always a resolved string - flag names are static.
 	Name string
 	// Value is the flag's value as a Word. Nil for bool
 	// flags. For --flag=value, this is a synthetic Word
@@ -64,7 +64,7 @@ type Rule struct {
 	// whole subtree before evaluation, so the command falls
 	// through as if the rule did not exist. A nil Def marks a
 	// node governed by an ancestor's Def (or a structural
-	// node, e.g. a permissive container) — it is not
+	// node, e.g. a permissive container) - it is not
 	// independently disableable. ValidateRegistry asserts
 	// every restrictive node has a Def on its path.
 	Def      *RuleDef
@@ -93,8 +93,8 @@ const (
 	// commands, falling through to normal flattening.
 	// The original command reaches rules and
 	// permissions unchanged. Use for breakdowns that
-	// strip flags rather than extract inner commands
-	// — the stripping is a convenience, not a
+	// strip flags rather than extract inner commands.
+	// The stripping is a convenience, not a
 	// security gate.
 	PathSkip
 	// PathAllow runs the breakdown for path-invoked
@@ -183,8 +183,8 @@ func PopulatePossibleFlags(input *ParseResult) {
 			break
 		}
 		// Try --flag=value split. Works for both
-		// static and mixed words (e.g. --flag=$VAR)
-		// — SplitEq extracts the name from the
+		// static and mixed words (e.g. --flag=$VAR).
+		// SplitEq extracts the name from the
 		// static prefix before =.
 		name, vw := word.SplitEq(w)
 		if vw != nil &&
@@ -198,8 +198,8 @@ func PopulatePossibleFlags(input *ParseResult) {
 			continue
 		}
 		// Non-equals flags need static text for
-		// the Name field. Skip opaque words —
-		// can't determine their flag name.
+		// the Name field. Skip opaque words because
+		// their flag name can't be determined.
 		if !word.Static(w) {
 			continue
 		}

@@ -45,8 +45,8 @@ type Pattern struct {
 // EnvVarPattern matches an assigned environment variable
 // by name. Syntax: exact name (`BASH_ENV`) or a name with
 // a trailing `*` for prefix match (`LD_*` covers
-// LD_PRELOAD, LD_LIBRARY_PATH, etc.). No value matching —
-// the schema concerns itself only with which variables
+// LD_PRELOAD, LD_LIBRARY_PATH, etc.). No value matching.
+// The schema concerns itself only with which variables
 // can be assigned, not what they're assigned to.
 type EnvVarPattern struct {
 	Raw    string // original entry, e.g. "LD_*"
@@ -70,8 +70,8 @@ type TierEntries struct {
 // source. Enforced sources aggregate every match using
 // decision strength: Deny > Ask > SoftAsk > Allow.
 type SourcePerms struct {
-	// Name is shown in `check` output and reasons —
-	// "preset:git", "~/.agents/permissions.json", etc.
+	// Name is shown in `check` output and reasons. Examples
+	// include "preset:git", "~/.agents/permissions.json", etc.
 	Name string
 
 	// AcceptsReasons is true when the source's schema can
@@ -79,7 +79,7 @@ type SourcePerms struct {
 	// settings.json, whose flat-array shape has no slot
 	// for reasons. The `validate` subcommand uses this to
 	// avoid flagging structurally-empty reasons as
-	// "missing" — only sources that *could* have reasons
+	// "missing" - only sources that *could* have reasons
 	// get the empty-reason warning.
 	AcceptsReasons bool
 
@@ -257,7 +257,7 @@ func (c *labelCollector) add(item string) {
 // elements, etc.) so callers can silently skip them.
 func parsePattern(raw string) (Pattern, error) {
 	elements := strings.Fields(raw)
-	// Empty raw — the legacy behaviour of treating these
+	// Empty raw - the legacy behaviour of treating these
 	// as match-all was a footgun. Match-all is still
 	// available via bare `Bash` or `Bash(*)`, both of
 	// which normalise to raw="*" in extractBashPattern
@@ -425,7 +425,7 @@ func (p *Permissions) Check(
 	cmds := result.Commands
 	snippets := result.CodeSnippets
 	// Skip the no-commands early return when env vars
-	// already produced any decision — fall through to emit
+	// already produced any decision - fall through to emit
 	// the labels. Without env vars to evaluate (or with all
 	// of them allowed), bare safe input still allows.
 	if len(cmds) == 0 && len(snippets) == 0 &&
@@ -450,7 +450,7 @@ func (p *Permissions) Check(
 					cmd.RootScript))
 			}
 		case model.Ask:
-			// Deny takes priority — skip
+			// Deny takes priority - skip
 			// collection when already denied.
 			if aggregate == model.Deny {
 				continue
@@ -522,7 +522,7 @@ func (p *Permissions) Check(
 	// commands were seen. Promote to SoftAsk so the
 	// hook can apply mode-dependent behavior (ask in
 	// normal, fall through in auto). Pure undecided
-	// (no unknowns) is a true "no opinion" — the hook
+	// (no unknowns) is a true "no opinion" - the hook
 	// always falls through.
 	if aggregate == model.Undecided {
 		if len(unknowns.items) > 0 {
@@ -591,8 +591,8 @@ func sourceGuidance(scriptPaths []string) string {
 // patterns; the source is the rule's ID from its RuleDef
 // (e.g. "rule:git.branch-writes"), so it is the exact ID
 // the user puts in their Rules config to disable it. Empty
-// descriptions drop the dash and surface only the subject —
-// common for Claude Code settings.json (no reason slot) and
+// descriptions drop the dash and surface only the subject.
+// This is common for Claude Code settings.json (no reason slot) and
 // presets where a reason wasn't worth writing.
 func formatCheck(
 	check commandCheck, cmd model.Command,
@@ -623,7 +623,7 @@ func formatCheck(
 // "<subject>: <description>" (e.g. "git branch: write flag
 // -d") so the subject can drive the source attribution and
 // the description appears after a dash. Returns (reason,
-// "") when there's no separator — the whole string is a
+// "") when there's no separator - the whole string is a
 // complete thought and renders as the subject alone.
 func splitRuleReason(
 	reason string,
@@ -637,7 +637,7 @@ func splitRuleReason(
 
 // checkSnippet evaluates a code snippet against snippet
 // rules. First checks the SourceScript against user
-// permissions — an explicit allow/ask/deny overrides
+// permissions - an explicit allow/ask/deny overrides
 // scanning. Otherwise runs snippet rules for the
 // language and returns the strongest finding.
 func (p *Permissions) checkSnippet(
@@ -706,7 +706,7 @@ func (p *Permissions) checkSnippet(
 
 	// Build the reason with source context. All of a
 	// language's snippet rules share one RuleDef, so attribute
-	// the finding to it — the displayed ID is the one the user
+	// the finding to it - the displayed ID is the one the user
 	// disables in their Rules config.
 	source := "inline code"
 	if snippet.SourceFile != "" {
@@ -757,7 +757,7 @@ func (p *Permissions) checkOne(
 
 	name := filepath.Base(word.Text(cmd.Args[0]))
 
-	// 1. Rules layer — operates on Words directly,
+	// 1. Rules layer - operates on Words directly,
 	// no string conversion needed.
 	if p.rules != nil {
 		if action := evaluateCommandRules(
@@ -790,7 +790,7 @@ func (p *Permissions) checkOne(
 
 	// pathResolved is the basename-stripped form that
 	// non-Deny tiers may use when the absolute path's
-	// directory is in PATH — i.e. when the shell would
+	// directory is in PATH - i.e. when the shell would
 	// have resolved the bare name to this same binary. An
 	// out-of-PATH absolute path falls through to require
 	// an explicit absolute-path pattern. Deny never uses
@@ -811,7 +811,7 @@ func (p *Permissions) checkOne(
 		return check
 	}
 
-	// 3. Function call override — checked after all
+	// 3. Function call override - checked after all
 	// sources because an explicit deny anywhere should
 	// still win over the function-call escape hatch.
 	if cmd.CouldBeFuncCall {
@@ -914,7 +914,7 @@ func matchEnforcedCommandSources(
 //
 // SoftAsk is the one exception. It means "nudge unless the user
 // has already allowed this", so an explicit Allow is the answer
-// to it, not something it outranks — enforcing a SoftAsk over
+// to it, not something it outranks - enforcing a SoftAsk over
 // an Allow would make the tier stricter than an Ask, which no
 // user config can silence either. The reverse does not hold: an
 // enforced Allow still cannot talk a normal-lane SoftAsk down,
@@ -989,8 +989,8 @@ func matchFirst(
 // matchTier tries patterns against the raw args, then
 // against the basename-stripped form. On a match it builds
 // the commandCheck for the given tier. For Allow tier the
-// reason is left empty — Allow doesn't surface in output —
-// but the source is still recorded so attribution works
+// reason is left empty because Allow doesn't surface in output.
+// The source is still recorded so attribution works
 // downstream if a caller introspects.
 func matchTier(
 	src SourcePerms,
@@ -1269,7 +1269,7 @@ func (p *Permissions) buildPermissionSuggestion(
 // :* pattern for a command that has no matching rule or
 // pattern. It checks existing patterns and the rules
 // registry to find the shortest prefix that isn't
-// already "known", so git apply → git apply:* (not
+// already "known", so git apply -> git apply:* (not
 // git:*) when git has existing rules but apply does not.
 func (p *Permissions) buildPermissionPattern(
 	args []string,

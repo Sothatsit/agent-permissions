@@ -12,7 +12,7 @@ import "mvdan.cc/sh/v3/syntax"
 type Decision int
 
 const (
-	Undecided Decision = iota // no opinion — caller decides
+	Undecided Decision = iota // no opinion - caller decides
 	Allow                     // explicitly permitted
 	SoftAsk                   // ask in normal, classifier in auto
 	Ask                       // prompt required (even in auto)
@@ -51,7 +51,7 @@ type Action struct {
 	Reason   string
 	// Def is the rule definition that produced this action,
 	// or nil for a structural decision with no governing
-	// rule (never user-disableable — e.g. a permissive
+	// rule (never user-disableable - e.g. a permissive
 	// container's Allow). The evaluator stamps it as the
 	// action bubbles up, taking the governing Def from the
 	// node or an ancestor, so callers can attribute the
@@ -90,14 +90,14 @@ type RuleConfig struct {
 // .agents > project .agents > global .agents > ordinary
 // presets), then enforced presets lock their enabled rules
 // on. An ID mentioned nowhere is absent and reads as the
-// zero value, disabled. The map must be populated before use
-// — see For.
+// zero value, disabled. The map must be populated before use.
+// See For.
 type RuleConfigs map[string]RuleConfig
 
 // For returns the resolved config for a rule. The map must be
-// populated first: a nil map is a wiring bug — a nil-map read
+// populated first: a nil map is a wiring bug - a nil-map read
 // returns the zero value, silently disabling every denial
-// (fail open) — so we crash rather than run without knowing
+// (fail open) - so we crash rather than run without knowing
 // the config. An absent ID is a valid, resolved "disabled".
 func (rc RuleConfigs) For(def *RuleDef) RuleConfig {
 	if rc == nil {
@@ -108,8 +108,8 @@ func (rc RuleConfigs) For(def *RuleDef) RuleConfig {
 
 // RuleError is a breakdown-layer denial attributed to a
 // specific rule. The imperative wrapper/xargs checks deny by
-// returning an error — the denial aborts the whole breakdown
-// before the permissions layer runs — so they return a
+// returning an error - the denial aborts the whole breakdown
+// before the permissions layer runs - so they return a
 // RuleError carrying the governing RuleDef. The hook and
 // check unwrap it with errors.As to surface "(from
 // rule:<id>)", the same attribution the permissions layer
@@ -164,7 +164,7 @@ type Command struct {
 	// CouldBeFuncCall is true when the command name
 	// matches a function defined unconditionally in the
 	// same scope. Only used as a fallback override in
-	// permissions — deny and ask patterns always take
+	// permissions - deny and ask patterns always take
 	// precedence.
 	CouldBeFuncCall bool
 	// SourcePath records the chain of files that led to
@@ -180,7 +180,7 @@ type Command struct {
 
 // BreakdownResult holds the extracted commands and any
 // environment variable assignment names found prefixing
-// commands (e.g. FOO=bar cmd → Assigns contains "FOO").
+// commands (e.g. FOO=bar cmd -> Assigns contains "FOO").
 type BreakdownResult struct {
 	Commands     []Command
 	CodeSnippets []CodeSnippet
@@ -203,11 +203,11 @@ func (br *BreakdownResult) Merge(other BreakdownResult) {
 }
 
 // State holds the mutable state during a breakdown pass.
-// This is the breakdown's actual internal state — hooks
+// This is the breakdown's actual internal state - hooks
 // can read and mutate it directly.
 type State struct {
 	// Cwd is the known working directory for resolving
-	// relative file paths. Empty means unknown — either
+	// relative file paths. Empty means unknown - either
 	// never set or cleared by an uncertain cd. When
 	// empty, relative paths cannot be resolved and are
 	// denied.
@@ -216,7 +216,7 @@ type State struct {
 	// modified. Control flow boundaries check this and
 	// clear Cwd when set (because we can't guarantee
 	// the cd took effect). The && handler is the
-	// exception — it does not clear, because the right
+	// exception - it does not clear, because the right
 	// side only runs when the left succeeded.
 	CwdChanged bool
 	// Visited tracks absolute file paths already scanned.

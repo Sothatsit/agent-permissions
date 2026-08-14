@@ -4,7 +4,7 @@
 //
 // The schema is four tier objects, each holding entries by
 // tool axis (Commands, EnvVars). Within each axis, entries
-// are a map from pattern → reason; the reason is shown in
+// are a map from pattern -> reason; the reason is shown in
 // hook output and may be empty. A top-level Rules object
 // (rule ID -> {Enabled}) overrides Rules-layer config. The
 // top-level shape also carries optional enabled-presets /
@@ -25,7 +25,7 @@ import (
 )
 
 // TierEntries is one tier's entries split by tool axis.
-// Each axis maps pattern → reason; the reason is surfaced
+// Each axis maps pattern -> reason; the reason is surfaced
 // as "<pattern> - <reason>  (from <source>)" in hook output
 // and may be empty (no dash shown). Loading code at the
 // perms layer converts these into typed patterns.
@@ -114,8 +114,8 @@ type rawConfig struct {
 }
 
 // Load reads the JSON file at path and returns the parsed
-// config. Returns nil, nil when the file does not exist —
-// callers treat that as "no contribution from this source".
+// config. Returns nil, nil when the file does not exist.
+// Callers treat that as "no contribution from this source".
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

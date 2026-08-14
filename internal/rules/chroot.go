@@ -16,7 +16,7 @@ var chrootParser, _chrootBaseBreakdown = wrapperBreakdown(
 
 // breakdownChroot unwraps chroot: skip NEWROOT, extract the
 // inner command. chroot with only a directory and no command
-// runs an interactive $SHELL, which cannot be verified — deny.
+// runs an interactive $SHELL, which cannot be verified - deny.
 // The RuleError is suppressed when chroot.unverified is off, so
 // the command then falls through to the permissions layer.
 func breakdownChroot(

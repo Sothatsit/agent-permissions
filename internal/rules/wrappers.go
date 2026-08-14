@@ -18,7 +18,7 @@ type wrapperDef struct {
 	// deny-flag check is skipped and the wrapper still
 	// extracts its inner command, so the inner command is
 	// checked normally. A wrapper with deny-flags must set
-	// this — the breakdown calls For(denyRule) on a match,
+	// this - the breakdown calls For(denyRule) on a match,
 	// so a nil here with non-empty denyFlags would panic.
 	denyRule       *model.RuleDef
 	skipPositional int // positional args to skip
@@ -41,7 +41,7 @@ func wrapperBreakdown(
 		input model.ParseResult,
 		state *model.State,
 	) (model.BreakdownOutcome, error) {
-		// Deny flags checked post-parse — deny is policy,
+		// Deny flags checked post-parse - deny is policy,
 		// not parsing. A matched deny-flag implies this
 		// wrapper has a denyRule; honor its config so a
 		// disabled rule skips the denial and the wrapper

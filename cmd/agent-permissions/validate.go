@@ -31,11 +31,11 @@ import (
 //     exit code stays 0 because empty reasons are allowed by
 //     design.
 //   - Preset names supplied by more than one origin: also a
-//     note, for the same reason — both presets stay active,
+//     note, for the same reason. Both presets stay active,
 //     but attribution can no longer name the directory.
 //
-// All problems are collected and reported in one pass —
-// validate never bails on the first error — and the exit code
+// All problems are collected and reported in one pass.
+// Validate never bails on the first error, and the exit code
 // is decided only at the end.
 func validate(args []string) error {
 	if len(args) != 0 {
@@ -149,7 +149,7 @@ func printDisabledEnforcedPresets(refs []unknownRef) {
 }
 
 // unknownRef is a rule ID or preset name in a user .agents
-// config that doesn't match anything in the catalog — a typo
+// config that doesn't match anything in the catalog - a typo
 // that would otherwise silently no-op.
 type unknownRef struct {
 	source string
@@ -178,7 +178,7 @@ func printUnknownRefs(
 }
 
 // collectUnknownRules returns rule IDs in the user .agents
-// configs that are not known catalog rules — typos that would
+// configs that are not known catalog rules - typos that would
 // otherwise silently no-op. External presets are checked when
 // they load; the embedded-preset invariant covers shipped IDs.
 func collectUnknownRules(
@@ -207,7 +207,7 @@ func collectUnknownRules(
 // enabled-presets / disabled-presets in the user .agents
 // configs that don't match any active preset (embedded or
 // external). A typo there silently no-ops (filterByName
-// just never matches it) — the same failure mode
+// just never matches it) - the same failure mode
 // collectUnknownRules guards for rule IDs.
 func collectUnknownPresets(
 	configs []perms.AgentConfigSource,

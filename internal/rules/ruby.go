@@ -8,7 +8,7 @@ var syntaxRuby = &langSyntax{
 	Quotes: []quoteDef{
 		{Delim: `"`},
 		{Delim: `'`},
-		// Backticks are NOT quotes — they are
+		// Backticks are NOT quotes - they are
 		// shell execution syntax.
 	},
 	LineComments: []string{"#"},
@@ -46,7 +46,7 @@ var breakdownRuby = breakdownInterpreter(
 		lang:       model.LangRuby,
 		name:       "ruby",
 		unverified: rubyUnverified,
-		// -v is NOT an info flag in Ruby — it prints
+		// -v is NOT an info flag in Ruby - it prints
 		// the version but continues execution (sets
 		// $VERBOSE), so ruby -v script.rb runs the
 		// script and must be scanned.
@@ -68,7 +68,7 @@ func rubyInterpolationContents(code string) []string {
 // --- Snippet matching ---
 
 // rubyBareCall matches bare function calls (system,
-// exec, spawn) while avoiding $-prefixed variables —
+// exec, spawn) while avoiding $-prefixed variables.
 // $ is a sigil in Ruby, not a word boundary.
 func rubyBareCall(names ...string) matchBuilder {
 	return syntaxRuby.match(

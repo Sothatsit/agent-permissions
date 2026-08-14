@@ -183,7 +183,7 @@ func TestSelectPresetsLocalOverridesProject(t *testing.T) {
 }
 
 func TestSelectPresetsLocalFallthroughWhenSilent(t *testing.T) {
-	// Local present but with no preset selection — defer to
+	// Local present but with no preset selection - defer to
 	// project.
 	projectEnabled := []string{"languages"}
 	project := &agentconfig.Config{
@@ -203,7 +203,7 @@ func TestSelectPresetsLocalFallthroughWhenSilent(t *testing.T) {
 }
 
 func TestSelectPresetsProjectFallthroughWhenSilent(t *testing.T) {
-	// Project doesn't specify either field — fall back to
+	// Project doesn't specify either field - fall back to
 	// global.
 	globalEnabled := []string{"git"}
 	global := &agentconfig.Config{

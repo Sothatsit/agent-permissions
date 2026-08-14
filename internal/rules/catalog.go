@@ -10,7 +10,7 @@ import "github.com/sothatsit/agent-permissions/internal/model"
 // referencing one of these defs, the directory is the single
 // source of truth: there is no separate ID list to drift from,
 // and a typo is a compile error. Descriptions name the threat
-// the rule mitigates, not the mechanism — they are what a user
+// the rule mitigates, not the mechanism - they are what a user
 // reads to decide whether to disable it.
 
 // ruleCatalog is the ordered list of every rule, in declaration
@@ -127,7 +127,7 @@ func IsRuleID(id string) bool {
 
 // AllEnabled returns a RuleConfigs with every catalog rule
 // enabled. For tests and callers that want the full ruleset
-// without resolving presets — stated explicitly, never via a
+// without resolving presets - stated explicitly, never via a
 // nil map (which panics). Production resolves the default
 // presets instead.
 func AllEnabled() model.RuleConfigs {

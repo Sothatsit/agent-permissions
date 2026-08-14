@@ -62,7 +62,7 @@ var xargsParser, _xargsBaseBreakdown = wrapperBreakdown(
 // breakdownXargs wraps the generic wrapper breakdown
 // with a check for -I replacement strings in the command
 // name. xargs -I{} {} runs whatever stdin provides as
-// a command — that's arbitrary execution.
+// a command - that's arbitrary execution.
 func breakdownXargs(
 	input model.ParseResult,
 	state *model.State,
@@ -85,7 +85,7 @@ func breakdownXargs(
 	}
 
 	// Find the -I/--replace replacement string.
-	// Deny if specified more than once — ambiguous.
+	// Deny if specified more than once - ambiguous.
 	var replStr string
 	replCount := 0
 	for _, f := range input.Flags {

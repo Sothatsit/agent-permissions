@@ -7,9 +7,9 @@ import "github.com/sothatsit/agent-permissions/internal/model"
 // flag/positional parsing: runuser has a -c shell-string and an
 // interactive form, setpriv has a large privilege-flag surface,
 // and setarch's leading architecture argument is ambiguous with
-// its command. Rather than risk masking the inner command, deny
-// — strictly tighter than today (where they are unmodelled and
-// merely ask). The RuleError is suppressed when the governing
+// its command. Rather than risk masking the inner command, deny.
+// This is stricter than today's unmodelled fallback, which merely
+// asks. The RuleError is suppressed when the governing
 // rule is off, so the command then falls through to the
 // permissions layer.
 

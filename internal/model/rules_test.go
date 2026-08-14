@@ -117,7 +117,7 @@ func TestPopulatePossibleFlagsValues(t *testing.T) {
 		{"short next arg",
 			ws("-o", "file.txt"),
 			"-o", "file.txt"},
-		// Last flag with no next arg — value is
+		// Last flag with no next arg - value is
 		// nil, flagValue returns "".
 		{"short no next arg",
 			ws("-o"),
@@ -143,8 +143,8 @@ func TestPopulatePossibleFlagsValues(t *testing.T) {
 }
 
 func TestPopulatePossibleFlagsSkipsOpaque(t *testing.T) {
-	// Opaque words (variable expansion) are skipped —
-	// they can't be classified as flags.
+	// Opaque words (variable expansion) are skipped.
+	// They can't be classified as flags.
 	raw := []*syntax.Word{
 		word.Lit("-v"),
 		{Parts: []syntax.WordPart{
@@ -202,7 +202,7 @@ func TestPopulatePossibleFlagsOpaqueEquals(
 func TestPopulatePossibleFlagsOpaqueNoEquals(
 	t *testing.T,
 ) {
-	// Fully opaque words like $FLAG are skipped — no
+	// Fully opaque words like $FLAG are skipped - no
 	// static prefix to extract a name from.
 	raw := []*syntax.Word{
 		{Parts: []syntax.WordPart{

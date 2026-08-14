@@ -12,21 +12,21 @@ import (
 // breakdownCommand unwraps the command builtin by
 // extracting the inner command. Handles -v/-V (lookups),
 // -p (standard PATH), and -- separators. All flag checks
-// are strict — if an arg is opaque, we can't verify its
+// are strict - if an arg is opaque, we can't verify its
 // meaning and reject it.
 func breakdownCommand(
 	input model.ParseResult,
 	_ *model.State,
 ) (model.BreakdownOutcome, error) {
 	if len(input.Raw) == 0 {
-		// Bare "command" — lists functions.
+		// Bare "command" - lists functions.
 		return model.Safe(), nil
 	}
 
 	idx := 0
 	w := input.Raw[idx]
 
-	// -v/-V: command existence check — safe.
+	// -v/-V: command existence check - safe.
 	if word.DefinitelyEqual(w, "-v") ||
 		word.DefinitelyEqual(w, "-V") {
 		return model.Safe(), nil
@@ -46,7 +46,7 @@ func breakdownCommand(
 			}
 		} else if word.DefinitelyEqual(w, "-v") ||
 			word.DefinitelyEqual(w, "-V") {
-			// command -p -v name — safe lookup.
+			// command -p -v name - safe lookup.
 			return model.Safe(), nil
 		} else if word.DefinitelyHasPrefix(w, "-") {
 			return model.BreakdownOutcome{}, &model.RuleError{

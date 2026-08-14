@@ -17,13 +17,13 @@ import (
 // the user has a starting point to customise. The file
 // includes empty tier arrays as placeholders and leaves
 // preset selection unspecified (which means "all ordinary
-// presets enabled" — new presets in future binary updates
+// presets enabled" - new presets in future binary updates
 // are picked up automatically). Enforced presets sit outside
 // user selection and remain active.
 //
 // Refuses to overwrite an existing file unless --force is
 // passed. Any non-NotExist stat error is treated as a
-// hard failure rather than silently writing — a transient
+// hard failure rather than silently writing - a transient
 // filesystem error on the parent directory could otherwise
 // clobber a real, customised file.
 func setup(args []string) error {

@@ -39,11 +39,11 @@ type interpreterConfig struct {
 // breakdownInterpreter returns a BreakdownFunc that
 // handles interpreter commands generically:
 //
-//   - Info flags → fall through to permissions.
-//   - Fallthrough flags → fall through.
-//   - Code flags → extract inline code as a CodeSnippet.
-//   - Positional → read script file as a CodeSnippet.
-//   - Bare invocation → fall through.
+//   - Info flags -> fall through to permissions.
+//   - Fallthrough flags -> fall through.
+//   - Code flags -> extract inline code as a CodeSnippet.
+//   - Positional -> read script file as a CodeSnippet.
+//   - Bare invocation -> fall through.
 func breakdownInterpreter(
 	cfg interpreterConfig,
 ) model.BreakdownFunc {
@@ -52,7 +52,7 @@ func breakdownInterpreter(
 		state *model.State,
 	) (model.BreakdownOutcome, error) {
 		// Collect flags in a single pass. Code flags
-		// take priority — python3 --version -c "code"
+		// take priority - python3 --version -c "code"
 		// must scan the code, not skip because of
 		// --version.
 		var codeFlag *model.ParsedFlag
@@ -73,10 +73,10 @@ func breakdownInterpreter(
 				codeFlag = &input.Flags[i]
 			}
 		}
-		// Fallthrough flags (-m, -i) always skip —
+		// Fallthrough flags (-m, -i) always skip because
 		// we explicitly can't verify these.
 		// Info flags (--version) only skip when
-		// there are no positionals — if a script
+		// there are no positionals - if a script
 		// is present, scan it defensively in case
 		// our flag classification is wrong and the
 		// interpreter actually runs it.
@@ -124,7 +124,7 @@ func breakdownInterpreter(
 			}), nil
 		}
 
-		// No positionals — bare invocation or
+		// No positionals - bare invocation or
 		// flags-only. Fall through to permissions.
 		if len(input.Positionals) == 0 {
 			return model.FallThrough(), nil

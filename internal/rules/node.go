@@ -56,7 +56,7 @@ var breakdownNode = breakdownInterpreter(
 			"-e", "--eval", "-p", "--print",
 		},
 		// -i/interactive, -c/--check (syntax
-		// check) — fall through to permissions.
+		// check) - fall through to permissions.
 		fallthroughFlags: []string{
 			"-i", "-c", "--check",
 		},

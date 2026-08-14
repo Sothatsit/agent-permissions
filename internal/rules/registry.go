@@ -18,7 +18,7 @@ import "github.com/sothatsit/agent-permissions/internal/model"
 // Registry returns the command rules and snippet rules.
 // Command rules are keyed by command name (git, python3,
 // etc.). Snippet rules are keyed by language (python,
-// perl, etc.) — a language may have multiple commands
+// perl, etc.) - a language may have multiple commands
 // (python3 and python both produce Python snippets).
 func Registry() (
 	map[string]*model.CommandRules,
@@ -227,7 +227,7 @@ func Registry() (
 	// language are defined below alongside the command
 	// registration.
 
-	// python/python3 — PathAllow so path-invoked
+	// python/python3 - PathAllow so path-invoked
 	// interpreters (e.g. /path/to/venv/bin/python3)
 	// still extract code for scanning but fall through
 	// to permissions, where users can allow specific
@@ -268,7 +268,7 @@ func Registry() (
 	// --- Managed ---
 
 	// bash/sh: -n (syntax check) is allowed outright.
-	// -c extracts the code string — only when -c is
+	// -c extracts the code string - only when -c is
 	// the sole flag; other flags (--rcfile, -i, etc.)
 	// fall through to default deny since they source
 	// arbitrary code before the -c body.
@@ -292,7 +292,7 @@ func Registry() (
 
 	// time: skip formatting/output flags, extract inner.
 	// Bash's `time` keyword is already transparent in the
-	// AST — this handles external /usr/bin/time.
+	// AST - this handles external /usr/bin/time.
 	r["time"] = &model.CommandRules{
 		OwnsAllPatterns: true,
 		Parser:          timeParser,
@@ -338,7 +338,7 @@ func Registry() (
 	// Run an inner command after consuming their own args.
 	// Like timeout/strace, the inner command is re-analysed.
 	// They exec directly (execvp), so a leading NAME=val is
-	// the program name, not an assignment — except env, which
+	// the program name, not an assignment - except env, which
 	// honours assignments and feeds them to the EnvVars axis.
 
 	// env: parse env's flags, split leading NAME=val into
@@ -385,7 +385,7 @@ func Registry() (
 	}
 
 	// chroot: skip NEWROOT, extract inner command. With no
-	// command it runs an interactive $SHELL — denied via
+	// command it runs an interactive $SHELL - denied via
 	// chroot.unverified.
 	r["chroot"] = &model.CommandRules{
 		OwnsAllPatterns: true,
@@ -422,7 +422,7 @@ func Registry() (
 	// --- Shell builtins ---
 
 	// eval: join args and re-parse as code. All args
-	// must be static — variables could execute anything.
+	// must be static - variables could execute anything.
 	r["eval"] = &model.CommandRules{
 		OwnsAllPatterns: true,
 		Breakdown:       breakdownEval,
@@ -467,15 +467,15 @@ func Registry() (
 	}
 
 	// =========================================================
-	// Snippet rules — dangerous patterns in code snippets.
+	// Snippet rules - dangerous patterns in code snippets.
 	//
 	// Keyed by language, not command. A language may be
 	// produced by multiple commands (python3 and python
 	// both emit LangPython snippets). Patterns and rules
 	// are defined in each language file (python.go, etc.);
 	// this just wires them into the map. All of a language's
-	// snippet rules detect the same threat — running shell
-	// commands from inside the script — so they share one
+	// snippet rules detect the same threat - running shell
+	// commands from inside the script - so they share one
 	// def (on the SnippetLang) and are enabled or disabled
 	// together.
 	// =========================================================

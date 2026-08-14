@@ -147,7 +147,7 @@ _sc_preset_dirs=""
 echo ""
 echo "=== subcommands: presets list ==="
 
-# Default home — no preset selection; every shipped preset
+# Default home - no preset selection; every shipped preset
 # should appear under the "Enabled" group.
 h=$(_fresh_home)
 out=$(_sc_run "$h" presets list)
@@ -202,7 +202,7 @@ assert_contains "presets list names invalid policy entry" \
     "$out" "bad :*"
 _sc_preset_dirs=""
 
-# enable / disable subcommands were removed — verify they
+# enable / disable subcommands were removed - verify they
 # fail with a helpful message.
 out=$(_sc_run "$h" presets enable git 2>&1 || true)
 assert_contains "presets enable subcommand removed" \
@@ -252,13 +252,13 @@ assert_rc "rules list: extra-arg exits 2" 2 "$rc"
 echo ""
 echo "=== subcommands: install ==="
 
-# No settings.json → skipped.
+# No settings.json -> skipped.
 h=$(_fresh_home)
 out=$(_sc_run "$h" install)
 assert_contains "install: skips when settings.json absent" \
     "$out" "Skipped Claude Code"
 
-# settings.json present → installed.
+# settings.json present -> installed.
 mkdir -p "$h/.claude"
 echo '{}' > "$h/.claude/settings.json"
 out=$(_sc_run "$h" install)
@@ -555,7 +555,7 @@ assert_contains "check: warning attributes the source" \
 echo ""
 echo "=== subcommands: validate ==="
 
-# No malformed entries → exit 0, "OK." message.
+# No malformed entries -> exit 0, "OK." message.
 h=$(_fresh_home)
 out=$(_validate_run "$h")
 rc=$?
@@ -563,7 +563,7 @@ assert_contains "validate: clean exit message" "$out" \
     "OK."
 assert_rc "validate: clean exit code 0" 0 "$rc"
 
-# Malformed entries → exit 2 (validate now returns an
+# Malformed entries -> exit 2 (validate now returns an
 # error rather than calling os.Exit(1) directly, so main's
 # normal error path applies). Lists them and quotes the
 # bad entry.
@@ -583,7 +583,7 @@ assert_contains "validate: lists the count" "$out" \
 assert_contains "validate: quotes the bad entry" "$out" \
     '":*"'
 
-# Unknown rule ID in a user .agents config → exit 2. The
+# Unknown rule ID in a user .agents config -> exit 2. The
 # config also has a malformed pattern, so this doubles as a
 # check that validate reports every problem in one pass
 # rather than bailing on the first.
@@ -615,7 +615,7 @@ out=$(_validate_run "$h") || rc=$?
 assert_rc "validate: nested schema typo exits 2" 2 "$rc"
 assert_contains "validate: names nested schema typo" "$out" "Commandz"
 
-# Unknown preset name in disabled-presets → exit 2, the same
+# Unknown preset name in disabled-presets -> exit 2, the same
 # silent-no-op class as an unknown rule ID.
 h=$(_fresh_home)
 mkdir -p "$h/.agents"

@@ -108,7 +108,7 @@ func (b RuleBuilder) Allow(reason string) Rule {
 // Hook returns a Rule that decides via a hook function. The
 // hook's threat is governed by the builder's Def (set with
 // WithRuleDef) or an ancestor's. A hook node carries no
-// Default — the evaluator only consults Default through
+// Default - the evaluator only consults Default through
 // children, so a hook that needs a fallback is placed under a
 // parent that holds the DefaultDeny.
 func (b RuleBuilder) Hook(fn HookFunc) Rule {

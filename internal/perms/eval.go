@@ -37,8 +37,8 @@ func evaluateCommandRules(
 }
 
 // evaluateRules walks a rule tree. govDef is the rule
-// governing the current subtree — a node's own Def when set,
-// otherwise inherited from an ancestor — so a hook or Default
+// governing the current subtree - a node's own Def when set,
+// otherwise inherited from an ancestor - so a hook or Default
 // under a Subcmd(...).WithRuleDef(...) is attributed to that
 // ancestor's rule even though it carries no Def of its own.
 func evaluateRules(
@@ -64,8 +64,8 @@ func evaluateRules(
 		}
 
 		// Extend path with match context (e.g.
-		// "git" → "git --upload-pack", or
-		// "git" → "git remote" → "git remote add").
+		// "git" -> "git --upload-pack", or
+		// "git" -> "git remote" -> "git remote add").
 		childPath := path
 		if context != "" {
 			childPath = path + " " + context
@@ -104,7 +104,7 @@ func evaluateRules(
 			}
 		}
 
-		// Deny is highest priority — no subsequent rule
+		// Deny is highest priority - no subsequent rule
 		// can upgrade past it.
 		if strongest != nil &&
 			strongest.Decision == model.Deny {

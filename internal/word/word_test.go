@@ -677,7 +677,7 @@ func TestSplitEq(t *testing.T) {
 			"--flag", "value", false},
 		// Escaped \= produces literal = in resolved
 		// text. It's the first = so it's the split
-		// point — prevents bypass of flag=value
+		// point - prevents bypass of flag=value
 		// splitting via backslash escaping.
 		{"escaped equals is split point",
 			litWord(`--action\=exec=ssh`),

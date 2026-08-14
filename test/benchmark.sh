@@ -577,7 +577,7 @@ f_awk=$(_prepare awk "$cmd")
 
 # 7. Many command substitutions
 # Targets: CmdSubst extraction from argument word
-# parts — each $() spawns a sub-parse through
+# parts - each $() spawns a sub-parse through
 # extractSubsFromWord/extractSubsFromPart and its
 # inner commands are extracted independently.
 read -r -d '' cmd <<'BENCH' || true
@@ -586,7 +586,7 @@ BENCH
 f_subs=$(_prepare subs "$cmd")
 
 # 8. Large case statement
-# Targets: CaseClause with many items — each item's
+# Targets: CaseClause with many items - each item's
 # patterns are walked for CmdSubst, each body is
 # processed at conditional scope, many extracted
 # commands from all branches.
@@ -645,7 +645,7 @@ BENCH
 f_funcs=$(_prepare funcs "$cmd")
 
 # 10. File scanning (8 scripts, ~270 lines)
-# Targets: scanFile path — the hook reads, parses,
+# Targets: scanFile path - the hook reads, parses,
 # and recursively extracts commands from real files
 # on disk. deploy.sh invokes 6 scripts, one of
 # which invokes 2 more (3 levels of nesting).

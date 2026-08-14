@@ -119,7 +119,7 @@ func (p *FullParser) Parse(
 			continue
 		}
 
-		// Non-equals flag — resolve text for map
+		// Non-equals flag - resolve text for map
 		// lookup and prefix matching.
 		text := word.Text(args[i])
 
@@ -151,7 +151,7 @@ func (p *FullParser) Parse(
 			continue
 		}
 
-		// Prefix match: -n5 → "-n", Word("5").
+		// Prefix match: -n5 -> "-n", Word("5").
 		if flagName, vw, ok :=
 			p.matchPrefix(args[i]); ok {
 			result.Flags = append(result.Flags,
@@ -163,8 +163,8 @@ func (p *FullParser) Parse(
 		}
 
 		// Combined short flags: split -uBs into
-		// -u + -B + -s. Only for static words —
-		// opaque content can't be reliably split.
+		// -u + -B + -s. Only for static words.
+		// Opaque content can't be reliably split.
 		if word.Static(args[i]) &&
 			len(text) > 2 &&
 			text[0] == '-' && text[1] != '-' {

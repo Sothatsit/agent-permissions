@@ -150,7 +150,7 @@ func TestPathAllowBareCommandReplaces(t *testing.T) {
 	if !called {
 		t.Error("breakdown should have been called")
 	}
-	// Bare (no path) should still replace — only
+	// Bare (no path) should still replace - only
 	// path-invoked keeps the outer command.
 	for _, cmd := range result.Commands {
 		args := word.Texts(cmd.Args)

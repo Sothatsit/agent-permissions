@@ -46,7 +46,7 @@ func (r *Resolved) Breakdown(
 // cwd is the project directory. Either may be empty;
 // missing files are silently skipped.
 //
-// Normal-source priority, highest → lowest (the order
+// Normal-source priority, highest -> lowest (the order
 // Permissions.Sources lands in):
 //  1. <cwd>/.claude/settings.local.json
 //  2. <cwd>/.claude/settings.json
@@ -96,7 +96,7 @@ func (snapshot *PolicySnapshot) Resolve(
 	rules.FilterByConfig(
 		registry, snippetRules, ruleConfig)
 
-	// Build sources highest → lowest priority. Each
+	// Build sources highest -> lowest priority. Each
 	// source-load may return ConfigWarnings for malformed
 	// entries; they accumulate into Permissions.Warnings.
 	var sources []SourcePerms
@@ -465,8 +465,8 @@ func globLanguagesOverlap(a, b string) bool {
 
 // selectPresets returns the presets from all (kept in the
 // given order) selected by the most-specific agent config
-// that specifies preset selection — local, else project,
-// else global — otherwise every preset. `enabled-presets`
+// that specifies preset selection - local, else project,
+// else global - otherwise every preset. `enabled-presets`
 // narrows ordinary external and embedded presets to a
 // whitelist; `disabled-presets` then filters that result.
 // Enforced presets are always retained.
@@ -515,7 +515,7 @@ func selectPresets(
 // overrides apply. Enforced Enabled:true entries apply last,
 // locking those rules on. External validation rejects
 // Enabled:false in enforced presets. Claude settings.json
-// does not participate — rule config is an agent-permissions
+// does not participate - rule config is an agent-permissions
 // concept kept in the shared layers, which is what makes it
 // identical across harnesses.
 func resolveRuleConfig(
@@ -627,7 +627,7 @@ func fromAgentConfig(
 // wrapped as `Bash(...)`; non-Bash wrappers (Edit, Read,
 // WebFetch, etc.) are skipped via extractBashPattern
 // without warning since they're valid Claude Code entries
-// for other tools. Reasons are always empty here — the
+// for other tools. Reasons are always empty here - the
 // Claude Code schema has no slot for them. EnvVars cannot
 // be expressed in Claude Code settings.
 func loadClaudeSettings(
@@ -753,7 +753,7 @@ func parseTier(
 	return t, warnings
 }
 
-// appendCommandMap parses a pattern→reason map into
+// appendCommandMap parses a pattern->reason map into
 // Patterns with the reason attached. Order is unstable
 // across runs (Go map iteration), so the result is sorted
 // by Raw for deterministic output.
@@ -780,7 +780,7 @@ func appendCommandMap(
 	return into, warnings
 }
 
-// appendEnvVarMap parses an env var pattern→reason map.
+// appendEnvVarMap parses an env var pattern->reason map.
 // Same ConfigWarning treatment as commands. Sorted by Raw.
 func appendEnvVarMap(
 	warnings []ConfigWarning,
@@ -807,7 +807,7 @@ func appendEnvVarMap(
 // appendParsedClaude parses Claude Code Bash(...) entries.
 // Malformed Bash() bodies (e.g. missing close paren) emit
 // a warning; non-Bash wrappers (Read, Edit, WebFetch) are
-// silently skipped — they target other tools.
+// silently skipped - they target other tools.
 func appendParsedClaude(
 	warnings []ConfigWarning,
 	source string,
@@ -843,7 +843,7 @@ func appendParsedClaude(
 
 // sortPatterns sorts in place by Raw for deterministic
 // output. The reason text shown to the user (and asserted
-// on by tests) is the first matching pattern's Raw — map
+// on by tests) is the first matching pattern's Raw - map
 // iteration in the loader makes the order non-
 // deterministic without this.
 func sortPatterns(patterns []Pattern) {
@@ -853,7 +853,7 @@ func sortPatterns(patterns []Pattern) {
 }
 
 // sortEnvVarPatterns sorts env-var patterns by Raw for
-// the same reason sortPatterns does — map iteration in
+// the same reason sortPatterns does - map iteration in
 // the loader makes order non-deterministic.
 func sortEnvVarPatterns(patterns []EnvVarPattern) {
 	sort.Slice(patterns, func(i, j int) bool {

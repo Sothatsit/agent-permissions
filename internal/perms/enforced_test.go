@@ -17,7 +17,7 @@ func commandSource(
 	src := SourcePerms{Name: name}
 	switch decision {
 	case model.Undecided:
-		// A source that matches nothing — the way a plane
+		// A source that matches nothing - the way a plane
 		// expresses "no opinion".
 	case model.Allow:
 		src.Allow.Commands = []Pattern{pat}

@@ -36,8 +36,8 @@ func TestPresetRuleIDsAreValid(t *testing.T) {
 }
 
 // Every catalog rule must be owned by exactly one preset.
-// Owned by zero → the rule ships permanently off (default
-// install stops denying it). Owned by two → ambiguous
+// Owned by zero -> the rule ships permanently off (default
+// install stops denying it). Owned by two -> ambiguous
 // ownership, and disabling one preset wouldn't fully turn it
 // off.
 func TestEveryRuleOwnedByExactlyOnePreset(t *testing.T) {
@@ -83,7 +83,7 @@ func TestPresetPatternsAvoidRuleOwnedCommands(t *testing.T) {
 }
 
 // A default install (all presets, no user config) must
-// resolve every catalog rule to Enabled — matching the
+// resolve every catalog rule to Enabled - matching the
 // behaviour before rules were configurable.
 func TestDefaultInstallEnablesEveryRule(t *testing.T) {
 	rc := resolveRuleConfig(

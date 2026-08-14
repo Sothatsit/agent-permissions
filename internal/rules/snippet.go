@@ -226,7 +226,7 @@ func hasUnescapedPrefix(text, prefix string) bool {
 // --- Builder ---
 
 // matchBuilder wraps a check function so you can call
-// .Deny(reason) to produce a SnippetRule — same pattern
+// .Deny(reason) to produce a SnippetRule - same pattern
 // as model.RuleBuilder for command rules.
 type matchBuilder struct {
 	check func(code string) bool
@@ -247,7 +247,7 @@ func (b matchBuilder) Deny(
 // (SKIP/FAIL) so patterns only match in code, not inside
 // strings. Comments should already be stripped by the
 // caller. Patterns must use only non-capturing groups
-// (?:) — a capturing () would shift group numbering
+// (?:) - a capturing () would shift group numbering
 // and silently break the SKIP/FAIL detection.
 func (s *langSyntax) match(
 	pattern string,
@@ -269,7 +269,7 @@ func (s *langSyntax) match(
 			if loc == nil {
 				return false
 			}
-			// Group 1 matched — pattern found
+			// Group 1 matched - pattern found
 			// outside a string literal.
 			if loc[2] >= 0 {
 				return true

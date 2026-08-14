@@ -21,7 +21,7 @@ var syntaxPython = &langSyntax{
 var pythonFlags = []model.FlagDef{
 	{Name: "--version"}, {Name: "--help"},
 	{Name: "-OO"},
-	// Terminal flags — remaining args belong to the
+	// Terminal flags - remaining args belong to the
 	// script/module, not to Python.
 	{Name: "-c", Arg: true, Terminal: true},
 	{Name: "-m", Arg: true, Terminal: true},

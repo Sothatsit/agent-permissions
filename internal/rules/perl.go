@@ -11,7 +11,7 @@ var syntaxPerl = &langSyntax{
 	Quotes: []quoteDef{
 		{Delim: `"`},
 		{Delim: `'`},
-		// Backticks are NOT quotes — they are
+		// Backticks are NOT quotes - they are
 		// shell execution syntax that we want to
 		// detect.
 	},
@@ -71,7 +71,7 @@ func perlInterpolationContents(code string) []string {
 // --- Snippet matching ---
 
 // perlBareCall matches bare function calls (system,
-// exec) while avoiding $-prefixed variables — $ is a
+// exec) while avoiding $-prefixed variables - $ is a
 // sigil in Perl, not a word boundary.
 func perlBareCall(names ...string) matchBuilder {
 	return syntaxPerl.match(

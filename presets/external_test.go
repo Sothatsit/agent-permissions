@@ -419,7 +419,7 @@ func countName(ps []*Preset, name string) int {
 	return n
 }
 
-// A name collision must never stop the policy loading — that
+// A name collision must never stop the policy loading - that
 // would block every Bash call. Both presets stay active and
 // DuplicateNames reports the collision for validate.
 func TestAllKeepsDuplicateOfEmbedded(t *testing.T) {

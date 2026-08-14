@@ -11,8 +11,8 @@ import (
 // These tests pin the intended behaviour of the wrapper /
 // transform restructure (F1/F2/F3): every place that
 // reconstructs or transforms a node for re-analysis must carry
-// all of the node's execution-relevant parts — redirects,
-// env assignments, and the inner command — or fail closed.
+// all of the node's execution-relevant parts - redirects,
+// env assignments, and the inner command - or fail closed.
 //
 // Written failing-first. Cases that should DENY assert a
 // breakdown error (the breakdown layer's deny). Cases that
@@ -226,7 +226,7 @@ func TestSimpleExecWrappersExtractInner(t *testing.T) {
 }
 
 func TestExecRedirectOnlyIsSafe(t *testing.T) {
-	// `exec > log` only redirects the current shell — no command.
+	// `exec > log` only redirects the current shell - no command.
 	br, err := wbd(t, `exec > /tmp/log`)
 	if err != nil {
 		t.Fatalf("exec >log: unexpected error: %v", err)
@@ -236,7 +236,7 @@ func TestExecRedirectOnlyIsSafe(t *testing.T) {
 	}
 }
 
-// === Tier 3: gnarly wrappers — unwrap clearly-safe forms,
+// === Tier 3: gnarly wrappers - unwrap clearly-safe forms,
 // fail closed on the rest. ===
 
 func TestChrootExtractsInner(t *testing.T) {

@@ -73,7 +73,7 @@ func TestAllowDoesNotMatchOutOfPathAbsolute(t *testing.T) {
 	p := pathPerms(t,
 		[]string{"/usr/bin"}, []string{"git:*"}, nil)
 	// /tmp/evil is not on PATH, so the bare-name Allow must
-	// not fire — the agent typed a binary the shell wouldn't
+	// not fire - the agent typed a binary the shell wouldn't
 	// have resolved to the trusted git.
 	if got := pathDecide(
 		p, "/tmp/evil/git", "status",

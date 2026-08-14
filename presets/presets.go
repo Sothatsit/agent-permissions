@@ -2,7 +2,7 @@
 // presets that ship with agent-permissions. The JSON files
 // in this directory are embedded into the binary at build
 // time and parsed once at startup, so the binary is
-// self-contained — `go install` alone is enough to use it.
+// self-contained - `go install` alone is enough to use it.
 //
 // On parse the package validates that every key is known;
 // bad data here is a build-time error rather than a
@@ -28,8 +28,8 @@ import (
 var fsys embed.FS
 
 // TierEntries is one tier of a preset, holding entries by
-// tool axis. The shape mirrors agentconfig.TierEntries —
-// presets and user permission files use the same JSON.
+// tool axis. The shape mirrors agentconfig.TierEntries.
+// Presets and user permission files use the same JSON.
 type TierEntries struct {
 	Commands map[string]string `json:"Commands,omitempty"`
 	EnvVars  map[string]string `json:"EnvVars,omitempty"`
@@ -109,7 +109,7 @@ func Embedded() ([]*Preset, error) {
 }
 
 // MustEmbedded is Embedded but panics on parse error.
-// Used by the hook on the hot path — a parse failure here
+// Used by the hook on the hot path - a parse failure here
 // means the binary was built with broken JSON, not a
 // recoverable runtime condition.
 func MustEmbedded() []*Preset {
@@ -145,7 +145,7 @@ func Names() []string {
 // PresetDirsEnv names extra directories of preset JSON
 // files, colon-separated like PATH. It lets a site ship
 // organisation-wide policy alongside its own tooling
-// (rather than editing users' config files) — the
+// (rather than editing users' config files) - the
 // installer or launch wrapper sets the variable and the
 // presets load like any other preset.
 const PresetDirsEnv = "AGENT_PERMISSIONS_PRESET_DIRS"
@@ -159,7 +159,7 @@ const EnforcedPresetDirsEnv = "AGENT_PERMISSIONS_ENFORCED_PRESET_DIRS"
 // EnforcedPresetsEnv names already-available presets to move
 // into the enforced plane, comma-separated. It exists for the
 // presets a site does not ship and so cannot place in an
-// enforced directory — the embedded topics above all. Naming
+// enforced directory - the embedded topics above all. Naming
 // `escape-hatches` makes its denials a floor no user config can
 // weaken; naming a topic with Rules locks those rules on.
 //
@@ -190,8 +190,8 @@ func Enforced() ([]*Preset, error) {
 // directories. Presets are returned in list order, and in
 // filename order within each directory. Empty list entries
 // and repeats of a directory already loaded are skipped
-// (PATH convention); anything else that fails — unreadable
-// directory, malformed or misnamed JSON — is an error.
+// (PATH convention); anything else that fails - unreadable
+// directory, malformed or misnamed JSON - is an error.
 func LoadDirs(list string) ([]*Preset, error) {
 	return loadDirs(list, false, PresetDirsEnv)
 }
@@ -200,8 +200,8 @@ func loadDirs(
 	list string, enforced bool, envName string,
 ) ([]*Preset, error) {
 	var out []*Preset
-	// Keyed by resolved path so a repeat spelled differently
-	// — a symlink, a trailing slash, "." segments — is still
+	// Keyed by resolved path so equivalent spellings, such as
+	// symlinks, trailing slashes, or "." segments, are still
 	// recognised as the same directory.
 	seen := map[string]bool{}
 	for _, dir := range strings.Split(list, ":") {
@@ -253,8 +253,8 @@ func loadDirs(
 // separate policy plane; the ordering here supplies normal
 // priority and stable enforced attribution.
 //
-// Two directories may supply the same preset name — a dev
-// checkout beside a deployed tree is the ordinary case — and
+// Two directories may supply the same preset name - a dev
+// checkout beside a deployed tree is the ordinary case - and
 // both stay active. Refusing to load would block every Bash
 // call over a name collision, which is a far worse failure
 // than the ambiguity it prevents: matching entries combine by

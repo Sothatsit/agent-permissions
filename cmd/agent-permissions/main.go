@@ -16,8 +16,8 @@
 // Top-level exit codes:
 //
 //	0 - subcommand completed successfully
-//	2 - usage error or internal failure (fail closed —
-//	    Claude Code blocks the tool when the hook exits 2)
+//	2 - usage error or internal failure. This fails closed
+//	    because Claude Code blocks the tool when the hook exits 2.
 package main
 
 import (
@@ -171,7 +171,7 @@ func runClaudeHook() error {
 	permissions := resolved.Permissions
 	// claude-hook is the Claude-Code-bound entrypoint, so
 	// swap the loader's Placeholder harness for the real
-	// one — the user-visible text will reference
+	// one - the user-visible text will reference
 	// /permissions etc.
 	permissions.Harness = harness.ClaudeCode{}
 
@@ -213,7 +213,7 @@ func runClaudeHook() error {
 		return writeDecision(model.Deny, result.Reason)
 	case model.Undecided:
 		// Truly no opinion (e.g. bare assignment,
-		// suspicious env vars) — always fall through
+		// suspicious env vars) - always fall through
 		// to Claude Code's own prompt.
 		return nil
 	}

@@ -67,7 +67,7 @@ func breakdownBash(
 			continue
 		}
 		// Found -c. Only extract when -c is the sole
-		// flag — other flags (--rcfile, --init-file,
+		// flag - other flags (--rcfile, --init-file,
 		// -i, etc.) can source arbitrary code before
 		// the -c body runs.
 		for _, other := range input.PossibleFlags {
@@ -94,7 +94,7 @@ func breakdownBash(
 	// must be a non-flag positional (e.g.
 	// "bash script.sh"). If there are any flags before
 	// the positional (e.g. "bash -x script.sh"), we
-	// can't verify the invocation — fall through to the
+	// can't verify the invocation - fall through to the
 	// rules layer deny.
 	if len(input.Raw) == 0 {
 		return model.FallThrough(), nil

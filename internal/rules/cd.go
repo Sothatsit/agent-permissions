@@ -12,7 +12,7 @@ import (
 // marks the directory as unknown.
 //
 // Only cd gets the safe treatment. pushd/popd also
-// route here but always mark unknown — popd depends
+// route here but always mark unknown - popd depends
 // on stack state we can't track, and treating pushd
 // differently from popd would leave the pair
 // inconsistent.

@@ -5,11 +5,11 @@
 // a tri-state Match value: Yes, No, or Maybe. The caller
 // chooses the threshold:
 //
-//   - == Yes: strict — only when the value is certain.
+//   - == Yes: strict - only when the value is certain.
 //     Use for structural parsing where correctness
 //     requires knowing the exact value (e.g. detecting
 //     "--" separator, "-exec" in find).
-//   - != No: conservative — matches unless we're certain
+//   - != No: conservative - matches unless we're certain
 //     it doesn't. Use for deny/ask rules where false
 //     positives are safe but false negatives are not
 //     (e.g. checking if a flag value contains "exec=").
@@ -57,7 +57,7 @@ func Text(w *syntax.Word) string {
 		return ""
 	}
 	// Fast path: single Lit (the overwhelmingly common
-	// case — plain args like "ls", "-la", "foo.txt")
+	// case - plain args like "ls", "-la", "foo.txt")
 	// or single non-dollar SglQuoted ('hello').
 	if len(w.Parts) == 1 {
 		if lit, ok := w.Parts[0].(*syntax.Lit); ok {
@@ -91,7 +91,7 @@ func writePartText(
 		b.WriteString(UnescapeBackslashes(p.Value))
 	case *syntax.SglQuoted:
 		if p.Dollar {
-			// ANSI-C quoting — can't resolve escape
+			// ANSI-C quoting - can't resolve escape
 			// sequences; use printer for source form.
 			printer.Print(b, p)
 		} else {
@@ -102,7 +102,7 @@ func writePartText(
 			writePartText(b, inner)
 		}
 	default:
-		// ParamExp, CmdSubst, etc. — use printer
+		// ParamExp, CmdSubst, etc. - use printer
 		// for source representation.
 		printer.Print(b, part)
 	}
@@ -205,8 +205,8 @@ func partOpaqueReason(part syntax.WordPart) string {
 }
 
 // ExpansionReason returns a human-readable reason if the
-// Word contains variable expansion or ANSI-C quoting —
-// content whose runtime value differs from the source
+// Word contains variable expansion or ANSI-C quoting.
+// This content's runtime value differs from the source
 // representation returned by Text. Returns "" when the
 // Word has no expansion. CmdSubst is NOT flagged: its
 // source form ($(...)) is preserved by Text and
@@ -253,7 +253,7 @@ type Match int
 
 const (
 	No    Match = iota // definitely does not match
-	Maybe              // can't determine — opaque content
+	Maybe              // can't determine - opaque content
 	Yes                // definitely matches
 )
 
@@ -318,7 +318,7 @@ func HasPrefix(w *syntax.Word, s string) Match {
 
 // Contains checks whether the Word's text contains s.
 // Single-part fast path avoids allocation. For multi-part
-// words, checks each static part individually — finding
+// words, checks each static part individually - finding
 // s in any part returns Yes even if the word has opaque
 // parts elsewhere. Falls back to Text() only for
 // cross-part boundary matches in fully-static words.
@@ -342,7 +342,7 @@ func Contains(w *syntax.Word, s string) Match {
 		}
 	}
 	// Check each part individually. If any static
-	// part contains s, return Yes — s is definitely
+	// part contains s, return Yes - s is definitely
 	// present regardless of opaque parts elsewhere.
 	hasOpaque := false
 	for _, part := range w.Parts {
@@ -555,7 +555,7 @@ func litHasPrefix(litVal, s string) bool {
 
 // partContains checks whether a single part's resolved
 // text contains s. Does not check cross-part boundaries
-// within DblQuoted — the caller handles that via the
+// within DblQuoted - the caller handles that via the
 // Text() fallback for fully-static words.
 func partContains(
 	part syntax.WordPart, s string,
@@ -654,7 +654,7 @@ func MayHavePrefix(w *syntax.Word, s string) bool {
 // \= in the raw Lit is a literal = in the resolved text
 // and is a valid split point. Returns the flag name text
 // and a synthetic Word for the value. The value Word
-// preserves the original structure — if the value
+// preserves the original structure - if the value
 // contains ParamExp or CmdSubst, they appear intact
 // (e.g. --flag=$VALUE produces name="--flag" and a
 // value Word containing the ParamExp).
@@ -673,7 +673,7 @@ func SplitEq(
 	}
 	// Find the first = in the resolved text. An
 	// escaped \= produces a literal = and is a valid
-	// split point — nameEnd is the raw position of
+	// split point - nameEnd is the raw position of
 	// the \, valueStart is the position after the =.
 	nameEnd := -1
 	valueStart := -1
@@ -707,7 +707,7 @@ func SplitEq(
 	}
 	valueParts = append(valueParts, w.Parts[1:]...)
 	if len(valueParts) == 0 {
-		// --flag= with nothing after — empty value.
+		// --flag= with nothing after - empty value.
 		valueParts = []syntax.WordPart{
 			&syntax.Lit{Value: ""},
 		}
@@ -755,7 +755,7 @@ func SplitPrefix(
 
 // DirectPath returns a path suitable for direct
 // execution. Prepends "./" for relative paths (e.g.
-// "script.sh" → "./script.sh") but leaves absolute
+// "script.sh" -> "./script.sh") but leaves absolute
 // paths unchanged.
 func DirectPath(path string) string {
 	if filepath.IsAbs(path) {

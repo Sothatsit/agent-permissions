@@ -216,7 +216,7 @@ func (b *breaker) sourcePathStr() string {
 // Def; when that rule is off, the denial is dropped and the
 // command falls through to the permissions layer. Plain
 // errors (parse failures with no governing rule, unsupported
-// syntax) carry no Def and are never suppressed — they fail
+// syntax) carry no Def and are never suppressed - they fail
 // closed.
 func (b *breaker) suppressDisabled(err error) bool {
 	var re *model.RuleError
@@ -297,7 +297,7 @@ func (b *breaker) runBreakdown(
 		input, &b.State)
 	if err != nil {
 		// A breakdown denial attributed to a disabled rule
-		// is dropped — the command falls through to the
+		// is dropped - the command falls through to the
 		// permissions layer instead of being denied.
 		if b.suppressDisabled(err) {
 			return fallThrough, nil
@@ -469,7 +469,7 @@ func (b *breaker) scanFile(
 		return model.BreakdownResult{}, err
 	}
 
-	// Already processed or in-progress — skip silently.
+	// Already processed or in-progress - skip silently.
 	// This handles circular source chains and diamond
 	// patterns (A sources B and C, both source D).
 	if b.Visited[realPath] {
@@ -597,10 +597,10 @@ func (b *breaker) processCommand(
 	case *syntax.BinaryCmd:
 		return b.processBinaryCmd(c, depth)
 	case *syntax.Subshell:
-		// Subshell runs in a child process — cd and
+		// Subshell runs in a child process - cd and
 		// function definitions don't propagate out.
 		// Not conditional (always executes), so don't
-		// increment ConditionalDepth — that would
+		// increment ConditionalDepth - that would
 		// disable cd tracking inside the subshell.
 		restore := b.isolateShellState(childStartsFresh)
 		r, err := b.processStmts(c.Stmts, depth)
@@ -619,7 +619,7 @@ func (b *breaker) processCommand(
 	case *syntax.CaseClause:
 		return b.processCaseClause(c, depth)
 	case *syntax.TestClause:
-		// [[ ... ]] — operands can contain command subs.
+		// [[ ... ]] - operands can contain command subs.
 		result, err := b.extractSubsFromNode(c, quotedTextLiteral)
 		if err != nil {
 			return model.BreakdownResult{}, err
@@ -628,7 +628,7 @@ func (b *breaker) processCommand(
 		result.Safe = true
 		return result, nil
 	case *syntax.ArithmCmd:
-		// (( ... )) — operands can contain command subs.
+		// (( ... )) - operands can contain command subs.
 		result, err := b.extractSubsFromNode(
 			c, quotedTextArithmetic)
 		if err != nil {
@@ -639,14 +639,14 @@ func (b *breaker) processCommand(
 		return result, nil
 	case *syntax.TimeClause:
 		// Bash's `time` keyword is a separate AST node, not a
-		// command — the parser puts the timed statement in
+		// command - the parser puts the timed statement in
 		// TimeClause.Stmt. That statement carries its own
 		// redirections and assignments; the keyword's only
 		// option, -p, is absorbed into TimeClause.PosixFormat,
 		// so the statement holds no time flags. Process the
 		// statement directly through processStmt so its
 		// redirections (e.g. > /dev/tcp/...) and the command
-		// substitutions in their targets are checked — a
+		// substitutions in their targets are checked - a
 		// reconstructed bare CallExpr would silently drop them.
 		// External /usr/bin/time is a normal CallExpr handled
 		// by the `time` wrapper. Bare `time` is a safe no-op.
@@ -660,7 +660,7 @@ func (b *breaker) processCommand(
 		if b.ConditionalDepth == 0 {
 			b.Funcs[c.Name.Value] = true
 		}
-		// Function body is conditional scope — it only
+		// Function body is conditional scope - it only
 		// runs when the function is called, not at
 		// definition time. Nested function definitions
 		// inside the body are not added to funcs.
@@ -787,7 +787,7 @@ func (b *breaker) processCallExprWithExpansion(
 
 	// Extract command substitutions from args (e.g.
 	// $(evil) inside an argument needs its own check).
-	// Store the original Words on the Command — text
+	// Store the original Words on the Command - text
 	// resolution happens lazily in the perms layer.
 	for i, word := range ce.Args {
 		if expansion == expansionScanned {
@@ -811,7 +811,7 @@ func (b *breaker) processCallExprWithExpansion(
 	if b.Funcs[baseName] && !hasPath {
 		if b.SawUnsetF {
 			// The function was defined but unset -f was
-			// seen — we can't verify which functions
+			// seen - we can't verify which functions
 			// still exist at runtime. Deny so the agent
 			// can fix the script or use ./script.sh.
 			return model.BreakdownResult{}, fmt.Errorf(
@@ -972,7 +972,7 @@ func (b *breaker) processBinaryCmd(
 ) (model.BreakdownResult, error) {
 	switch bc.Op {
 	case syntax.Pipe, syntax.PipeAll:
-		// Both sides always execute in subshells — cd
+		// Both sides always execute in subshells - cd
 		// and function definitions don't propagate out.
 		// Not conditional (both sides always run), so
 		// don't increment ConditionalDepth.
@@ -1014,7 +1014,7 @@ func (b *breaker) processBinaryCmd(
 		return left, nil
 
 	case syntax.OrStmt:
-		// Right side only runs when left failed — if
+		// Right side only runs when left failed - if
 		// left changed cwd, we can't trust it for the
 		// right side.
 		left, err := b.processStmt(bc.X, depth)
@@ -1142,7 +1142,7 @@ func (b *breaker) processCaseClause(
 
 		result.Merge(inner)
 	}
-	// Check all arms — both patterns and bodies. Each arm
+	// Check all arms - both patterns and bodies. Each arm
 	// is conditional (only the matching arm executes).
 	for _, item := range cc.Items {
 		for _, pattern := range item.Patterns {
@@ -1229,8 +1229,8 @@ func (b *breaker) extractSubsFromNode(
 			// quotes cannot split a substitution token across AST parts.
 			return false
 		case *syntax.CmdSubst:
-			// Command substitutions run in a subshell —
-			// cd doesn't propagate out.
+			// Command substitutions run in a subshell.
+			// Changes to cwd don't propagate out.
 			restore := b.isolateShellState(childInheritsFunctions)
 			inner, err := b.processStmts(c.Stmts, 0)
 			restore()
@@ -1241,8 +1241,8 @@ func (b *breaker) extractSubsFromNode(
 			result.Merge(inner)
 			return false
 		case *syntax.ProcSubst:
-			// Process substitutions run in a subshell
-			// — cd doesn't propagate out.
+			// Process substitutions run in a subshell.
+			// Changes to cwd don't propagate out.
 			restore := b.isolateShellState(childInheritsFunctions)
 			inner, err := b.processStmts(c.Stmts, 0)
 			restore()
@@ -1581,7 +1581,7 @@ func (b *breaker) processRedirect(
 // via /dev/tcp/host/port and /dev/udp/host/port. These
 // are bash built-ins that open network sockets, bypassing
 // curl/wget/ssh deny rules. Strict: opaque targets (e.g.
-// > "$outfile") are allowed — these paths are always
+// > "$outfile") are allowed - these paths are always
 // written literally.
 func checkNetworkRedirect(w *syntax.Word) error {
 	if word.DefinitelyHasPrefix(w, "/dev/tcp/") ||
@@ -1653,7 +1653,7 @@ func resolveCommandName(w *syntax.Word) (string, error) {
 
 	result := word.UnescapeBackslashes(name.String())
 
-	// Reject glob characters in command names — they expand
+	// Reject glob characters in command names - they expand
 	// unpredictably. Exception: bare "[" is the test builtin.
 	if result != "[" && strings.ContainsAny(result, "*?[") {
 		return "", fmt.Errorf(

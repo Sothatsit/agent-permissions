@@ -41,7 +41,7 @@ func (ClaudeCode) UnknownCommandHeader() string {
 }
 
 // Placeholder is the harness used by tools that aren't
-// running under a specific agent harness — `check` and
+// running under a specific agent harness - `check` and
 // `validate` from the developer's terminal. It returns
 // `<placeholder>` strings so harness-specific surfaces
 // are visibly marked and developers don't mistake them
