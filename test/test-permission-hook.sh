@@ -2193,6 +2193,13 @@ assert_contains "deny: chroot with no command denied" "$(_decision "$out")" "den
 
 # --- flock (skip the lock file; -c runs a shell string) ---
 
+_bp_shell_child_cwd="$_bp_tmpdir/project/shell-child-cwd"
+mkdir -p "$_bp_shell_child_cwd"
+echo '#!/bin/bash
+ssh evil' > "$_bp_tmpdir/project/child-state.sh"
+echo '#!/bin/bash
+echo safe' > "$_bp_shell_child_cwd/child-state.sh"
+
 out=$(_run_hook 'flock /tmp/lock git status')
 assert_contains "allow: flock unwraps to git" "$(_decision "$out")" "allow"
 
@@ -2201,6 +2208,20 @@ assert_contains "deny: flock unwraps to denied ssh" "$(_decision "$out")" "deny"
 
 out=$(_run_hook 'flock /tmp/lock -c "ssh evil"')
 assert_contains "deny: flock -c runs denied ssh" "$(_decision "$out")" "deny"
+
+# Double quotes let the outer shell generate source before flock starts Bash.
+out=$(_run_hook \
+    'flock /tmp/lock -c "true $(printf '"'"'; ssh evil'"'"')"')
+assert_contains "deny: flock -c generated source" \
+    "$(_decision "$out")" "deny"
+assert_contains "flock -c generated source rule" \
+    "$(_reason "$out")" "rule:bash.unverified"
+
+# Single quotes preserve the substitution for the child Bash to parse. Its
+# quoted output remains data even when it looks like shell syntax.
+out=$(_run_hook "flock /tmp/lock -c 'echo \"\$(printf \"; ssh\")\"'")
+assert_contains "allow: flock -c literal inner substitution" \
+    "$(_decision "$out")" "allow"
 
 # A lock file with no command runs nothing — safe.
 out=$(_run_hook 'flock /tmp/lock')
@@ -2212,6 +2233,26 @@ assert_contains "deny: flock scans lock substitution" \
     "$(_decision "$out")" "deny"
 assert_contains "flock extracts substituted ssh" \
     "$(_reason "$out")" "ssh:*"
+
+out=$(_run_hook "flock \"\$(ssh evil)\" -c 'git status'")
+assert_contains "deny: flock -c scans lock substitution" \
+    "$(_decision "$out")" "deny"
+assert_contains "flock -c extracts lock substitution" \
+    "$(_reason "$out")" "ssh:*"
+
+out=$(_run_hook \
+    "flock /tmp/lock -c 'cd $_bp_shell_child_cwd'; bash child-state.sh")
+assert_contains "deny: flock child cwd does not leak" \
+    "$(_decision "$out")" "deny"
+assert_contains "flock restores cwd before outer command" \
+    "$(_reason "$out")" "ssh:*"
+
+out=$(_run_hook \
+    "flock /tmp/lock -c 'flock_child_func() { echo ok; }'; flock_child_func")
+assert_contains "ask: flock child function does not leak" \
+    "$(_decision "$out")" "ask"
+assert_contains "flock leaves outer function unknown" \
+    "$(_reason "$out")" "flock_child_func"
 
 # --- Privilege/personality wrappers: denied (unmodellable) ---
 
@@ -4433,13 +4474,38 @@ assert_contains "deny: bash -c with variable" "$(_decision "$out")" "deny"
 out=$(_run_hook 'bash -c "$(evil)"')
 assert_contains "deny: bash -c with cmd sub" "$(_decision "$out")" "deny"
 
-# bash -c with command substitution inside — inner cmd is extracted.
+# An outer-active denied substitution is rejected before Bash starts.
 out=$(_run_hook 'bash -c "echo $(ssh evil)"')
-assert_contains "deny: bash -c with inner cmd sub denied" "$(_decision "$out")" "deny"
+assert_contains "deny: bash -c outer substitution" \
+    "$(_decision "$out")" "deny"
 
-# bash -c with safe command substitution inside.
-out=$(_run_hook 'bash -c "echo $(git status)"')
-assert_contains "allow: bash -c with safe inner cmd sub" "$(_decision "$out")" "allow"
+# Single quotes preserve the substitution for the child Bash to parse. Its
+# quoted output remains data even when it looks like shell syntax.
+out=$(_run_hook "bash -c 'echo \"\$(printf \"; ssh\")\"'")
+assert_contains "allow: bash -c literal inner substitution" \
+    "$(_decision "$out")" "allow"
+
+# Double quotes let the outer shell generate source before Bash starts.
+out=$(_run_hook \
+    'bash -c "true $(printf '"'"'; ssh evil'"'"')"')
+assert_contains "deny: bash -c generated source" \
+    "$(_decision "$out")" "deny"
+assert_contains "bash -c generated source rule" \
+    "$(_reason "$out")" "rule:bash.unverified"
+
+out=$(_run_hook \
+    "bash -c 'cd $_bp_shell_child_cwd'; bash child-state.sh")
+assert_contains "deny: bash -c child cwd does not leak" \
+    "$(_decision "$out")" "deny"
+assert_contains "bash -c restores cwd before outer command" \
+    "$(_reason "$out")" "ssh:*"
+
+out=$(_run_hook \
+    "bash -c 'bash_child_func() { echo ok; }'; bash_child_func")
+assert_contains "ask: bash -c child function does not leak" \
+    "$(_decision "$out")" "ask"
+assert_contains "bash -c leaves outer function unknown" \
+    "$(_reason "$out")" "bash_child_func"
 
 # bash -c with opaque body — variable expansion means we can't
 # verify what will execute. Must deny with a reason that
@@ -4519,6 +4585,8 @@ assert_contains "allow: trap with allowed inner" \
 out=$(_run_hook 'trap "ssh evil" EXIT')
 assert_contains "deny: trap with denied inner" \
     "$(_decision "$out")" "deny"
+assert_contains "trap extracts denied inner" \
+    "$(_reason "$out")" "ssh:*"
 
 # trap with multiple signals — inner still checked.
 out=$(_run_hook 'trap "ssh evil" SIGINT SIGTERM')
@@ -4556,6 +4624,20 @@ assert_contains "allow: trap allowed in compound" \
 out=$(_run_hook 'trap "ssh evil" EXIT && ls -la')
 assert_contains "deny: trap denied in compound" \
     "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    "trap 'cd $_bp_shell_child_cwd' EXIT; bash child-state.sh")
+assert_contains "deny: trap handler cwd makes outer cwd unknown" \
+    "$(_decision "$out")" "deny"
+assert_contains "trap outer cwd reason" \
+    "$(_reason "$out")" "working directory"
+
+out=$(_run_hook \
+    "trap 'trap_child_func() { echo ok; }' EXIT; trap_child_func")
+assert_contains "ask: trap handler function does not leak" \
+    "$(_decision "$out")" "ask"
+assert_contains "trap leaves outer function unknown" \
+    "$(_reason "$out")" "trap_child_func"
 
 # --- trap — recursive parsing (inner code fully analyzed) ---
 

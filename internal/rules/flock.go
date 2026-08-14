@@ -64,8 +64,12 @@ func breakdownFlock(
 		if len(rest) < 2 {
 			return model.Safe(), nil
 		}
+		code, err := verifyBashSource("flock -c", rest[1])
+		if err != nil {
+			return model.BreakdownOutcome{}, err
+		}
 		return model.ReplaceOuter(model.BreakdownWork{
-			CodeStrings: []string{word.Text(rest[1])},
+			CodeStrings: []string{code},
 		}), nil
 	}
 	return model.ReplaceOuter(model.BreakdownWork{

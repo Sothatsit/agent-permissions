@@ -77,7 +77,7 @@ var (
 	nodeCommandExec = defineRule("node.command-execution",
 		"node code that runs shell commands")
 	bashUnverified = defineRule("bash.unverified",
-		"bash/sh invocations that can't be verified")
+		"bash/sh invocations or Bash source that can't be verified")
 	pythonUnverified = defineRule("python.unverified",
 		"python invocations that can't be verified")
 	perlUnverified = defineRule("perl.unverified",

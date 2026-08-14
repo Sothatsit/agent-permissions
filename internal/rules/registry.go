@@ -394,8 +394,8 @@ func Registry() (
 		Unverified:      chrootUnverified,
 	}
 
-	// flock: skip the lock file, extract the inner command;
-	// flock FILE -c STR runs STR via a shell, re-parsed as code.
+	// flock: skip the lock file and extract the inner command.
+	// By policy, flock FILE -c STR treats static STR as Bash source.
 	r["flock"] = &model.CommandRules{
 		OwnsAllPatterns: true,
 		Parser:          flockParser,

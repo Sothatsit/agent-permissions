@@ -123,17 +123,17 @@ func TestOutcomesScanArgumentsOnce(t *testing.T) {
 		},
 		{
 			"code and command",
-			`wrapper "echo $(danger)" echo $(otherdanger)`,
+			`wrapper 'echo $(danger)' echo $(otherdanger)`,
 			codeAndCommand, 0, []string{"danger", "otherdanger"},
 		},
 		{
 			"nested code wrapper",
-			`wrapper consumed inner "echo $(danger)"`,
+			`wrapper consumed inner 'echo $(danger)'`,
 			outerCommand, 0, []string{"danger"},
 		},
 		{
 			"kept outer with nested code wrapper",
-			`wrapper consumed inner "echo $(danger)"`,
+			`wrapper consumed inner 'echo $(danger)'`,
 			outerKeepCommand, 0, []string{"danger"},
 		},
 	}

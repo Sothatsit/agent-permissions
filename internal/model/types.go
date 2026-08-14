@@ -285,7 +285,8 @@ type BreakdownWork struct {
 	// extracted from a single Word's resolved content
 	// (e.g. bash -c "code", eval args, trap code)
 	// where the Word's text representation includes
-	// quotes that shouldn't be in the code.
+	// quotes that shouldn't be in the code. The owner
+	// must reject opaque source before adding it here.
 	CodeStrings []string
 	// Assigns are environment-variable assignments the wrapper applies to its
 	// inner command (e.g. env NAME=val cmd). The framework records each name on

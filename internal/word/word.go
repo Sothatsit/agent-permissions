@@ -47,14 +47,11 @@ func FromStrings(ss []string) []*syntax.Word {
 
 // --- Text resolution ---
 
-// Text resolves a Word to its text representation. Static
-// content (Lit, SglQuoted, DblQuoted with only Lits)
-// returns the actual value. Opaque content (ParamExp,
-// CmdSubst) returns the source representation. Use this
-// only when you need a string for output or a contract
-// (e.g. flag names, error messages, pattern matching
-// against string patterns). For comparisons and matching,
-// prefer the strict or conservative operations below.
+// Text resolves a Word to text after literal quote and backslash removal.
+// Opaque content (ParamExp, CmdSubst) keeps its source representation. The
+// shell may still change the value through pathname, tilde, brace, or locale
+// expansion. Use this only at boundaries that need a string. For comparisons
+// and matching, prefer the strict or conservative operations below.
 func Text(w *syntax.Word) string {
 	if w == nil {
 		return ""
@@ -113,9 +110,9 @@ func writePartText(
 
 // --- Introspection ---
 
-// Static returns true if the Word contains no opaque
-// content (no ParamExp, CmdSubst, ANSI-C quoting, etc.).
-// When true, Text returns the exact runtime value.
+// Static reports whether a Word contains no opaque AST parts such as ParamExp,
+// CmdSubst, or ANSI-C quoting. It does not account for later pathname, tilde,
+// brace, or locale expansion.
 func Static(w *syntax.Word) bool {
 	if w == nil {
 		return true

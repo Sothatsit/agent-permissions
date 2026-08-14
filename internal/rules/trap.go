@@ -1,9 +1,26 @@
 package rules
 
 import (
+	"strings"
+
 	"github.com/sothatsit/agent-permissions/internal/model"
 	"github.com/sothatsit/agent-permissions/internal/word"
+
+	"mvdan.cc/sh/v3/syntax"
 )
+
+func trapDisplaysState(arg *syntax.Word) bool {
+	if !word.Static(arg) {
+		return false
+	}
+
+	text := word.Text(arg)
+	if len(text) < 2 || text[0] != '-' {
+		return false
+	}
+
+	return strings.Trim(text[1:], "lp") == ""
+}
 
 // breakdownTrap unwraps trap by extracting the code
 // string (first positional) for re-parsing. Bare trap,
@@ -19,8 +36,7 @@ func breakdownTrap(
 
 	// Strict: opaque first arg falls through to the
 	// static check below, which rejects it.
-	if word.DefinitelyEqual(input.Raw[0], "-l") ||
-		word.DefinitelyEqual(input.Raw[0], "-p") {
+	if trapDisplaysState(input.Raw[0]) {
 		return model.Safe(), nil
 	}
 
@@ -33,6 +49,11 @@ func breakdownTrap(
 	}
 
 	codeWord := input.Raw[codeIdx]
+	if codeIdx+1 >= len(input.Raw) {
+		// Without a signal, Bash reports usage and does not
+		// register or execute the action.
+		return model.Safe(), nil
+	}
 
 	// Empty string or "-" means ignore/reset signal.
 	if word.DefinitelyEqual(codeWord, "") ||

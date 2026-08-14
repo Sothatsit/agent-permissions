@@ -6,6 +6,7 @@ package breakdown
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"strings"
 
@@ -33,6 +34,13 @@ const (
 	expansionScanned
 )
 
+type childFunctions uint8
+
+const (
+	childStartsFresh childFunctions = iota
+	childInheritsFunctions
+)
+
 // breaker holds mutable state during a breakdown pass.
 type breaker struct {
 	model.State
@@ -44,12 +52,34 @@ type breaker struct {
 	parser *syntax.Parser
 }
 
-// saveCwd saves Cwd and CwdChanged and returns a restore
-// function. Used at subshell boundaries (pipes, command
-// subs, process subs) where cd shouldn't propagate out.
 func (b *breaker) saveCwd() func() {
-	saved, changed := b.Cwd, b.CwdChanged
-	return func() { b.Cwd = saved; b.CwdChanged = changed }
+	savedCwd := b.Cwd
+	savedCwdChanged := b.CwdChanged
+	return func() {
+		b.Cwd = savedCwd
+		b.CwdChanged = savedCwdChanged
+	}
+}
+
+// isolateShellState keeps cwd and function mutations inside a shell process
+// boundary.
+func (b *breaker) isolateShellState(functions childFunctions) func() {
+	savedCwd := b.Cwd
+	savedCwdChanged := b.CwdChanged
+	savedFuncs := b.Funcs
+	savedSawUnsetF := b.SawUnsetF
+	if functions == childStartsFresh {
+		b.Funcs = make(map[string]bool)
+	} else {
+		b.Funcs = maps.Clone(savedFuncs)
+	}
+	b.CwdChanged = false
+	return func() {
+		b.Cwd = savedCwd
+		b.CwdChanged = savedCwdChanged
+		b.Funcs = savedFuncs
+		b.SawUnsetF = savedSawUnsetF
+	}
 }
 
 // isolateForBash saves breaker state that should not leak
@@ -58,23 +88,67 @@ func (b *breaker) saveCwd() func() {
 // starts in the parent's directory) but changes inside
 // don't propagate out.
 func (b *breaker) isolateForBash() func() {
-	restoreCwd := b.saveCwd()
-	savedFuncs := b.Funcs
-	savedSawUnsetF := b.SawUnsetF
+	restoreShellState := b.isolateShellState(childStartsFresh)
 	savedRootScript := b.RootScript
 	savedCondDepth := b.ConditionalDepth
-	b.Funcs = make(map[string]bool)
-	b.CwdChanged = false
 	b.SawUnsetF = false
-	b.RootScript = ""
 	b.ConditionalDepth = 0
 	return func() {
-		restoreCwd()
-		b.Funcs = savedFuncs
-		b.SawUnsetF = savedSawUnsetF
+		restoreShellState()
 		b.RootScript = savedRootScript
 		b.ConditionalDepth = savedCondDepth
 	}
+}
+
+// breakdownCodeString applies the execution state of the command that owns a
+// shell source string, then parses the source through the normal walker.
+func (b *breaker) breakdownCodeString(
+	command string, code string, depth int,
+) (model.BreakdownResult, error) {
+	switch command {
+	case "trap":
+		return b.breakdownTrapHandler(code, depth)
+	case "bash", "sh", "flock":
+		restore := b.isolateForBash()
+		defer restore()
+		return b.breakdownAt(code, depth+1)
+	default:
+		return b.breakdownAt(code, depth+1)
+	}
+}
+
+// breakdownTrapHandler starts with unknown cwd and function knowledge. State
+// changes remain visible within the handler, but a trap can run before later
+// commands, so the surrounding shell's tracked state becomes unknown.
+func (b *breaker) breakdownTrapHandler(
+	code string, depth int,
+) (model.BreakdownResult, error) {
+	savedConditionalDepth := b.ConditionalDepth
+
+	b.Cwd = ""
+	b.CwdChanged = false
+	b.Funcs = make(map[string]bool)
+	b.SawUnsetF = false
+	b.ConditionalDepth = 0
+	defer func() {
+		b.Cwd = ""
+		b.CwdChanged = true
+		b.Funcs = make(map[string]bool)
+		b.SawUnsetF = true
+		b.ConditionalDepth = savedConditionalDepth
+	}()
+
+	result, err := b.breakdownAt(code, depth+1)
+	if err != nil {
+		return model.BreakdownResult{}, err
+	}
+	if len(result.Commands) == 0 &&
+		len(result.CodeSnippets) == 0 &&
+		len(result.Assigns) == 0 {
+		result.Safe = true
+	}
+
+	return result, nil
 }
 
 // Breakdown parses a bash command string and returns all
@@ -250,9 +324,9 @@ func (b *breaker) runBreakdown(
 	}
 
 	// A handled outcome may consume argv before normal flattening. Scan only the
-	// original words it did not pass to an inner command. Code strings keep their
-	// existing reparse-only behavior because their runtime source has a separate
-	// expansion boundary.
+	// original words it did not pass to an inner command. Code-string breakdowns
+	// reject AST substitutions in their source, so scanning their other operands
+	// cannot count source substitutions twice.
 	outcomeReplacesOuter := disposition == model.OuterSafe ||
 		disposition == model.OuterReplace
 	forwarded := make(map[*syntax.Word]struct{})
@@ -261,7 +335,7 @@ func (b *breaker) runBreakdown(
 			forwarded[commandWord] = struct{}{}
 		}
 	}
-	if expansion == needsExpansion && len(work.CodeStrings) == 0 {
+	if expansion == needsExpansion {
 		for _, arg := range args {
 			if _, ok := forwarded[arg]; ok {
 				continue
@@ -327,10 +401,10 @@ func (b *breaker) runBreakdown(
 		result.Merge(inner)
 	}
 
-	// Re-parse code strings (resolved text from bash -c,
-	// eval, trap) through breakdownAt.
+	// Re-parse code strings using the owning command's execution state.
 	for _, code := range work.CodeStrings {
-		inner, innerErr := b.breakdownAt(code, depth+1)
+		inner, innerErr := b.breakdownCodeString(
+			baseName, code, depth)
 		if innerErr != nil {
 			return breakdownRun{}, innerErr
 		}
@@ -528,12 +602,9 @@ func (b *breaker) processCommand(
 		// Not conditional (always executes), so don't
 		// increment ConditionalDepth — that would
 		// disable cd tracking inside the subshell.
-		restoreCwd := b.saveCwd()
-		savedFuncs := b.Funcs
-		b.Funcs = make(map[string]bool)
+		restore := b.isolateShellState(childStartsFresh)
 		r, err := b.processStmts(c.Stmts, depth)
-		b.Funcs = savedFuncs
-		restoreCwd()
+		restore()
 		return r, err
 	case *syntax.Block:
 		return b.processStmts(c.Stmts, depth)
@@ -905,22 +976,16 @@ func (b *breaker) processBinaryCmd(
 		// and function definitions don't propagate out.
 		// Not conditional (both sides always run), so
 		// don't increment ConditionalDepth.
-		restoreCwd := b.saveCwd()
-		savedFuncs := b.Funcs
-		b.Funcs = make(map[string]bool)
+		restore := b.isolateShellState(childStartsFresh)
 		left, err := b.processStmt(bc.X, depth)
-		b.Funcs = savedFuncs
-		restoreCwd()
+		restore()
 		if err != nil {
 			return model.BreakdownResult{}, err
 		}
 
-		restoreCwd = b.saveCwd()
-		savedFuncs = b.Funcs
-		b.Funcs = make(map[string]bool)
+		restore = b.isolateShellState(childStartsFresh)
 		right, err := b.processStmt(bc.Y, depth)
-		b.Funcs = savedFuncs
-		restoreCwd()
+		restore()
 		if err != nil {
 			return model.BreakdownResult{}, err
 		}
@@ -1166,9 +1231,9 @@ func (b *breaker) extractSubsFromNode(
 		case *syntax.CmdSubst:
 			// Command substitutions run in a subshell —
 			// cd doesn't propagate out.
-			restoreCwd := b.saveCwd()
+			restore := b.isolateShellState(childInheritsFunctions)
 			inner, err := b.processStmts(c.Stmts, 0)
-			restoreCwd()
+			restore()
 			if err != nil {
 				walkErr = err
 				return false
@@ -1178,9 +1243,9 @@ func (b *breaker) extractSubsFromNode(
 		case *syntax.ProcSubst:
 			// Process substitutions run in a subshell
 			// — cd doesn't propagate out.
-			restoreCwd := b.saveCwd()
+			restore := b.isolateShellState(childInheritsFunctions)
 			inner, err := b.processStmts(c.Stmts, 0)
-			restoreCwd()
+			restore()
 			if err != nil {
 				walkErr = err
 				return false
@@ -1636,10 +1701,10 @@ func (b *breaker) extractSubsFromPart(
 
 		return result, nil
 	case *syntax.CmdSubst:
-		restoreCwd := b.saveCwd()
+		restore := b.isolateShellState(childInheritsFunctions)
 		innerResult, err := b.processStmts(
 			p.Stmts, 0)
-		restoreCwd()
+		restore()
 		if err != nil {
 			return model.BreakdownResult{}, err
 		}
@@ -1650,10 +1715,10 @@ func (b *breaker) extractSubsFromPart(
 	case *syntax.ArithmExp:
 		return b.extractSubsFromNode(p, quotedTextArithmetic)
 	case *syntax.ProcSubst:
-		restoreCwd := b.saveCwd()
+		restore := b.isolateShellState(childInheritsFunctions)
 		innerResult, err := b.processStmts(
 			p.Stmts, 0)
-		restoreCwd()
+		restore()
 		if err != nil {
 			return model.BreakdownResult{}, err
 		}

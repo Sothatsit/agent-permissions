@@ -6,7 +6,27 @@ import (
 
 	"github.com/sothatsit/agent-permissions/internal/model"
 	"github.com/sothatsit/agent-permissions/internal/word"
+
+	"mvdan.cc/sh/v3/syntax"
 )
+
+func verifyBashSource(
+	owner string,
+	source *syntax.Word,
+) (string, error) {
+	if word.Static(source) {
+		return word.Text(source), nil
+	}
+
+	return "", &model.RuleError{
+		Def: bashUnverified,
+		Reason: fmt.Sprintf(
+			"%s: code comes from %s and cannot be "+
+				"verified. Quote the code so the outer "+
+				"shell passes it literally",
+			owner, word.OpaqueReason(source)),
+	}
+}
 
 // breakdownBash handles bash/sh inner command extraction.
 //
@@ -58,20 +78,10 @@ func breakdownBash(
 		if pf.Value == nil {
 			return model.FallThrough(), nil
 		}
-		if reason := word.ExpansionReason(
-			pf.Value); reason != "" {
-			return model.BreakdownOutcome{}, &model.RuleError{
-				Def: bashUnverified,
-				Reason: fmt.Sprintf(
-					"bash -c: code comes from %s "+
-						"— cannot read and verify "+
-						"it. Use the command "+
-						"directly instead of "+
-						"bash -c",
-					reason),
-			}
+		code, err := verifyBashSource("bash -c", pf.Value)
+		if err != nil {
+			return model.BreakdownOutcome{}, err
 		}
-		code := word.Text(pf.Value)
 		if code == "" {
 			return model.Safe(), nil
 		}

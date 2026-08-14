@@ -682,12 +682,22 @@ this:
   whole argv before changing directory because that is when the shell expands
   it.
 
-- Shell code strings are excluded from the new consumed-argument scan. Their
-  text crosses a second shell-expansion boundary, so treating them like argv
-  can double-count a substitution or mistake generated text for known source.
-  The existing cwd-wrapper pre-scan is one known overlap. Modelling that
-  boundary is separate from making argv wrappers account for every argument
-  they consume.
+- A shell code string must come from a source word with no opaque AST
+  expansion. This rejects parameter, command, arithmetic, and process
+  substitutions that could generate syntax between the first parse and the
+  child shell's parse. Literal source still gets the full recursive scan,
+  including command substitutions preserved by single quotes. The check does
+  not try to simulate pathname, tilde, or brace expansion. Since accepted
+  source contains no AST substitutions, the normal consumed-argument scan can
+  account for a wrapper's other operands without counting source commands
+  twice.
+
+- Shell source keeps the state boundary of the command that runs it. `eval`
+  changes the current shell. `bash -c` and `flock -c` run in isolated child
+  state. A real trap handler starts with unknown cwd and no inherited function
+  knowledge. It keeps state between its own commands, then leaves the outer
+  shell's cwd and function knowledge unknown. This conservative trap rule
+  avoids guessing when a signal fires.
 
 - `env` is the one wrapper that honours a leading `NAME=val`, so it
   uses `Assigns`: `env LD_PRELOAD=/x.so cmd` is a real injection and
@@ -699,17 +709,16 @@ this:
   `PathAllow` so `/usr/bin/env python3 script` (shebang style)
   still unwraps and scans the inner interpreter.
 
-`env`, `nohup`, `setsid`, `nice`, and `exec` were previously denied
-outright in `escape-hatches` because the hook could not scope them.
-Registering them as wrappers replaces blanket-deny with
-inner-command checking, which is strictly more precise; they move
-out of the escape-hatches Command tier (rule-owned commands stay
-out of preset Command tiers). `chroot` and `flock` unwrap their
-inner command (`chroot` with no command runs an interactive shell
-and is denied; `flock FILE -c STR` re-parses STR as code).
-`runuser`, `setpriv`, and `setarch` have shell-string, interactive,
-and ambiguous-positional forms that defeat simple parsing, so they
-fail closed (deny) rather than risk masking the inner command.
+`env`, `nohup`, `setsid`, `nice`, and `exec` were previously denied outright in
+`escape-hatches` because the hook could not scope them. Registering them as
+wrappers replaces blanket-deny with inner-command checking, which is strictly
+more precise. They move out of the escape-hatches Command tier because
+rule-owned commands stay out of preset Command tiers. `chroot` and `flock`
+unwrap their inner command. `chroot` with no command runs an interactive shell
+and is denied. By policy, `flock FILE -c STR` treats static `STR` as Bash source
+and re-parses it. `runuser`, `setpriv`, and `setarch` have shell-string,
+interactive, and ambiguous-positional forms that defeat simple parsing, so they
+fail closed rather than risk masking the inner command.
 
 ### External presets are policy layers, not config edits
 
