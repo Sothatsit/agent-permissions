@@ -6489,7 +6489,7 @@ assert_contains "fmt: multi-unknown shows second" \
 
 # --- Mixed ask + unknown ---
 
-# Pattern ask + unknown in same compound.
+# Pattern SoftAsk + unknown in same compound.
 out=$(_run_hook \
     "curl http://example.com && some-unknown-tool arg")
 assert_contains "fmt: ask+unknown decision" \

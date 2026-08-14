@@ -760,7 +760,7 @@ func (p *Permissions) checkOne(
 	// 1. Rules layer — operates on Words directly,
 	// no string conversion needed.
 	if p.rules != nil {
-		if action := Evaluate(
+		if action := evaluateCommandRules(
 			p.rules, name, cmd.Args[1:],
 		); action != nil {
 			subject, desc := splitRuleReason(

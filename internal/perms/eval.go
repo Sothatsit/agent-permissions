@@ -8,10 +8,10 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-// Evaluate checks a command against a rules map. Returns
+// evaluateCommandRules checks a command against a rules map. Returns
 // nil when no rules exist or no rule matched and there is
 // no default (fall through to permissions layer).
-func Evaluate(
+func evaluateCommandRules(
 	rules map[string]*model.CommandRules,
 	name string,
 	args []*syntax.Word,

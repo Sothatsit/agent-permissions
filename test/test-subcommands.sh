@@ -35,6 +35,7 @@ _sc_cleanup() { rm -rf "$_sc_tmpdir"; }
 # directly, so isolate the whole suite from inherited policy.
 export AGENT_PERMISSIONS_PRESET_DIRS=""
 export AGENT_PERMISSIONS_ENFORCED_PRESET_DIRS=""
+export AGENT_PERMISSIONS_ENFORCED_PRESETS=""
 
 _fresh_home() {
     mktemp -d "$_sc_tmpdir/h.XXXXXX"
@@ -501,7 +502,8 @@ echo "=== subcommands: check ==="
 h=$(_fresh_home)
 # check inherits CLAUDE_CONFIG_DIR / cwd, so pin both.
 unset CLAUDE_CONFIG_DIR
-out=$(CLAUDE_CONFIG_DIR="$h/empty-claude" \
+check_project=$(_fresh_home)
+out=$(cd "$check_project" && CLAUDE_CONFIG_DIR="$h/empty-claude" \
     _sc_run "$h" check 'git status')
 assert_contains "check: shows the command" "$out" \
     "git status"
@@ -509,6 +511,15 @@ assert_contains "check: shows decision line" "$out" \
     "Decision:"
 assert_contains "check: lists at least one preset source" \
     "$out" "preset:"
+
+out=$(cd "$check_project" && CLAUDE_CONFIG_DIR="$h/empty-claude" \
+    _sc_run "$h" check 'some-unknown-tool arg')
+assert_contains "check: unknown command is soft-ask" \
+    "$out" "Decision: soft_ask"
+assert_contains "check: unknown command uses placeholder" \
+    "$out" "<unknown-command-header>"
+assert_contains "check: unknown command suggests permission" \
+    "$out" "Bash(some-unknown-tool:*)"
 
 _sc_enforced_preset_dirs="$enforced_dir"
 out=$(CLAUDE_CONFIG_DIR="$h/empty-claude" \
