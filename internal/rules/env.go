@@ -36,15 +36,13 @@ var envParser, _envBaseBreakdown = wrapperBreakdown(
 		denyRule: envUnverified,
 	})
 
-// breakdownEnv unwraps env, the one wrapper that honours a
-// leading NAME=val: it sets those variables in the inner
-// command's environment, so each name must reach the EnvVars
-// deny axis (env LD_PRELOAD=/x cmd is a real injection) and the
-// inner command must be re-analysed. The base wrapper parses
-// env's flags and denies -S; here we split the positionals into
-// the honoured assignments and the inner command. Bash's own
-// assignment rule applies: leading words containing '=' are
-// assignments; the first word without one is the command.
+// breakdownEnv unwraps env, the one wrapper that honours a leading NAME=val: it
+// sets those variables in the inner command's environment, so each name must
+// reach the EnvVars deny axis (env LD_PRELOAD=/x cmd is a real injection) and
+// the inner command must be re-analysed. The base wrapper parses env's flags
+// and denies -S; here we split the positionals into the honoured assignments
+// and the inner command. Bash's own assignment rule applies: leading words
+// containing '=' are assignments; the first word without one is the command.
 func breakdownEnv(
 	input model.ParseResult,
 	state *model.State,
@@ -53,10 +51,12 @@ func breakdownEnv(
 	if err != nil {
 		return model.BreakdownOutcome{}, err
 	}
+
 	work := outcome.Work()
 
-	// GNU env retains only the final -C value and changes directory once, so a
-	// relative final value resolves against the wrapper's incoming directory.
+	// GNU env retains only the final -C value and changes directory once,
+	// so a relative final value resolves against the wrapper's incoming
+	// directory.
 	for i := range input.Flags {
 		isDirectory := input.Flags[i].Name == "-C" ||
 			input.Flags[i].Name == "--chdir"
@@ -64,6 +64,7 @@ func breakdownEnv(
 			work.WorkingDirectory = input.Flags[i].Value
 		}
 	}
+
 	if len(work.Commands) == 0 {
 		return model.Safe(), nil
 	}
@@ -72,16 +73,18 @@ func breakdownEnv(
 	var assigns []*syntax.Assign
 	i := 0
 	for i < len(words) {
-		// A bare "-" is the old spelling of -i (ignore
-		// environment), not an assignment or the command.
+		// A bare "-" is the old spelling of -i (ignore environment),
+		// not an assignment or the command.
 		if word.DefinitelyEqual(words[i], "-") {
 			i++
 			continue
 		}
+
 		name, value := word.SplitEq(words[i])
 		if value == nil {
 			break // first word without '=' is the command
 		}
+
 		assigns = append(assigns, &syntax.Assign{
 			Name:  &syntax.Lit{Value: name},
 			Value: value,
@@ -96,10 +99,12 @@ func breakdownEnv(
 	if rest := words[i:]; len(rest) > 0 {
 		out.Commands = [][]*syntax.Word{rest}
 	}
+
 	if len(out.Assigns) == 0 &&
 		len(out.Commands) == 0 &&
 		out.WorkingDirectory == nil {
 		return model.Safe(), nil
 	}
+
 	return model.ReplaceOuter(out), nil
 }

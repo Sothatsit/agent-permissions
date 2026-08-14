@@ -38,6 +38,7 @@ func TestResolveReturnsEvaluationReadyPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve permissions: %v", err)
 	}
+
 	breakdownResult, err := resolved.Breakdown(
 		"tar --to-command=sh -cf a.tar x")
 	if err != nil {
@@ -71,6 +72,7 @@ func TestPolicySnapshotRemainsStableAcrossFileChanges(t *testing.T) {
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		t.Fatalf("create home: %v", err)
 	}
+
 	t.Setenv("HOME", home)
 	t.Setenv(presets.PresetDirsEnv, presetDir)
 	t.Setenv(presets.EnforcedPresetDirsEnv, "")
@@ -90,10 +92,12 @@ func TestPolicySnapshotRemainsStableAcrossFileChanges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve captured snapshot: %v", err)
 	}
+
 	fresh, err := LoadPolicySnapshot(project)
 	if err != nil {
 		t.Fatalf("load fresh snapshot: %v", err)
 	}
+
 	freshPolicy, err := fresh.Resolve("")
 	if err != nil {
 		t.Fatalf("resolve fresh snapshot: %v", err)
@@ -130,6 +134,7 @@ func TestPolicySnapshotViewsCannotMutateCapturedPolicy(t *testing.T) {
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		t.Fatalf("create home: %v", err)
 	}
+
 	t.Setenv("HOME", home)
 	t.Setenv(presets.PresetDirsEnv, presetDir)
 	t.Setenv(presets.EnforcedPresetDirsEnv, "")
@@ -139,11 +144,13 @@ func TestPolicySnapshotViewsCannotMutateCapturedPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load snapshot: %v", err)
 	}
+
 	for _, preset := range snapshot.Presets() {
 		if preset.Name == "snapshot" {
 			delete(preset.Allow.Commands, "snapshot-preset:*")
 		}
 	}
+
 	projectConfig := snapshot.AgentConfig(AgentConfigProject)
 	delete(projectConfig.Config.Allow.Commands, "snapshot-agent:*")
 
@@ -151,6 +158,7 @@ func TestPolicySnapshotViewsCannotMutateCapturedPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve snapshot: %v", err)
 	}
+
 	assertSnapshotDecision(t, resolved,
 		"snapshot-preset", model.Allow)
 	assertSnapshotDecision(t, resolved,

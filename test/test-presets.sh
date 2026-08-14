@@ -17,9 +17,8 @@ set -uo pipefail
 #
 # Can be sourced by test/test.sh or run standalone.
 
-# Resolve REPO_DIR and PRESETS_DIR. When sourced, REPO_DIR
-# is already exported; when run standalone, derive it from
-# this script's path.
+# Resolve REPO_DIR and PRESETS_DIR. When sourced, REPO_DIR is already exported;
+# when run standalone, derive it from this script's path.
 : "${REPO_DIR:=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 PRESETS_DIR="$REPO_DIR/presets"
 

@@ -63,6 +63,7 @@ func TestCheckSuggestsUnknownCommandPatterns(t *testing.T) {
 					test.args[0]: {},
 				}
 			}
+
 			if test.knownPattern != nil {
 				permissions.Sources = []SourcePerms{{
 					Allow: TierEntries{Commands: []Pattern{{
@@ -81,6 +82,7 @@ func TestCheckSuggestsUnknownCommandPatterns(t *testing.T) {
 			if got.Decision != model.SoftAsk {
 				t.Errorf("decision = %v, want soft ask", got.Decision)
 			}
+
 			want := "* Bash(" + test.wantPattern + ")"
 			if !strings.Contains(got.Reason, want) {
 				t.Errorf("reason %q does not contain %q", got.Reason, want)

@@ -41,11 +41,10 @@ var flockParser = model.NewFullParser(
 	"unrecognised flag",
 )
 
-// breakdownFlock unwraps flock. Its first positional is the
-// lock file/dir/fd (skip it). What follows is either an inner
-// command (flock FILE CMD args) or `-c STR`, where STR is run
-// via a shell and must be re-parsed as code. A lock file with
-// nothing after it (or an fd-only form) runs no command.
+// breakdownFlock unwraps flock. Its first positional is the lock file/dir/fd
+// (skip it). What follows is either an inner command (flock FILE CMD args) or
+// `-c STR`, where STR is run via a shell and must be re-parsed as code. A lock
+// file with nothing after it (or an fd-only form) runs no command.
 func breakdownFlock(
 	input model.ParseResult,
 	_ *model.State,
@@ -55,6 +54,7 @@ func breakdownFlock(
 		// No lock file - flock errors at runtime; nothing runs.
 		return model.Safe(), nil
 	}
+
 	rest := pos[1:] // pos[0] is the lock file/dir/fd
 	if len(rest) == 0 {
 		return model.Safe(), nil
@@ -64,14 +64,17 @@ func breakdownFlock(
 		if len(rest) < 2 {
 			return model.Safe(), nil
 		}
+
 		code, err := verifyBashSource("flock -c", rest[1])
 		if err != nil {
 			return model.BreakdownOutcome{}, err
 		}
+
 		return model.ReplaceOuter(model.BreakdownWork{
 			CodeStrings: []string{code},
 		}), nil
 	}
+
 	return model.ReplaceOuter(model.BreakdownWork{
 		Commands: [][]*syntax.Word{rest},
 	}), nil

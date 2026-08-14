@@ -10,9 +10,9 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-// stubBreakdown is a BreakdownFunc that strips the first
-// arg and returns the rest as an inner command (mimicking
-// a simple wrapper). Records whether it was called.
+// stubBreakdown is a BreakdownFunc that strips the first arg and returns the
+// rest as an inner command (mimicking a simple wrapper). Records whether it was
+// called.
 func stubBreakdown(called *bool) model.BreakdownFunc {
 	return func(
 		input model.ParseResult,
@@ -22,6 +22,7 @@ func stubBreakdown(called *bool) model.BreakdownFunc {
 		if len(input.Raw) == 0 {
 			return model.Safe(), nil
 		}
+
 		return model.ReplaceOuter(model.BreakdownWork{
 			Commands: [][]*syntax.Word{
 				input.Raw,
@@ -50,6 +51,7 @@ func TestPathDenyRejectsPathInvoked(t *testing.T) {
 		t.Fatal("expected error for path-invoked " +
 			"command with PathDeny")
 	}
+
 	if called {
 		t.Error("breakdown should not have been " +
 			"called")
@@ -63,6 +65,7 @@ func TestPathDenyAllowsBareCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !called {
 		t.Error("breakdown should have been called")
 	}
@@ -76,16 +79,18 @@ func TestPathSkipSkipsPathInvoked(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if called {
 		t.Error("breakdown should not have been " +
 			"called for path-invoked PathSkip")
 	}
-	// Command should fall through to flattening
-	// with original args intact.
+
+	// Command should fall through to flattening with original args intact.
 	if len(result.Commands) != 1 {
 		t.Fatalf("got %d commands, want 1",
 			len(result.Commands))
 	}
+
 	got := word.Texts(result.Commands[0].Args)
 	if got[0] != "/usr/bin/mycmd" {
 		t.Errorf("arg[0] = %q, want path preserved",
@@ -100,6 +105,7 @@ func TestPathSkipAllowsBareCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !called {
 		t.Error("breakdown should have been called " +
 			"for bare command with PathSkip")
@@ -115,15 +121,16 @@ func TestPathAllowRunsBreakdownForPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !called {
 		t.Error("breakdown should have been called " +
 			"for path-invoked PathAllow")
 	}
-	// The outer command must be kept so it reaches
-	// the permissions layer. The stub breakdown also
-	// produces an inner command from the args, so we
-	// expect both: the inner "arg" command and the
-	// outer "/usr/bin/mycmd arg".
+
+	// The outer command must be kept so it reaches the permissions
+	// layer. The stub breakdown also produces an inner command from the
+	// args, so we expect both: the inner "arg" command and the outer
+	// "/usr/bin/mycmd arg".
 	found := false
 	for _, cmd := range result.Commands {
 		args := word.Texts(cmd.Args)
@@ -132,6 +139,7 @@ func TestPathAllowRunsBreakdownForPath(t *testing.T) {
 			found = true
 		}
 	}
+
 	if !found {
 		t.Error("outer command should be kept " +
 			"for path-invoked PathAllow")
@@ -147,11 +155,13 @@ func TestPathAllowBareCommandReplaces(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !called {
 		t.Error("breakdown should have been called")
 	}
-	// Bare (no path) should still replace - only
-	// path-invoked keeps the outer command.
+
+	// Bare (no path) should still replace - only path-invoked keeps the
+	// outer command.
 	for _, cmd := range result.Commands {
 		args := word.Texts(cmd.Args)
 		if len(args) > 0 && args[0] == "mycmd" {
@@ -169,6 +179,7 @@ func TestPathDenyRelativePath(t *testing.T) {
 		t.Fatal("expected error for relative " +
 			"path-invoked command with PathDeny")
 	}
+
 	if called {
 		t.Error("breakdown should not have been " +
 			"called")
@@ -183,14 +194,17 @@ func TestPathSkipRelativePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if called {
 		t.Error("breakdown should not have been " +
 			"called for relative path PathSkip")
 	}
+
 	if len(result.Commands) != 1 {
 		t.Fatalf("got %d commands, want 1",
 			len(result.Commands))
 	}
+
 	got := word.Texts(result.Commands[0].Args)
 	if got[0] != "./mycmd" {
 		t.Errorf("arg[0] = %q, want path preserved",

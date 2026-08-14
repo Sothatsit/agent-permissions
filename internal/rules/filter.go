@@ -18,11 +18,11 @@ import (
 //   - Remove a Breakdown and its Parser when BreakdownDef is disabled.
 //   - Drop a disabled SnippetLang so that language is no longer scanned.
 //
-// Other imperative breakdown funcs receive State.RuleConfig and gate
-// themselves at runtime, or return a RuleError that runBreakdown suppresses
-// when the rule is off. After this filter the permissions layer needs no rule
-// config of its own. A pruned node never matches and a nil Default never fires.
-// A dropped language scans clean.
+// Other imperative breakdown funcs receive State.RuleConfig and gate themselves
+// at runtime, or return a RuleError that runBreakdown suppresses when the rule
+// is off. After this filter the permissions layer needs no rule config of its
+// own. A pruned node never matches and a nil Default never fires. A dropped
+// language scans clean.
 func FilterByConfig(
 	registry map[string]*model.CommandRules,
 	snippets map[string]*model.SnippetLang,
@@ -38,8 +38,10 @@ func FilterByConfig(
 			cr.Parser = nil
 			cr.Breakdown = nil
 		}
+
 		cr.Rules = filterRules(cr.Rules, rc)
 	}
+
 	for lang, sl := range snippets {
 		if sl.Def != nil && !rc.For(sl.Def).Enabled {
 			delete(snippets, lang)
@@ -47,10 +49,10 @@ func FilterByConfig(
 	}
 }
 
-// filterRules returns the subset of rules whose governing rule
-// is enabled. A node carrying a disabled Def is dropped with
-// its whole subtree; a kept node keeps recursing so a disabled
-// rule nested under an enabled parent is still pruned.
+// filterRules returns the subset of rules whose governing rule is enabled. A
+// node carrying a disabled Def is dropped with its whole subtree; a kept node
+// keeps recursing so a disabled rule nested under an enabled parent is still
+// pruned.
 func filterRules(
 	in []model.Rule, rc model.RuleConfigs,
 ) []model.Rule {
@@ -60,19 +62,20 @@ func filterRules(
 		if r.Def != nil && !rc.For(r.Def).Enabled {
 			continue
 		}
+
 		r.Children = filterRules(r.Children, rc)
 		out = append(out, r)
 	}
+
 	return out
 }
 
 // ValidateRegistry asserts the registry's structural and attribution
 // invariants. A Parser must belong to a Breakdown, where parser errors honour
-// rule configuration. Every node that can produce a restrictive decision
-// (deny, ask, or soft-ask) must have a governing RuleDef reachable on its path,
-// so the decision can be named and disabled. The registry is static, so a
-// violation is a coding mistake. This check is deliberately not on the hook
-// path.
+// rule configuration. Every node that can produce a restrictive decision (deny,
+// ask, or soft-ask) must have a governing RuleDef reachable on its path, so the
+// decision can be named and disabled. The registry is static, so a violation is
+// a coding mistake. This check is deliberately not on the hook path.
 func ValidateRegistry(
 	registry map[string]*model.CommandRules,
 	snippets map[string]*model.SnippetLang,
@@ -83,6 +86,7 @@ func ValidateRegistry(
 	for name := range registry {
 		cmds = append(cmds, name)
 	}
+
 	sort.Strings(cmds)
 	for _, name := range cmds {
 		cr := registry[name]
@@ -90,9 +94,9 @@ func ValidateRegistry(
 			problems = append(problems, fmt.Sprintf(
 				"%s: Parser has no Breakdown", name))
 		}
-		// A command's Default is governed by its Unverified
-		// rule; a restrictive Default with no Unverified
-		// could never be disabled.
+		// A command's Default is governed by its Unverified rule; a
+		// restrictive Default with no Unverified could never be
+		// disabled.
 		if cr.Default != nil &&
 			cr.Default.Decision >= model.SoftAsk &&
 			cr.Unverified == nil {
@@ -100,6 +104,7 @@ func ValidateRegistry(
 				"%s: restrictive Default has no "+
 					"Unverified rule", name))
 		}
+
 		problems = append(problems,
 			validateRules(name, cr.Rules, false)...)
 	}
@@ -108,6 +113,7 @@ func ValidateRegistry(
 	for lang := range snippets {
 		langs = append(langs, lang)
 	}
+
 	sort.Strings(langs)
 	for _, lang := range langs {
 		sl := snippets[lang]
@@ -123,14 +129,14 @@ func ValidateRegistry(
 			"registry violations:\n  %s",
 			strings.Join(problems, "\n  "))
 	}
+
 	return nil
 }
 
-// validateRules walks a rule subtree. hasDef is true when an
-// ancestor (or this node) carries a Def, since the evaluator
-// inherits the nearest ancestor's def. A restrictive action,
-// a hook (which can deny), or a restrictive Default on a node
-// with no def on its path is a violation.
+// validateRules walks a rule subtree. hasDef is true when an ancestor (or this
+// node) carries a Def, since the evaluator inherits the nearest ancestor's def.
+// A restrictive action, a hook (which can deny), or a restrictive Default on a
+// node with no def on its path is a violation.
 func validateRules(
 	path string, rules []model.Rule, hasDef bool,
 ) []string {
@@ -157,8 +163,10 @@ func validateRules(
 						"governing rule Def", path))
 			}
 		}
+
 		problems = append(problems,
 			validateRules(path, r.Children, nodeHasDef)...)
 	}
+
 	return problems
 }

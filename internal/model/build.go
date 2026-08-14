@@ -9,12 +9,11 @@ type RuleBuilder struct {
 	dflt               *Action
 }
 
-// WithRuleDef sets the rule governing this node. A node with a
-// Def is pruned by the registry filter (FilterByConfig) when
-// the rule is disabled, taking its whole subtree with it.
-// Nodes without a Def are governed by an ancestor's Def (or
-// are permissive containers); ValidateRegistry asserts every
-// restrictive node has a Def on its path.
+// WithRuleDef sets the rule governing this node. A node with a Def is pruned by
+// the registry filter (FilterByConfig) when the rule is disabled, taking its
+// whole subtree with it. Nodes without a Def are governed by an ancestor's Def
+// (or are permissive containers); ValidateRegistry asserts every restrictive
+// node has a Def on its path.
 func (b RuleBuilder) WithRuleDef(def *RuleDef) RuleBuilder {
 	b.def = def
 	return b
@@ -39,9 +38,8 @@ func Always() RuleBuilder {
 	return RuleBuilder{matcher: &AlwaysMatcher{}}
 }
 
-// ValueCouldContain adds a value condition that
-// conservatively matches if the value could contain the
-// given substring. Opaque values always match.
+// ValueCouldContain adds a value condition that conservatively matches if the
+// value could contain the given substring. Opaque values always match.
 func (b RuleBuilder) ValueCouldContain(
 	s string,
 ) RuleBuilder {
@@ -49,9 +47,8 @@ func (b RuleBuilder) ValueCouldContain(
 	return b
 }
 
-// ValueMayHavePrefix adds a value condition that
-// conservatively matches if the value could have the
-// given prefix. Opaque values always match.
+// ValueMayHavePrefix adds a value condition that conservatively matches if the
+// value could have the given prefix. Opaque values always match.
 func (b RuleBuilder) ValueMayHavePrefix(
 	s string,
 ) RuleBuilder {
@@ -70,6 +67,7 @@ func (b RuleBuilder) finalizeMatcher() Matcher {
 			}
 		}
 	}
+
 	return b.matcher
 }
 
@@ -105,12 +103,11 @@ func (b RuleBuilder) Allow(reason string) Rule {
 	}
 }
 
-// Hook returns a Rule that decides via a hook function. The
-// hook's threat is governed by the builder's Def (set with
-// WithRuleDef) or an ancestor's. A hook node carries no
-// Default - the evaluator only consults Default through
-// children, so a hook that needs a fallback is placed under a
-// parent that holds the DefaultDeny.
+// Hook returns a Rule that decides via a hook function. The hook's threat is
+// governed by the builder's Def (set with WithRuleDef) or an ancestor's. A hook
+// node carries no Default - the evaluator only consults Default through
+// children, so a hook that needs a fallback is placed under a parent that holds
+// the DefaultDeny.
 func (b RuleBuilder) Hook(fn HookFunc) Rule {
 	return Rule{
 		Def:   b.def,

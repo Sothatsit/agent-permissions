@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# Shared test assertions, counters, and exit hooks.
-# Source this from test scripts - do not execute directly.
+# Shared test assertions, counters, and exit hooks. Source this from test
+# scripts - do not execute directly.
 #
 
 passed=0

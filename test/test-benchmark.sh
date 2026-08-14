@@ -2,9 +2,8 @@
 set -euo pipefail
 
 #
-# Performance regression test for the agent-permissions hook.
-# Runs the benchmark and fails if any individual case
-# exceeds the threshold.
+# Performance regression test for the agent-permissions hook. Runs the benchmark
+# and fails if any individual case exceeds the threshold.
 #
 # Usage: test/test-benchmark.sh
 #

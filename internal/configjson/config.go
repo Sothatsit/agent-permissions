@@ -21,11 +21,11 @@ const (
 	closedSchema
 )
 
-// Decode checks the complete JSON document before decoding it into dst.
-// Object keys must be unique at every depth. A struct destination also makes
-// the document a closed schema whose exact keys come from its JSON tags and
-// whose values may not be null. A map destination remains open so callers can
-// retain fields owned by another application.
+// Decode checks the complete JSON document before decoding it into dst. Object
+// keys must be unique at every depth. A struct destination also makes the
+// document a closed schema whose exact keys come from its JSON tags and whose
+// values may not be null. A map destination remains open so callers can retain
+// fields owned by another application.
 func Decode(data []byte, dst any) error {
 	destination, policy, err := destinationType(dst)
 	if err != nil {
@@ -47,6 +47,7 @@ func Decode(data []byte, dst any) error {
 		if err == nil {
 			return fmt.Errorf("multiple JSON values")
 		}
+
 		return err
 	}
 
@@ -87,6 +88,7 @@ func scanValue(
 		if policy == closedSchema {
 			return fmt.Errorf("%s must not be null", path)
 		}
+
 		return nil
 	}
 
@@ -123,12 +125,14 @@ func scanObject(
 		if _, exists := seen[key]; exists {
 			return fmt.Errorf("duplicate key %q at %s", key, path)
 		}
+
 		seen[key] = struct{}{}
 
 		childType, err := objectValueType(expected, key, path, policy)
 		if err != nil {
 			return err
 		}
+
 		childPath := path + "[" + strconv.Quote(key) + "]"
 		if err := scanValue(decoder, childPath, childType, policy); err != nil {
 			return err
@@ -163,6 +167,7 @@ func consumeDelimiter(
 	if token != expected {
 		return fmt.Errorf("expected JSON delimiter %q at %s", expected, path)
 	}
+
 	return nil
 }
 
@@ -180,16 +185,18 @@ func objectValueType(
 		if err != nil {
 			return nil, err
 		}
+
 		fieldType, exists := fields[key]
 		if !exists {
 			return nil, fmt.Errorf("unknown key %q at %s", key, path)
 		}
+
 		return fieldType, nil
 	case reflect.Map:
 		return expected.Elem(), nil
 	default:
-		// The typed decoder will report the shape mismatch. There is no valid
-		// object schema to enforce for a value of this type.
+		// The typed decoder will report the shape mismatch. There is no
+		// valid object schema to enforce for a value of this type.
 		return nil, nil
 	}
 }
@@ -228,11 +235,13 @@ func checkSchema(typeOf reflect.Type, visiting map[reflect.Type]bool) error {
 		if err != nil {
 			return err
 		}
+
 		for name, fieldType := range fields {
 			if err := checkSchema(fieldType, visiting); err != nil {
 				return fmt.Errorf("JSON field %q: %w", name, err)
 			}
 		}
+
 		return nil
 
 	case reflect.Map:
@@ -241,6 +250,7 @@ func checkSchema(typeOf reflect.Type, visiting map[reflect.Type]bool) error {
 				"unsupported JSON schema map key type %s", typeOf.Key(),
 			)
 		}
+
 		visiting[typeOf] = true
 		defer delete(visiting, typeOf)
 		return checkSchema(typeOf.Elem(), visiting)
@@ -301,8 +311,10 @@ func structFields(typeOf reflect.Type) (map[string]reflect.Type, error) {
 				"duplicate json tag %q on %s", name, typeOf,
 			)
 		}
+
 		fields[name] = field.Type
 	}
+
 	return fields, nil
 }
 
@@ -310,13 +322,16 @@ func supportedTagName(name string) bool {
 	if name == "" {
 		return false
 	}
+
 	for _, character := range name {
 		if unicode.IsLetter(character) || unicode.IsDigit(character) ||
 			character == '_' || character == '-' {
 			continue
 		}
+
 		return false
 	}
+
 	return true
 }
 
@@ -324,6 +339,7 @@ func implementsUnmarshaler(typeOf reflect.Type) bool {
 	if typeOf.Implements(unmarshalerType) {
 		return true
 	}
+
 	return typeOf.Kind() != reflect.Pointer &&
 		reflect.PointerTo(typeOf).Implements(unmarshalerType)
 }
@@ -332,5 +348,6 @@ func indirectType(typeOf reflect.Type) reflect.Type {
 	for typeOf.Kind() == reflect.Pointer {
 		typeOf = typeOf.Elem()
 	}
+
 	return typeOf
 }

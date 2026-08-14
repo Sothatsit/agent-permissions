@@ -5,10 +5,9 @@ set -euo pipefail
 #
 # Benchmark for the agent-permissions claude-hook.
 #
-# Measures processing time for realistic stress-test
-# commands targeting specific features of the breakdown,
-# rules, and permissions pipeline. The hook runs on every
-# Bash tool call, so its latency is user-facing.
+# Measures processing time for realistic stress-test commands targeting specific
+# features of the breakdown, rules, and permissions pipeline. The hook runs on
+# every Bash tool call, so its latency is user-facing.
 #
 # Each case: warmup + timed runs, median reported.
 #
@@ -43,16 +42,16 @@ mkdir -p "$_bm_tmpdir/config" "$_bm_tmpdir/home" \
     "$_bm_tmpdir/project" "$_bm_tmpdir/inputs"
 echo '{}' > "$_bm_tmpdir/config/settings.json"
 export CLAUDE_CONFIG_DIR="$_bm_tmpdir/config"
-# Policy comes from the embedded presets. Pin HOME and the
-# preset-dir environment variables so the runner's real
-# ~/.agents config or site policy can't skew the timings.
+# Policy comes from the embedded presets. Pin HOME and the preset-dir
+# environment variables so the runner's real ~/.agents config or site policy
+# can't skew the timings.
 export HOME="$_bm_tmpdir/home"
 export AGENT_PERMISSIONS_PRESET_DIRS=""
 export AGENT_PERMISSIONS_ENFORCED_PRESET_DIRS=""
 
-# Pre-generate hook input JSON for a command and write
-# it to a temp file. Returns the file path. jq runs
-# once per test case during setup, not during timing.
+# Pre-generate hook input JSON for a command and write it to a temp file.
+# Returns the file path. jq runs once per test case during setup, not during
+# timing.
 _prepare() {
     local name="$1"
     local cmd="$2"
@@ -68,13 +67,11 @@ _prepare() {
 
 # --- Benchmark runner ---
 #
-# Each timed "run" executes the hook BATCH times in a
-# tight loop between a single pair of date(1) calls,
-# then divides to get per-invocation time in
-# microseconds. This amortizes the ~1ms date overhead
-# across BATCH iterations, giving sub-millisecond
-# resolution. RUNS batches are collected and the
-# median reported.
+# Each timed "run" executes the hook BATCH times in a tight loop between a
+# single pair of date(1) calls, then divides to get per-invocation time in
+# microseconds. This amortizes the ~1ms date overhead across BATCH iterations,
+# giving sub-millisecond resolution. RUNS batches are collected and the median
+# reported.
 
 # Collected medians (microseconds) for average.
 _all_medians=()
@@ -138,8 +135,8 @@ _bench() {
     _report_times "$label" "$collect" "${times[@]}"
 }
 
-# Measure per-iteration overhead of the batch loop
-# itself (bash for-loop + redirections, no hook).
+# Measure per-iteration overhead of the batch loop itself (bash for-loop +
+# redirections, no hook).
 _bench_overhead() {
     local i j
     for ((i = 0; i < WARMUP; i++)); do
@@ -163,10 +160,9 @@ _bench_overhead() {
 
 # --- Generate script files for file-scanning test ---
 #
-# Creates a tree of bash scripts that invoke each other
-# via `bash lib/foo.sh`, exercising the hook's file
-# scanning path (read, parse, recurse). 8 files,
-# ~270 lines, 3 levels of nesting.
+# Creates a tree of bash scripts that invoke each other via `bash lib/foo.sh`,
+# exercising the hook's file scanning path (read, parse, recurse). 8 files, ~270
+# lines, 3 levels of nesting.
 
 _generate_scripts() {
     local dir="$_bm_tmpdir/project"
@@ -490,20 +486,18 @@ _generate_scripts
 f_baseline=$(_prepare baseline "echo")
 
 # 1. Deep pipeline (20 pipe stages)
-# Targets: BinaryCmd pipe handling (each pipe creates
-# subshell scoping), many extracted commands (~21
-# after xargs unwrap), permissions pattern matching
-# for each extracted command.
+# Targets: BinaryCmd pipe handling (each pipe creates subshell scoping), many
+# extracted commands (~21 after xargs unwrap), permissions pattern matching for
+# each extracted command.
 read -r -d '' cmd <<'BENCH' || true
 cat data.csv | grep -v '^#' | cut -d',' -f1,3,5 | sort -t',' -k2 | uniq -c | sort -rn | head -50 | awk '{print $2}' | tr ',' '\t' | column -t | sed 's/\t/  /g' | grep -i pattern | wc -l | tee /tmp/count.txt | xargs echo "Total:" | cat -n | tail -5 | rev | cut -c1-20 | tr '[:lower:]' '[:upper:]'
 BENCH
 f_pipeline=$(_prepare pipeline "$cmd")
 
 # 2. Nested control flow
-# Targets: IfClause/ForClause/CaseClause recursion,
-# conditional depth tracking, CmdSubst extraction
-# from for-loop iteration words, TestClause walking
-# for command substitutions in [[ ]] conditions.
+# Targets: IfClause/ForClause/CaseClause recursion, conditional depth tracking,
+# CmdSubst extraction from for-loop iteration words, TestClause walking for
+# command substitutions in [[ ]] conditions.
 read -r -d '' cmd <<'BENCH' || true
 if [[ -f config.yml ]]; then
   for env in dev staging prod; do
@@ -538,58 +532,52 @@ BENCH
 f_nested=$(_prepare nested "$cmd")
 
 # 3. Many find -exec clauses
-# Targets: find breakdown hook (each -exec extracts
-# an inner command), retained outer find checking for
-# -ok/-okdir, and permission matching for all commands.
+# Targets: find breakdown hook (each -exec extracts an inner command), retained
+# outer find checking for -ok/-okdir, and permission matching for all commands.
 read -r -d '' cmd <<'BENCH' || true
 find /project/src -type f -name '*.py' -exec grep -l 'import os' {} \; -exec grep -c 'def ' {} \; -exec wc -l {} \; -exec head -5 {} \; -exec md5sum {} \; -exec stat --format='%s %n' {} \; -exec file --mime-type {} \; -exec basename {} \;
 BENCH
 f_find=$(_prepare find "$cmd")
 
 # 4. Stacked wrappers
-# Targets: recursive breakdown through transparent
-# wrapper layers (timeout -> stdbuf -> xargs each
-# peel a layer and re-enter breakdown), chained
-# with && so five independent wrapper stacks are
-# each unwrapped.
+# Targets: recursive breakdown through transparent wrapper layers (timeout ->
+# stdbuf -> xargs each peel a layer and re-enter breakdown), chained with && so
+# five independent wrapper stacks are each unwrapped.
 read -r -d '' cmd <<'BENCH' || true
 timeout 300 stdbuf -oL xargs -n1 grep -r 'TODO' /src && timeout 60 stdbuf -oL xargs -n1 grep -r 'FIXME' /src && timeout 30 stdbuf -oL xargs -n1 grep -r 'HACK' /src && timeout 10 stdbuf -oL xargs -n1 grep -r 'XXX' /src && timeout 120 stdbuf -oL xargs -n1 grep -r 'OPTIMIZE' /src
 BENCH
 f_wrappers=$(_prepare wrappers "$cmd")
 
 # 5. Many git operations
-# Targets: rules layer (flag parsing, subcommand
-# matching, classifyGitBranch/classifyGitTag hooks)
-# across many git invocations chained with &&.
+# Targets: rules layer (flag parsing, subcommand matching,
+# classifyGitBranch/classifyGitTag hooks) across many git invocations chained
+# with &&.
 read -r -d '' cmd <<'BENCH' || true
 git fetch --all && git checkout main && git pull && git log --oneline -10 && git diff --stat HEAD~1 && git branch --list && git tag -l 'v*' && git stash list && git remote -v && git status --short && git rev-parse HEAD && git describe --tags --always && git log --format='%H %s' -3 && git diff --name-only HEAD~1 && git show --stat HEAD && git shortlog -sn --no-merges HEAD~20..HEAD
 BENCH
 f_git=$(_prepare git "$cmd")
 
 # 6. Complex awk program
-# Targets: hookCheckAwk text scanning across a large
-# inline program. The hook scans every awk argument
-# for system(), shell pipes, and backtick execution.
+# Targets: hookCheckAwk text scanning across a large inline program. The hook
+# scans every awk argument for system(), shell pipes, and backtick execution.
 read -r -d '' cmd <<'BENCH' || true
 awk 'BEGIN{FS="|"; OFS=","; errors=0; warns=0; total=0} /^[0-9]{4}-[0-9]{2}-[0-9]{2}/{split($1,d," "); date=d[1]; time=d[2]; level=$2; msg=$3; gsub(/^ +| +$/,"",level); gsub(/^ +| +$/,"",msg); total++; if(level=="ERROR"){errors++; err_by_date[date]++; last_err[date]=msg; err_times[date]=err_times[date] " " time} else if(level=="WARN"){warns++; warn_by_date[date]++} else if(level=="INFO"){info_by_date[date]++} else{other_by_date[date]++}} /Connection refused/{refused++; refused_by_date[date]++} /timeout|timed out/{timeouts++; timeout_by_date[date]++} /out of memory|OOM/{oom++} /disk full|no space/{diskfull++} END{print "=== Summary ==="; printf "Total: %d lines, %d errors, %d warnings\n",total,errors,warns; print ""; print "=== Errors by Date ==="; n=asorti(err_by_date,sorted); for(i=1;i<=n;i++){d=sorted[i]; printf "%s: %d errors, %d warns, %d info | Last: %s\n",d,err_by_date[d],warn_by_date[d]+0,info_by_date[d]+0,last_err[d]}}' /var/log/app/application.log /var/log/app/error.log /var/log/app/access.log | sort -t',' -k2 -rn | head -30
 BENCH
 f_awk=$(_prepare awk "$cmd")
 
 # 7. Many command substitutions
-# Targets: CmdSubst extraction from argument word
-# parts - each $() spawns a sub-parse through
-# extractSubsFromWord/extractSubsFromPart and its
-# inner commands are extracted independently.
+# Targets: CmdSubst extraction from argument word parts - each $() spawns a
+# sub-parse through extractSubsFromWord/extractSubsFromPart and its inner
+# commands are extracted independently.
 read -r -d '' cmd <<'BENCH' || true
 curl -s -H "Authorization: Bearer $(cat ~/.config/token)" -H "X-Request-ID: $(uuidgen)" -H "X-Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)" -H "X-Host: $(hostname -f)" -H "X-User: $(whoami)" -H "X-Commit: $(git rev-parse HEAD)" -H "X-Branch: $(git branch --show-current)" -H "X-Tag: $(git describe --tags --always)" -H "X-Uptime: $(uptime -s)" -d "{\"version\":\"$(cat VERSION)\",\"build\":\"$(date +%s)\",\"os\":\"$(uname -r)\"}" "https://api.example.com/v1/deploy"
 BENCH
 f_subs=$(_prepare subs "$cmd")
 
 # 8. Large case statement
-# Targets: CaseClause with many items - each item's
-# patterns are walked for CmdSubst, each body is
-# processed at conditional scope, many extracted
-# commands from all branches.
+# Targets: CaseClause with many items - each item's patterns are walked for
+# CmdSubst, each body is processed at conditional scope, many extracted commands
+# from all branches.
 read -r -d '' cmd <<'BENCH' || true
 case "$1" in
   start) echo "Starting" && systemctl start app ;;
@@ -620,9 +608,8 @@ BENCH
 f_case=$(_prepare case "$cmd")
 
 # 9. Function definitions + calls
-# Targets: FuncDecl tracking at unconditional scope,
-# CouldBeFuncCall resolution in permissions, CmdSubst
-# extraction from function bodies, conditional depth
+# Targets: FuncDecl tracking at unconditional scope, CouldBeFuncCall resolution
+# in permissions, CmdSubst extraction from function bodies, conditional depth
 # management for function body processing.
 read -r -d '' cmd <<'BENCH' || true
 log_msg() { echo "[$(date +%H:%M:%S)] $1: $2"; }
@@ -645,10 +632,9 @@ BENCH
 f_funcs=$(_prepare funcs "$cmd")
 
 # 10. File scanning (8 scripts, ~270 lines)
-# Targets: scanFile path - the hook reads, parses,
-# and recursively extracts commands from real files
-# on disk. deploy.sh invokes 6 scripts, one of
-# which invokes 2 more (3 levels of nesting).
+# Targets: scanFile path - the hook reads, parses, and recursively extracts
+# commands from real files on disk. deploy.sh invokes 6 scripts, one of which
+# invokes 2 more (3 levels of nesting).
 f_scripts=$(_prepare scripts "bash deploy.sh")
 
 # =============================================================

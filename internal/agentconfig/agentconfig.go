@@ -1,15 +1,13 @@
 // Package agentconfig reads agent-permissions config files
-// (~/.agents/permissions.json, <project>/.agents/permissions.json,
-// and the project-local <project>/.agents/permissions.local.json).
+// (~/.agents/permissions.json, <project>/.agents/permissions.json, and the
+// project-local <project>/.agents/permissions.local.json).
 //
-// The schema is four tier objects, each holding entries by
-// tool axis (Commands, EnvVars). Within each axis, entries
-// are a map from pattern -> reason; the reason is shown in
-// hook output and may be empty. A top-level Rules object
-// (rule ID -> {Enabled}) overrides Rules-layer config. The
-// top-level shape also carries optional enabled-presets /
-// disabled-presets fields for selecting which embedded
-// presets contribute.
+// The schema is four tier objects, each holding entries by tool axis (Commands,
+// EnvVars). Within each axis, entries are a map from pattern -> reason; the
+// reason is shown in hook output and may be empty. A top-level Rules object
+// (rule ID -> {Enabled}) overrides Rules-layer config. The top-level shape also
+// carries optional enabled-presets / disabled-presets fields for selecting
+// which embedded presets contribute.
 package agentconfig
 
 import (
@@ -24,19 +22,18 @@ import (
 	"github.com/sothatsit/agent-permissions/internal/model"
 )
 
-// TierEntries is one tier's entries split by tool axis.
-// Each axis maps pattern -> reason; the reason is surfaced
-// as "<pattern> - <reason>  (from <source>)" in hook output
-// and may be empty (no dash shown). Loading code at the
-// perms layer converts these into typed patterns.
+// TierEntries is one tier's entries split by tool axis. Each axis maps pattern
+// -> reason; the reason is surfaced as "<pattern> - <reason>  (from <source>)"
+// in hook output and may be empty (no dash shown). Loading code at the perms
+// layer converts these into typed patterns.
 type TierEntries struct {
 	Commands map[string]string `json:"Commands,omitempty"`
 	EnvVars  map[string]string `json:"EnvVars,omitempty"`
 }
 
-// Config is the parsed form of a permissions.json file.
-// Path is retained so that `check` and error messages can
-// attribute decisions back to the source file.
+// Config is the parsed form of a permissions.json file. Path is retained so
+// that `check` and error messages can attribute decisions back to the source
+// file.
 type Config struct {
 	Path string
 
@@ -45,18 +42,17 @@ type Config struct {
 	Ask     TierEntries
 	Deny    TierEntries
 
-	// Rules overrides Rules-layer rule config by ID
-	// (rule -> {Enabled}). Presets enable rules by default;
-	// a user sets Enabled false here to turn one off, or
-	// Enabled true to turn on one no active preset enables.
-	// Nil when absent.
+	// Rules overrides Rules-layer rule config by ID (rule -> {Enabled}).
+	// Presets enable rules by default; a user sets Enabled false here to
+	// turn one off, or Enabled true to turn on one no active preset
+	// enables. Nil when absent.
 	Rules map[string]model.RuleConfig
 
-	// EnabledPresets and DisabledPresets are nil when the
-	// field is absent from the JSON. An empty slice means
-	// the user explicitly wrote `[]`. The distinction
-	// matters: absent = "no opinion, defer to defaults or
-	// another file"; empty = "explicitly nothing".
+	// EnabledPresets and DisabledPresets are nil when the field is absent
+	// from the JSON. An empty slice means the user explicitly wrote `[]`.
+	// The distinction matters: absent =
+	// "no opinion, defer to defaults or another file"; empty =
+	// "explicitly nothing".
 	EnabledPresets  *[]string
 	DisabledPresets *[]string
 }
@@ -81,6 +77,7 @@ func (c *Config) Clone() *Config {
 		disabled := slices.Clone(*c.DisabledPresets)
 		cloned.DisabledPresets = &disabled
 	}
+
 	return &cloned
 }
 
@@ -91,14 +88,14 @@ func cloneTier(tier TierEntries) TierEntries {
 	}
 }
 
-// HasPresetSelection reports whether the config specifies
-// either field. Used by the resolution chain to decide
-// whether the project-level config overrides global for
-// preset selection.
+// HasPresetSelection reports whether the config specifies either field. Used by
+// the resolution chain to decide whether the project-level config overrides
+// global for preset selection.
 func (c *Config) HasPresetSelection() bool {
 	if c == nil {
 		return false
 	}
+
 	return c.EnabledPresets != nil ||
 		c.DisabledPresets != nil
 }
@@ -113,17 +110,19 @@ type rawConfig struct {
 	DisabledPresets *[]string                   `json:"disabled-presets,omitempty"`
 }
 
-// Load reads the JSON file at path and returns the parsed
-// config. Returns nil, nil when the file does not exist.
-// Callers treat that as "no contribution from this source".
+// Load reads the JSON file at path and returns the parsed config. Returns nil,
+// nil when the file does not exist. Callers treat that as
+// "no contribution from this source".
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
+
 		return nil, err
 	}
+
 	return Parse(path, data)
 }
 
@@ -151,14 +150,14 @@ func Parse(path string, data []byte) (*Config, error) {
 	}, nil
 }
 
-// Save writes the config back to its Path. The write goes
-// through atomicfile.Write so a crash mid-write can't leave
-// a half-written file, and the existing file's mode is
-// preserved when overwriting.
+// Save writes the config back to its Path. The write goes through
+// atomicfile.Write so a crash mid-write can't leave a half-written file, and
+// the existing file's mode is preserved when overwriting.
 func (c *Config) Save() error {
 	if c.Path == "" {
 		return fmt.Errorf("agentconfig: empty path")
 	}
+
 	raw := rawConfig{
 		Allow:           c.Allow,
 		SoftAsk:         c.SoftAsk,
@@ -172,6 +171,7 @@ func (c *Config) Save() error {
 	if err != nil {
 		return err
 	}
+
 	data = append(data, '\n')
 	return atomicfile.Write(c.Path, data, 0o644)
 }

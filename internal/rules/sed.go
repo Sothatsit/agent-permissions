@@ -74,8 +74,8 @@ type sedInterpretation struct {
 	infoOnly  bool
 }
 
-// breakdownSed separates sed programs from data operands. Programs are
-// scanned as sed snippets, while data operands retain only their shell-level
+// breakdownSed separates sed programs from data operands. Programs are scanned
+// as sed snippets, while data operands retain only their shell-level
 // substitutions. GNU sed's sandbox validates programs itself and is the safe
 // way to use shell-expanded program text.
 func breakdownSed(
@@ -99,7 +99,8 @@ func breakdownSed(
 	}
 
 	// No supported interpretation can identify the program operands. Treat
-	// even invalid-looking syntax as unverified because sed may come from PATH.
+	// even invalid-looking syntax as unverified because sed may come from
+	// PATH.
 	if len(interpretations) == 0 {
 		return model.BreakdownOutcome{}, &model.RuleError{
 			Def:    sedCommandExec,
@@ -117,6 +118,7 @@ func breakdownSed(
 		if parsed.mode != sedGNUDefault || parsed.infoOnly {
 			continue
 		}
+
 		for _, operand := range parsed.operands {
 			if operand.protected ||
 				(sedOperandHasSafePrefix(operand.word) &&
@@ -147,18 +149,22 @@ func breakdownSed(
 		if err != nil {
 			return model.BreakdownOutcome{}, err
 		}
+
 		for _, snippet := range programs {
 			key := snippet.SourceFile + "\x00" + snippet.Code
 			if seen[key] {
 				continue
 			}
+
 			seen[key] = true
 			snippets = append(snippets, snippet)
 		}
 	}
+
 	if len(snippets) == 0 {
 		return model.Safe(), nil
 	}
+
 	return model.ReplaceOuter(model.BreakdownWork{
 		CodeSnippets: snippets,
 	}), nil
@@ -194,8 +200,10 @@ func parseSedInterpretation(
 					positionals = append(
 						positionals, sedOperand{word: rest})
 				}
+
 				break
 			}
+
 			continue
 		}
 
@@ -208,6 +216,7 @@ func parseSedInterpretation(
 			i, valid, err = parseSedGNUOption(
 				args, i, &parsed, &hasSourceOption)
 		}
+
 		if err != nil || !valid {
 			return sedInterpretation{}, valid, err
 		}
@@ -222,6 +231,7 @@ func parseSedInterpretation(
 		})
 		positionals = positionals[1:]
 	}
+
 	parsed.operands = positionals
 	return parsed, true, nil
 }
@@ -244,6 +254,7 @@ func parseSedGNUOption(
 			"sed option contains %s; cannot determine which programs to scan",
 			word.OpaqueReason(arg))
 	}
+
 	for pos := 1; pos < len(prefix); pos++ {
 		action := sedOrdinaryOption
 		argKind := sedNoArg
@@ -277,6 +288,7 @@ func parseSedGNUOption(
 			); err != nil {
 				return i, false, err
 			}
+
 			return i, true, nil
 		}
 		if argKind == sedOptionalAttachedArg {
@@ -285,12 +297,14 @@ func parseSedGNUOption(
 		if i+1 >= len(args) {
 			return i, false, nil
 		}
+
 		i++
 		if err := addSedOptionValue(
 			parsed, action, args[i], hasSourceOption,
 		); err != nil {
 			return i, false, err
 		}
+
 		return i, true, nil
 	}
 
@@ -299,6 +313,7 @@ func parseSedGNUOption(
 			"sed option contains %s; cannot determine which programs to scan",
 			word.OpaqueReason(arg))
 	}
+
 	return i, true, nil
 }
 
@@ -340,14 +355,17 @@ func parseSedGNULongOption(
 		if i+1 >= len(args) {
 			return i, false, nil
 		}
+
 		i++
 		attached = args[i]
 	}
+
 	if err := addSedOptionValue(
 		parsed, option.action, attached, hasSourceOption,
 	); err != nil {
 		return i, false, err
 	}
+
 	return i, true, nil
 }
 
@@ -357,6 +375,7 @@ func resolveSedLongOption(name string) (sedLongOption, bool) {
 			return option, true
 		}
 	}
+
 	return sedLongOption{}, false
 }
 
@@ -377,6 +396,7 @@ func parseSedBSDOption(
 			"sed option contains %s; cannot determine which programs to scan",
 			word.OpaqueReason(arg))
 	}
+
 	for pos := 1; pos < len(prefix); pos++ {
 		action := sedOrdinaryOption
 		requiresArg := false
@@ -408,17 +428,20 @@ func parseSedBSDOption(
 			); err != nil {
 				return i, false, err
 			}
+
 			return i, true, nil
 		}
 		if i+1 >= len(args) {
 			return i, false, nil
 		}
+
 		i++
 		if err := addSedOptionValue(
 			parsed, action, args[i], hasSourceOption,
 		); err != nil {
 			return i, false, err
 		}
+
 		return i, true, nil
 	}
 
@@ -427,6 +450,7 @@ func parseSedBSDOption(
 			"sed option contains %s; cannot determine which programs to scan",
 			word.OpaqueReason(arg))
 	}
+
 	return i, true, nil
 }
 
@@ -436,8 +460,10 @@ func sedAttachedValue(arg *syntax.Word, prefixLen int) *syntax.Word {
 		if prefixLen > len(text) {
 			return nil
 		}
+
 		return word.Lit(text[prefixLen:])
 	}
+
 	_, value := word.SplitPrefix(arg, prefixLen)
 	return value
 }
@@ -471,6 +497,7 @@ func addSedOptionValue(
 	case sedInfoOption:
 		parsed.infoOnly = true
 	}
+
 	return nil
 }
 
@@ -483,6 +510,7 @@ func everySedInterpretation(
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -505,6 +533,7 @@ func sedWordExpandsAsOneField(w *syntax.Word) bool {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -518,12 +547,15 @@ func sedDoubleQuoteExpandsAsManyFields(quoted *syntax.DblQuoted) bool {
 				return false
 			}
 		case *syntax.ArithmExp, *syntax.CmdSubst, *syntax.ProcSubst:
-			// Each boundary contributes one value to the surrounding quote. Its own
-			// parameter expansions cannot split that outer value.
+			// Each boundary contributes one value to the
+			// surrounding quote. Its own parameter expansions
+			// cannot split that outer value.
 			return false
 		}
+
 		return !manyFields
 	})
+
 	return manyFields
 }
 
@@ -534,6 +566,7 @@ func sedQuotedParamExpandsAsManyFields(param *syntax.ParamExp) bool {
 	if param.Names == syntax.NamesPrefixWords {
 		return true
 	}
+
 	index, ok := param.Index.(*syntax.Word)
 	return ok && word.DefinitelyEqual(index, "@")
 }
@@ -548,6 +581,7 @@ func sedStaticPrefix(w *syntax.Word) string {
 			if part.Dollar {
 				return prefix.String()
 			}
+
 			prefix.WriteString(part.Value)
 		case *syntax.DblQuoted:
 			for _, inner := range part.Parts {
@@ -555,12 +589,14 @@ func sedStaticPrefix(w *syntax.Word) string {
 				if !ok {
 					return prefix.String()
 				}
+
 				prefix.WriteString(word.UnescapeBackslashes(lit.Value))
 			}
 		default:
 			return prefix.String()
 		}
 	}
+
 	return prefix.String()
 }
 
@@ -583,6 +619,7 @@ func sedProgramSnippets(
 				if reason == "" {
 					reason = "pathname expansion"
 				}
+
 				return nil, &model.RuleError{
 					Def: sedCommandExec,
 					Reason: "sed program contains " + reason +
@@ -590,6 +627,7 @@ func sedProgramSnippets(
 						"shell-expanded program text",
 				}
 			}
+
 			hasInline = true
 			contents = append(contents, word.Text(source.word))
 			continue
@@ -599,6 +637,7 @@ func sedProgramSnippets(
 		if err != nil {
 			return nil, err
 		}
+
 		contents = append(contents, code)
 		sourceFiles = append(sourceFiles, path)
 	}
@@ -608,14 +647,17 @@ func sedProgramSnippets(
 		if i > 0 && !sources[i-1].file {
 			exact.WriteByte('\n')
 		}
+
 		exact.WriteString(content)
 	}
+
 	joined := strings.Join(contents, "")
 
 	sourceFile := ""
 	if !hasInline {
 		sourceFile = strings.Join(sourceFiles, " + ")
 	}
+
 	exactCode := exact.String()
 	snippets := []model.CodeSnippet{{
 		Language:   model.LangSed,
@@ -629,6 +671,7 @@ func sedProgramSnippets(
 			SourceFile: sourceFile,
 		})
 	}
+
 	return snippets, nil
 }
 
@@ -641,6 +684,7 @@ func readSedProgramFile(
 		if reason == "" {
 			reason = "pathname expansion"
 		}
+
 		return "", "", &model.RuleError{
 			Def: sedCommandExec,
 			Reason: "sed script path contains " + reason +
@@ -673,6 +717,7 @@ func readSedProgramFile(
 			Reason: fmt.Sprintf("%s: %v", path, err),
 		}
 	}
+
 	return string(data), path, nil
 }
 
@@ -738,6 +783,7 @@ func skipSedCommandSpace(program string, i int) int {
 			return i
 		}
 	}
+
 	return i
 }
 
@@ -750,6 +796,7 @@ func skipSedHorizontalSpace(program string, i int) int {
 			return i
 		}
 	}
+
 	return i
 }
 
@@ -764,6 +811,7 @@ func skipSedAddresses(program string, i int) int {
 			}
 		}
 	}
+
 	return i
 }
 
@@ -772,6 +820,7 @@ func skipSedAddressModifiers(program string, i int) int {
 		(program[i] == 'I' || program[i] == 'M') {
 		i++
 	}
+
 	return i
 }
 
@@ -790,6 +839,7 @@ func skipSedAddress(
 		if i < len(program) && program[i] == '~' {
 			i = skipSedDigits(program, i+1)
 		}
+
 		return i, true
 	case program[i] == '$':
 		return i + 1, true
@@ -810,6 +860,7 @@ func skipSedDigits(program string, i int) int {
 		program[i] >= '0' && program[i] <= '9' {
 		i++
 	}
+
 	return i
 }
 
@@ -843,12 +894,14 @@ func skipSedRegex(
 				classCanClose = true
 				continue
 			}
+
 			classCanClose = true
 			i++
 		case ']':
 			if inClass && classCanClose {
 				inClass = false
 			}
+
 			classCanClose = true
 			i++
 		case '\n':
@@ -857,14 +910,16 @@ func skipSedRegex(
 			if inClass && program[i] != '^' {
 				classCanClose = true
 			}
+
 			i++
 		}
 	}
+
 	return i, false
 }
 
-// skipSedBracketConstruct keeps POSIX character classes, collating symbols,
-// and equivalence classes nested inside the surrounding bracket expression.
+// skipSedBracketConstruct keeps POSIX character classes, collating symbols, and
+// equivalence classes nested inside the surrounding bracket expression.
 func skipSedBracketConstruct(
 	program string,
 	i int,
@@ -887,6 +942,7 @@ func skipSedBracketConstruct(
 			return i, false
 		}
 	}
+
 	return i, false
 }
 
@@ -897,12 +953,14 @@ func scanSedSubstitution(
 	if i >= len(program) || program[i] == '\n' {
 		return len(program), false
 	}
+
 	delimiter := program[i]
 
 	i, ok := skipSedRegex(program, i+1, delimiter)
 	if !ok {
 		return i, false
 	}
+
 	i, ok = skipSedDelimited(program, i, delimiter)
 	if !ok {
 		return i, false
@@ -922,6 +980,7 @@ func scanSedSubstitution(
 			i++
 		}
 	}
+
 	return i, false
 }
 
@@ -942,6 +1001,7 @@ func skipSedDelimited(
 			i++
 		}
 	}
+
 	return i, false
 }
 
@@ -949,12 +1009,14 @@ func skipSedTransliteration(program string, i int) int {
 	if i >= len(program) || program[i] == '\n' {
 		return len(program)
 	}
+
 	delimiter := program[i]
 
 	i, ok := skipSedDelimited(program, i+1, delimiter)
 	if !ok {
 		return i
 	}
+
 	i, _ = skipSedDelimited(program, i, delimiter)
 	return i
 }
@@ -967,6 +1029,7 @@ func skipSedSimpleCommand(program string, i int) int {
 				(program[i+1] == ';' || program[i+1] == '\n') {
 				return i + 1
 			}
+
 			i += 2
 		case ';', '\n', '}':
 			return i
@@ -974,6 +1037,7 @@ func skipSedSimpleCommand(program string, i int) int {
 			i++
 		}
 	}
+
 	return i
 }
 
@@ -986,8 +1050,10 @@ func skipSedLine(program string, i int) int {
 		if program[i] == '\n' {
 			return i + 1
 		}
+
 		i++
 	}
+
 	return i
 }
 
@@ -996,7 +1062,9 @@ func skipSedPhysicalLine(program string, i int) int {
 		if program[i] == '\n' {
 			return i + 1
 		}
+
 		i++
 	}
+
 	return i
 }

@@ -29,6 +29,7 @@ func writeTrapTestScript(t *testing.T) string {
 	if err := os.WriteFile(path, []byte("echo ok\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+
 	return directory
 }
 
@@ -41,8 +42,10 @@ func commandFunctionFlags(
 			!word.DefinitelyEqual(command.Args[0], name) {
 			continue
 		}
+
 		flags = append(flags, command.CouldBeFuncCall)
 	}
+
 	return flags
 }
 
@@ -89,6 +92,7 @@ func TestTrapHandlerUsesOnlyLocalFunctionKnowledge(t *testing.T) {
 	if got := commandFunctionFlags(result, "known"); len(got) != 1 || got[0] {
 		t.Errorf("known function flags = %v, want [false]", got)
 	}
+
 	if got := commandFunctionFlags(result, "inner"); len(got) != 1 || !got[0] {
 		t.Errorf("inner function flags = %v, want [true]", got)
 	}
@@ -100,6 +104,7 @@ func TestConditionalTrapHandlerHasFreshTopLevel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected breakdown error: %v", err)
 	}
+
 	if got := commandFunctionFlags(result, "inner"); len(got) != 1 || !got[0] {
 		t.Errorf("inner function flags = %v, want [true]", got)
 	}
@@ -119,6 +124,7 @@ func TestTrapHandlerForgetsKnownAndDeferredFunctions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected breakdown error: %v", err)
 	}
+
 	for _, name := range []string{"known", "inner"} {
 		flags := commandFunctionFlags(result, name)
 		if len(flags) != 1 || flags[0] {
@@ -148,11 +154,13 @@ func TestTrapNonHandlersPreserveState(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected breakdown error: %v", err)
 			}
+
 			flags := commandFunctionFlags(result, "known")
 			if len(flags) != 1 || !flags[0] {
 				t.Errorf(
 					"known function flags = %v, want [true]", flags)
 			}
+
 			if !hasCmd(result, "echo") {
 				t.Errorf("commands = %v, want scanned script", cmdNames(result))
 			}
@@ -173,6 +181,7 @@ func TestTrapHandlerInvalidationStaysInChildShell(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected breakdown error: %v", err)
 			}
+
 			flags := commandFunctionFlags(result, "known")
 			if len(flags) != 1 || !flags[0] {
 				t.Errorf("known function flags = %v, want [true]", flags)

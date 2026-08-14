@@ -1,7 +1,6 @@
-// Package rules provides shared infrastructure for
-// snippet pattern matching. Language-specific patterns
-// and rules are defined in python.go, perl.go, ruby.go,
-// and node.go. Registry.go wires them together.
+// Package rules provides shared infrastructure for snippet pattern matching.
+// Language-specific patterns and rules are defined in python.go, perl.go,
+// ruby.go, and node.go. Registry.go wires them together.
 package rules
 
 import (
@@ -13,26 +12,25 @@ import (
 
 // --- Language syntax types ---
 
-// langSyntax describes how a language uses quotes and
-// comments, for comment stripping before regex matching.
+// langSyntax describes how a language uses quotes and comments, for comment
+// stripping before regex matching.
 type langSyntax struct {
-	// Quotes lists string literal delimiters, ordered
-	// longest-first so """ matches before ".
+	// Quotes lists string literal delimiters, ordered longest-first
+	// so """ matches before ".
 	Quotes []quoteDef
-	// LineComments lists line comment prefixes
-	// (e.g. "#", "//").
+	// LineComments lists line comment prefixes (e.g. "#", "//").
 	LineComments []string
 	// BlockComments lists block comment delimiters.
 	BlockComments []blockComment
 
-	// skipCache holds the SKIP regex alternation for
-	// string literals, built once by stringSkipPattern.
+	// skipCache holds the SKIP regex alternation for string literals, built
+	// once by stringSkipPattern.
 	skipCache    string
 	skipCacheSet bool
 }
 
-// quoteDef describes one kind of string literal.
-// Backslash escapes are always handled.
+// quoteDef describes one kind of string literal. Backslash escapes are always
+// handled.
 type quoteDef struct {
 	Delim     string // delimiter (open and close)
 	Multiline bool   // can span newlines
@@ -46,14 +44,15 @@ type blockComment struct {
 
 // --- Comment stripping ---
 
-// stripComments removes comments from code, preserving
-// string literals. Returns code with comments excised.
+// stripComments removes comments from code, preserving string literals. Returns
+// code with comments excised.
 func (s *langSyntax) stripComments(
 	code string,
 ) string {
 	if s == nil {
 		return code
 	}
+
 	var b strings.Builder
 	b.Grow(len(code))
 	i := 0
@@ -72,14 +71,16 @@ func (s *langSyntax) stripComments(
 			i += n
 			continue
 		}
+
 		b.WriteByte(code[i])
 		i++
 	}
+
 	return b.String()
 }
 
-// skipQuote returns the length of the string literal
-// starting at code[i], or 0 if none starts there.
+// skipQuote returns the length of the string literal starting at code[i], or 0
+// if none starts there.
 func skipQuote(
 	code string, i int, syntax *langSyntax,
 ) int {
@@ -87,6 +88,7 @@ func skipQuote(
 		if !hasPrefix(code, i, q.Delim) {
 			continue
 		}
+
 		j := i + len(q.Delim)
 		for j < len(code) {
 			if code[j] == '\\' &&
@@ -102,16 +104,18 @@ func skipQuote(
 				code[j] == '\n' {
 				return j - i
 			}
+
 			j++
 		}
+
 		return j - i
 	}
+
 	return 0
 }
 
-// skipLineComment returns the length of the line
-// comment starting at code[i], or 0 if none starts
-// there. The trailing newline is not included.
+// skipLineComment returns the length of the line comment starting at code[i],
+// or 0 if none starts there. The trailing newline is not included.
 func skipLineComment(
 	code string, i int, syntax *langSyntax,
 ) int {
@@ -119,18 +123,20 @@ func skipLineComment(
 		if !hasPrefix(code, i, prefix) {
 			continue
 		}
+
 		j := i
 		for j < len(code) && code[j] != '\n' {
 			j++
 		}
+
 		return j - i
 	}
+
 	return 0
 }
 
-// skipBlockComment returns the length of the block
-// comment starting at code[i], or 0 if none starts
-// there.
+// skipBlockComment returns the length of the block comment starting at code[i],
+// or 0 if none starts there.
 func skipBlockComment(
 	code string, i int, syntax *langSyntax,
 ) int {
@@ -138,16 +144,20 @@ func skipBlockComment(
 		if !hasPrefix(code, i, bc.Open) {
 			continue
 		}
+
 		j := i + len(bc.Open)
 		for j < len(code) {
 			if hasPrefix(code, j, bc.Close) {
 				j += len(bc.Close)
 				return j - i
 			}
+
 			j++
 		}
+
 		return j - i
 	}
+
 	return 0
 }
 
@@ -156,9 +166,9 @@ func hasPrefix(s string, i int, prefix string) bool {
 		s[i:i+len(prefix)] == prefix
 }
 
-// interpolatedLiteralContents returns the contents of quoted literals chosen
-// by include. It only finds quote boundaries and escapes already understood by
-// the shared matcher. Language-specific callbacks decide which literals can
+// interpolatedLiteralContents returns the contents of quoted literals chosen by
+// include. It only finds quote boundaries and escapes already understood by the
+// shared matcher. Language-specific callbacks decide which literals can
 // evaluate interpolation; their contents remain deliberately conservative.
 func interpolatedLiteralContents(
 	code string,
@@ -180,14 +190,17 @@ func interpolatedLiteralContents(
 				hasPrefix(code, end-len(quote.Delim), quote.Delim) {
 				contentEnd -= len(quote.Delim)
 			}
+
 			content := code[i+len(quote.Delim) : contentEnd]
 			if include(code, i, quote, content) {
 				contents = append(contents, content)
 			}
+
 			i = end
 			matchedQuote = true
 			break
 		}
+
 		if matchedQuote {
 			continue
 		}
@@ -199,8 +212,10 @@ func interpolatedLiteralContents(
 			i += length
 			continue
 		}
+
 		i++
 	}
+
 	return contents
 }
 
@@ -210,24 +225,27 @@ func hasUnescapedPrefix(text, prefix string) bool {
 		if relative < 0 {
 			return false
 		}
+
 		index := offset + relative
 		backslashes := 0
 		for i := index - 1; i >= 0 && text[i] == '\\'; i-- {
 			backslashes++
 		}
+
 		if backslashes%2 == 0 {
 			return true
 		}
+
 		offset = index + len(prefix)
 	}
+
 	return false
 }
 
 // --- Builder ---
 
-// matchBuilder wraps a check function so you can call
-// .Deny(reason) to produce a SnippetRule - same pattern
-// as model.RuleBuilder for command rules.
+// matchBuilder wraps a check function so you can call .Deny(reason) to produce
+// a SnippetRule - same pattern as model.RuleBuilder for command rules.
 type matchBuilder struct {
 	check func(code string) bool
 }
@@ -243,12 +261,11 @@ func (b matchBuilder) Deny(
 
 // --- Core matching ---
 
-// match compiles a regex that skips over string literals
-// (SKIP/FAIL) so patterns only match in code, not inside
-// strings. Comments should already be stripped by the
-// caller. Patterns must use only non-capturing groups
-// (?:) - a capturing () would shift group numbering
-// and silently break the SKIP/FAIL detection.
+// match compiles a regex that skips over string literals (SKIP/FAIL) so
+// patterns only match in code, not inside strings. Comments should already be
+// stripped by the caller. Patterns must use only non-capturing groups (?:) - a
+// capturing () would shift group numbering and silently break the SKIP/FAIL
+// detection.
 func (s *langSyntax) match(
 	pattern string,
 ) matchBuilder {
@@ -259,6 +276,7 @@ func (s *langSyntax) match(
 	} else {
 		full = skip + `|(` + pattern + `)`
 	}
+
 	re := regexp.MustCompile(full)
 	return matchBuilder{check: func(
 		code string,
@@ -269,29 +287,31 @@ func (s *langSyntax) match(
 			if loc == nil {
 				return false
 			}
-			// Group 1 matched - pattern found
-			// outside a string literal.
+			// Group 1 matched - pattern found outside a string
+			// literal.
 			if loc[2] >= 0 {
 				return true
 			}
-			// String was consumed; advance past
-			// it and continue scanning.
+
+			// String was consumed; advance past it and continue
+			// scanning.
 			code = code[loc[1]:]
 		}
 	}}
 }
 
-// stringSkipPattern returns the cached SKIP regex
-// alternation for this language's string literals.
-// Built once on first call.
+// stringSkipPattern returns the cached SKIP regex alternation for this
+// language's string literals. Built once on first call.
 func (s *langSyntax) stringSkipPattern() string {
 	if s == nil || s.skipCacheSet {
 		return s.skipCache
 	}
+
 	s.skipCacheSet = true
 	if len(s.Quotes) == 0 {
 		return s.skipCache
 	}
+
 	var parts []string
 	for _, q := range s.Quotes {
 		d := regexp.QuoteMeta(q.Delim)
@@ -305,18 +325,20 @@ func (s *langSyntax) stringSkipPattern() string {
 				d+`(?:[^`+c+`\\\n]|\\.)*`+d)
 		}
 	}
+
 	s.skipCache = strings.Join(parts, "|")
 	return s.skipCache
 }
 
 // --- Shared pattern helpers ---
 
-// reAlternation builds a regex alternation from names,
-// escaping each for use in a regex.
+// reAlternation builds a regex alternation from names, escaping each for use in
+// a regex.
 func reAlternation(names []string) string {
 	parts := make([]string, len(names))
 	for i, n := range names {
 		parts[i] = regexp.QuoteMeta(n)
 	}
+
 	return strings.Join(parts, "|")
 }

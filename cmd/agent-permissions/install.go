@@ -42,7 +42,8 @@ func install(args []string) error {
 	); err == nil {
 		binPath = resolved
 	} else {
-		// The unresolved path can become stale if a development symlink moves.
+		// The unresolved path can become stale if a development symlink
+		// moves.
 		fmt.Fprintf(os.Stderr,
 			"warning: could not resolve symlinks "+
 				"on %s: %v\n", binPath, err)
@@ -56,13 +57,15 @@ func installClaudeCode(binPath string) error {
 	if err != nil {
 		return fmt.Errorf("home: %w", err)
 	}
+
 	path := filepath.Join(home, ".claude", "settings.json")
-	// Use mvdan/sh's Bash quoting rules because the executable path may contain
-	// spaces or shell metacharacters.
+	// Use mvdan/sh's Bash quoting rules because the executable path may
+	// contain spaces or shell metacharacters.
 	quotedBinPath, err := syntax.Quote(binPath, syntax.LangBash)
 	if err != nil {
 		return fmt.Errorf("quote binary path for Bash hook: %w", err)
 	}
+
 	hookCmd := quotedBinPath + " claude-hook"
 	stanza := buildBashMatcherEntry(hookCmd)
 
@@ -74,6 +77,7 @@ func installClaudeCode(binPath string) error {
 					"not found)")
 			return nil
 		}
+
 		return fmt.Errorf(
 			"stat %s: %w", path, err)
 	}
@@ -82,6 +86,7 @@ func installClaudeCode(binPath string) error {
 	if err != nil {
 		return fmt.Errorf("read %s: %w", path, err)
 	}
+
 	var root map[string]any
 	if err := configjson.Decode(data, &root); err != nil {
 		return fmt.Errorf(
@@ -109,6 +114,7 @@ func installClaudeCode(binPath string) error {
 	if err != nil {
 		return err
 	}
+
 	out = append(out, '\n')
 
 	if err := atomicfile.Write(
@@ -120,13 +126,13 @@ func installClaudeCode(binPath string) error {
 			return buildHandPasteError(
 				path, stanza, err)
 		}
-		// Permission errors and other writable issues
-		// also fall back to the hand-paste path so the
-		// user has a clear next step.
+		// Permission errors and other writable issues also fall back to
+		// the hand-paste path so the user has a clear next step.
 		if errors.Is(err, os.ErrPermission) {
 			return buildHandPasteError(
 				path, stanza, err)
 		}
+
 		return err
 	}
 
@@ -159,6 +165,7 @@ func mergeHookStanza(
 				"settings.json `hooks` is not a JSON " +
 					"object — refusing to overwrite")
 		}
+
 		hooks = m
 	}
 
@@ -173,17 +180,20 @@ func mergeHookStanza(
 				"settings.json `hooks.PreToolUse` is " +
 					"not an array — refusing to overwrite")
 		}
+
 		preToolUse = arr
 	}
 
-	// Inspect every Bash matcher before choosing where to merge. Claude Code
-	// accepts more than one matcher, and the hook may already be in a later one.
+	// Inspect every Bash matcher before choosing where to merge. Claude
+	// Code accepts more than one matcher, and the hook may already be in a
+	// later one.
 	mergeIndex := -1
 	for i, e := range preToolUse {
 		entry, ok := e.(map[string]any)
 		if !ok {
 			continue
 		}
+
 		matcher, _ := entry["matcher"].(string)
 		if matcher != "Bash" {
 			continue
@@ -191,6 +201,7 @@ func mergeHookStanza(
 		if mergeIndex == -1 {
 			mergeIndex = i
 		}
+
 		entryHooks, ok := entry["hooks"].([]any)
 		if !ok {
 			return nil, 0, fmt.Errorf(
@@ -198,11 +209,13 @@ func mergeHookStanza(
 					"field that is not an array — "+
 					"refusing to overwrite", i)
 		}
+
 		for _, h := range entryHooks {
 			hm, ok := h.(map[string]any)
 			if !ok {
 				continue
 			}
+
 			cmd, _ := hm["command"].(string)
 			if isAgentPermissionsHook(cmd, hookCmd) {
 				return root, hookAlreadyPresent, nil
@@ -294,6 +307,7 @@ func buildHandPasteError(
 		return fmt.Errorf(
 			"format manual hook stanza after %v: %w", cause, err)
 	}
+
 	return fmt.Errorf(
 		"cannot write %s: %w\n\n"+
 			"To install by hand, merge the "+

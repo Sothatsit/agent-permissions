@@ -1,12 +1,10 @@
-// Package atomicfile provides a safe write-replace primitive
-// for config files (~/.claude/settings.json and
-// ~/.agents/permissions.json).
+// Package atomicfile provides a safe write-replace primitive for config files
+// (~/.claude/settings.json and ~/.agents/permissions.json).
 //
-// The semantics are intentionally narrow: refuse to write
-// through a symlink (so dotfile setups aren't silently
-// disconnected from their real target), preserve the
-// original file's mode when overwriting, and rename atomically
-// so a crash mid-write can't leave a half-written file.
+// The semantics are intentionally narrow: refuse to write through a symlink (so
+// dotfile setups aren't silently disconnected from their real target), preserve
+// the original file's mode when overwriting, and rename atomically so a crash
+// mid-write can't leave a half-written file.
 package atomicfile
 
 import (
@@ -17,20 +15,18 @@ import (
 	"path/filepath"
 )
 
-// ErrSymlinkTarget is returned by Write when the target
-// path is a symlink. Callers should print a hand-paste
-// message rather than silently follow or replace it.
+// ErrSymlinkTarget is returned by Write when the target path is a symlink.
+// Callers should print a hand-paste message rather than silently follow or
+// replace it.
 var ErrSymlinkTarget = errors.New(
 	"target is a symbolic link")
 
-// Write replaces path with data atomically. If path already
-// exists, the new file inherits its mode. If path is a
-// symlink, returns ErrSymlinkTarget without writing. If
-// path doesn't exist, defaultMode is used.
+// Write replaces path with data atomically. If path already exists, the new
+// file inherits its mode. If path is a symlink, returns ErrSymlinkTarget
+// without writing. If path doesn't exist, defaultMode is used.
 //
-// The temp file lives in the same directory as path so the
-// rename stays within one filesystem (where rename is
-// atomic on POSIX).
+// The temp file lives in the same directory as path so the rename stays within
+// one filesystem (where rename is atomic on POSIX).
 func Write(
 	path string, data []byte, defaultMode fs.FileMode,
 ) error {
@@ -45,6 +41,7 @@ func Write(
 		if info.Mode()&os.ModeSymlink != 0 {
 			return ErrSymlinkTarget
 		}
+
 		mode = info.Mode().Perm()
 	}
 
@@ -59,6 +56,7 @@ func Write(
 	if err != nil {
 		return fmt.Errorf("create temp: %w", err)
 	}
+
 	tmpPath := tmp.Name()
 
 	// Best-effort cleanup; ignored if rename succeeds.
@@ -80,5 +78,6 @@ func Write(
 		return fmt.Errorf(
 			"rename %s -> %s: %w", tmpPath, path, err)
 	}
+
 	return nil
 }

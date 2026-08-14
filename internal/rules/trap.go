@@ -22,9 +22,8 @@ func trapDisplaysState(arg *syntax.Word) bool {
 	return strings.Trim(text[1:], "lp") == ""
 }
 
-// breakdownTrap unwraps trap by extracting the code
-// string (first positional) for re-parsing. Bare trap,
-// -l, -p, and signal resets are safe. Rejects opaque
+// breakdownTrap unwraps trap by extracting the code string (first positional)
+// for re-parsing. Bare trap, -l, -p, and signal resets are safe. Rejects opaque
 // code args.
 func breakdownTrap(
 	input model.ParseResult,
@@ -34,8 +33,8 @@ func breakdownTrap(
 		return model.Safe(), nil
 	}
 
-	// Strict: opaque first arg falls through to the
-	// static check below, which rejects it.
+	// Strict: opaque first arg falls through to the static check below,
+	// which rejects it.
 	if trapDisplaysState(input.Raw[0]) {
 		return model.Safe(), nil
 	}
@@ -50,8 +49,8 @@ func breakdownTrap(
 
 	codeWord := input.Raw[codeIdx]
 	if codeIdx+1 >= len(input.Raw) {
-		// Without a signal, Bash reports usage and does not
-		// register or execute the action.
+		// Without a signal, Bash reports usage and does not register or
+		// execute the action.
 		return model.Safe(), nil
 	}
 

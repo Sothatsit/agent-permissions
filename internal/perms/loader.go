@@ -18,8 +18,8 @@ import (
 	"github.com/sothatsit/agent-permissions/presets"
 )
 
-// Resolved is one evaluation-ready policy. Permissions and Breakdown share
-// one registry filtered by the resolved rule config.
+// Resolved is one evaluation-ready policy. Permissions and Breakdown share one
+// registry filtered by the resolved rule config.
 type Resolved struct {
 	Permissions *Permissions
 
@@ -37,17 +37,16 @@ func (r *Resolved) Breakdown(
 		command, r.cwd, r.registry, r.ruleConfig)
 }
 
-// Resolve reads every config source and returns an evaluation-ready policy.
-// Its breakdown and permissions phases share one registry filtered by the
-// resolved rule config. The hook and `check` use this path so they resolve and
-// evaluate identically.
+// Resolve reads every config source and returns an evaluation-ready policy. Its
+// breakdown and permissions phases share one registry filtered by the resolved
+// rule config. The hook and `check` use this path so they resolve and evaluate
+// identically.
 //
-// configDir is CLAUDE_CONFIG_DIR (defaults to ~/.claude).
-// cwd is the project directory. Either may be empty;
-// missing files are silently skipped.
+// configDir is CLAUDE_CONFIG_DIR (defaults to ~/.claude). cwd is the project
+// directory. Either may be empty; missing files are silently skipped.
 //
-// Normal-source priority, highest -> lowest (the order
-// Permissions.Sources lands in):
+// Normal-source priority, highest -> lowest (the order Permissions.Sources
+// lands in):
 //  1. <cwd>/.claude/settings.local.json
 //  2. <cwd>/.claude/settings.json
 //  3. <configDir>/settings.json (Claude Code user)
@@ -57,19 +56,16 @@ func (r *Resolved) Breakdown(
 //  7. Ordinary external presets
 //  8. Embedded presets
 //
-// Ordinary and embedded presets are filtered by enabled-/
-// disabled-presets from the most-specific .agents config
-// that specifies either field (local beats project beats
-// global). Enforced external presets are always active and
-// resolve separately: all matching enforced entries combine
-// by strength, then that result combines with normal policy
-// by strength.
+// Ordinary and embedded presets are filtered by enabled-/disabled-presets from
+// the most-specific .agents config that specifies either field (local beats
+// project beats global). Enforced external presets are always active and
+// resolve separately: all matching enforced entries combine by strength, then
+// that result combines with normal policy by strength.
 //
-// permissions.local.json mirrors Claude Code's
-// settings.local.json: a project-scoped, typically
-// gitignored personal override that sits above the
-// committed project config. There is no global local
-// variant, again matching Claude Code.
+// permissions.local.json mirrors Claude Code's settings.local.json: a
+// project-scoped, typically gitignored personal override that sits above the
+// committed project config. There is no global local variant, again matching
+// Claude Code.
 func Resolve(
 	configDir, cwd string,
 ) (*Resolved, error) {
@@ -77,11 +73,12 @@ func Resolve(
 	if err != nil {
 		return nil, err
 	}
+
 	return snapshot.Resolve(configDir)
 }
 
-// Resolve builds the effective policy from this captured shared policy and
-// the harness-native Claude settings selected by configDir.
+// Resolve builds the effective policy from this captured shared policy and the
+// harness-native Claude settings selected by configDir.
 func (snapshot *PolicySnapshot) Resolve(
 	configDir string,
 ) (*Resolved, error) {
@@ -96,9 +93,9 @@ func (snapshot *PolicySnapshot) Resolve(
 	rules.FilterByConfig(
 		registry, snippetRules, ruleConfig)
 
-	// Build sources highest -> lowest priority. Each
-	// source-load may return ConfigWarnings for malformed
-	// entries; they accumulate into Permissions.Warnings.
+	// Build sources highest -> lowest priority. Each source-load may return
+	// ConfigWarnings for malformed entries; they accumulate into
+	// Permissions.Warnings.
 	var sources []SourcePerms
 	var enforcedSources []SourcePerms
 	var warnings []ConfigWarning
@@ -112,6 +109,7 @@ func (snapshot *PolicySnapshot) Resolve(
 			sources = append(sources, *src)
 			warnings = append(warnings, w...)
 		}
+
 		return nil
 	}
 
@@ -151,6 +149,7 @@ func (snapshot *PolicySnapshot) Resolve(
 		} else {
 			sources = append(sources, src)
 		}
+
 		warnings = append(warnings, w...)
 	}
 
@@ -165,41 +164,39 @@ func (snapshot *PolicySnapshot) Resolve(
 			rules:           registry,
 			snippetRules:    snippetRules,
 			PathDirs:        parsePathDirs(os.Getenv("PATH")),
-			// Resolve doesn't know which harness is the
-			// consumer. Tools that produce harness-bound
-			// output (claude-hook) replace this with the
-			// concrete harness; tools that don't (check,
-			// validate) keep the Placeholder so
-			// harness-specific strings appear as visibly
-			// marked placeholders rather than silently
-			// pretending to be one harness or another.
+			// Resolve doesn't know which harness is the consumer.
+			// Tools that produce harness-bound output (claude-hook)
+			// replace this with the concrete harness; tools that
+			// don't (check, validate) keep the Placeholder so
+			// harness-specific strings appear as visibly marked
+			// placeholders rather than silently pretending to be
+			// one harness or another.
 			Harness: harness.Placeholder{},
 		},
 	}, nil
 }
 
-// parsePathDirs splits the PATH value into a set of
-// cleaned directory paths. Empty PATH or empty entries
-// yield an empty set; the absolute-path basename match
-// then falls through, requiring an explicit absolute-path
-// pattern.
+// parsePathDirs splits the PATH value into a set of cleaned directory paths.
+// Empty PATH or empty entries yield an empty set; the absolute-path basename
+// match then falls through, requiring an explicit absolute-path pattern.
 func parsePathDirs(path string) map[string]struct{} {
 	dirs := map[string]struct{}{}
 	for _, d := range filepath.SplitList(path) {
 		if d == "" {
 			continue
 		}
+
 		dirs[filepath.Clean(d)] = struct{}{}
 	}
+
 	return dirs
 }
 
-// validateExternalPresets rejects semantic mistakes that
-// structural JSON decoding cannot catch. External presets
-// carry organisation policy, so dropping a bad entry or
-// silently ignoring a rule typo would weaken that policy.
-// User config keeps the warning-only behavior so users can
-// diagnose and repair a bad entry without losing the hook.
+// validateExternalPresets rejects semantic mistakes that structural JSON
+// decoding cannot catch. External presets carry organisation policy, so
+// dropping a bad entry or silently ignoring a rule typo would weaken that
+// policy. User config keeps the warning-only behavior so users can diagnose and
+// repair a bad entry without losing the hook.
 func validateExternalPresets(
 	all []*presets.Preset,
 ) error {
@@ -216,11 +213,13 @@ func validateExternalPresets(
 				"%s (%s): %q (%s)",
 				w.Source, p.Dir, w.Entry, w.Reason))
 		}
+
 		for _, pat := range sourceCommandPatterns(src) {
 			owner, ok := ruleOwnedPattern(pat, registry)
 			if !ok {
 				continue
 			}
+
 			problems = append(problems, fmt.Sprintf(
 				"%s (%s): command pattern %q overlaps "+
 					"rule-owned %q",
@@ -231,6 +230,7 @@ func validateExternalPresets(
 		for id := range p.Rules {
 			ids = append(ids, id)
 		}
+
 		sort.Strings(ids)
 		for _, id := range ids {
 			if !rules.IsRuleID(id) {
@@ -247,9 +247,11 @@ func validateExternalPresets(
 			}
 		}
 	}
+
 	if len(problems) == 0 {
 		return nil
 	}
+
 	sort.Strings(problems)
 	return fmt.Errorf(
 		"external preset validation failed: %s",
@@ -263,6 +265,7 @@ func sourceCommandPatterns(src SourcePerms) []Pattern {
 	} {
 		out = append(out, tier.Commands...)
 	}
+
 	return out
 }
 
@@ -274,6 +277,7 @@ func ruleOwnedPattern(
 	for command := range registry {
 		commands = append(commands, command)
 	}
+
 	sort.Strings(commands)
 
 	for _, command := range commands {
@@ -287,6 +291,7 @@ func ruleOwnedPattern(
 				return command, true
 			}
 		}
+
 		for _, relative := range commandRules.OwnedPatternPrefixes {
 			prefix := append(
 				[]string{command}, relative...)
@@ -301,6 +306,7 @@ func ruleOwnedPattern(
 			}
 		}
 	}
+
 	return "", false
 }
 
@@ -347,6 +353,7 @@ func patternOverlapsNormalizedOwnedPrefix(
 				leading = append(leading,
 					patternTokenConstraint{any: true})
 			}
+
 			candidate := append(
 				append([]patternTokenConstraint{}, leading...),
 				owner...)
@@ -356,10 +363,13 @@ func patternOverlapsNormalizedOwnedPrefix(
 			if search(depth + 1) {
 				return true
 			}
+
 			leading = leading[:before]
 		}
+
 		return false
 	}
+
 	return search(1)
 }
 
@@ -375,6 +385,7 @@ func patternOverlapsTokenConstraints(
 			return false
 		}
 	}
+
 	candidateLength := len(args) + 1
 	return len(pat.Elements) >= candidateLength ||
 		pat.Mode != MatchExact
@@ -398,6 +409,7 @@ func patternOverlapsOwnedPrefix(
 			return false
 		}
 	}
+
 	return len(pat.Elements) >= len(prefix) ||
 		pat.Mode != MatchExact
 }
@@ -411,14 +423,14 @@ func commandElementOverlaps(
 	if bareOnly {
 		return false
 	}
+
 	return globLanguagesOverlap(
 		pattern, "*/"+command)
 }
 
-// globLanguagesOverlap reports whether two patterns using
-// this package's single `*` wildcard can match the same
-// string. Command ownership needs language intersection,
-// not filepath.Base(pattern), because `*` can cross `/`.
+// globLanguagesOverlap reports whether two patterns using this package's single
+// `*` wildcard can match the same string. Command ownership needs language
+// intersection, not filepath.Base(pattern), because `*` can cross `/`.
 func globLanguagesOverlap(a, b string) bool {
 	type state struct{ a, b int }
 	queue := []state{{}}
@@ -430,6 +442,7 @@ func globLanguagesOverlap(a, b string) bool {
 		if seen[current] {
 			continue
 		}
+
 		seen[current] = true
 		if current.a == len(a) && current.b == len(b) {
 			return true
@@ -449,9 +462,9 @@ func globLanguagesOverlap(a, b string) bool {
 
 		switch {
 		case aStar && bStar:
-			// Consuming a character leaves both stars in the
-			// same state. Their epsilon moves above provide
-			// every route that can make progress.
+			// Consuming a character leaves both stars in the same
+			// state. Their epsilon moves above provide every route
+			// that can make progress.
 		case aStar:
 			queue = append(queue, state{current.a, current.b + 1})
 		case bStar:
@@ -460,22 +473,21 @@ func globLanguagesOverlap(a, b string) bool {
 			queue = append(queue, state{current.a + 1, current.b + 1})
 		}
 	}
+
 	return false
 }
 
-// selectPresets returns the presets from all (kept in the
-// given order) selected by the most-specific agent config
-// that specifies preset selection - local, else project,
-// else global - otherwise every preset. `enabled-presets`
-// narrows ordinary external and embedded presets to a
-// whitelist; `disabled-presets` then filters that result.
-// Enforced presets are always retained.
+// selectPresets returns the presets from all (kept in the given order) selected
+// by the most-specific agent config that specifies preset selection - local,
+// else project, else global - otherwise every preset. `enabled-presets` narrows
+// ordinary external and embedded presets to a whitelist; `disabled-presets`
+// then filters that result. Enforced presets are always retained.
 func selectPresets(
 	all []*presets.Preset,
 	global, project, local *agentconfig.Config,
 ) []*presets.Preset {
-	// Checked least- to most-specific so the most-specific
-	// config that has an opinion is the one left in cfg.
+	// Checked least- to most-specific so the most-specific config that has
+	// an opinion is the one left in cfg.
 	cfg := global
 	if project.HasPresetSelection() {
 		cfg = project
@@ -505,18 +517,17 @@ func selectPresets(
 		out = filterByName(
 			out, *cfg.DisabledPresets, false)
 	}
+
 	return append(enforced, out...)
 }
 
-// resolveRuleConfig resolves per-rule config across the
-// rule-config sources. Rules ship default-OFF in code, so a
-// rule absent from every source stays disabled. Ordinary
-// presets form the base, then global/project/local .agents
-// overrides apply. Enforced Enabled:true entries apply last,
-// locking those rules on. External validation rejects
-// Enabled:false in enforced presets. Claude settings.json
-// does not participate - rule config is an agent-permissions
-// concept kept in the shared layers, which is what makes it
+// resolveRuleConfig resolves per-rule config across the rule-config sources.
+// Rules ship default-OFF in code, so a rule absent from every source stays
+// disabled. Ordinary presets form the base, then global/project/local .agents
+// overrides apply. Enforced Enabled:true entries apply last, locking those
+// rules on. External validation rejects Enabled:false in enforced
+// presets. Claude settings.json does not participate - rule config is an
+// agent-permissions concept kept in the shared layers, which is what makes it
 // identical across harnesses.
 func resolveRuleConfig(
 	global, project, local *agentconfig.Config,
@@ -527,10 +538,12 @@ func resolveRuleConfig(
 		if selected[i].Enforced {
 			continue
 		}
+
 		for id, cfg := range selected[i].Rules {
 			out[id] = cfg
 		}
 	}
+
 	if global != nil {
 		for id, cfg := range global.Rules {
 			out[id] = cfg
@@ -546,16 +559,19 @@ func resolveRuleConfig(
 			out[id] = cfg
 		}
 	}
+
 	for i := len(selected) - 1; i >= 0; i-- {
 		if !selected[i].Enforced {
 			continue
 		}
+
 		for id, cfg := range selected[i].Rules {
 			if cfg.Enabled {
 				out[id] = cfg
 			}
 		}
 	}
+
 	return out
 }
 
@@ -568,12 +584,14 @@ func filterByName(
 	for _, n := range names {
 		set[n] = true
 	}
+
 	var out []*presets.Preset
 	for _, p := range in {
 		if set[p.Name] == include {
 			out = append(out, p)
 		}
 	}
+
 	return out
 }
 
@@ -582,6 +600,7 @@ func fromPreset(p *presets.Preset) (SourcePerms, []ConfigWarning) {
 	if p.Enforced {
 		name = "enforced-preset:" + p.Name
 	}
+
 	src := SourcePerms{Name: name, AcceptsReasons: true}
 	var warnings []ConfigWarning
 
@@ -621,15 +640,13 @@ func fromAgentConfig(
 	return src, warnings
 }
 
-// loadClaudeSettings reads a Claude Code settings.json
-// and returns a SourcePerms (or nil if the file doesn't
-// exist) plus any malformed-pattern warnings. Entries are
-// wrapped as `Bash(...)`; non-Bash wrappers (Edit, Read,
-// WebFetch, etc.) are skipped via extractBashPattern
-// without warning since they're valid Claude Code entries
-// for other tools. Reasons are always empty here - the
-// Claude Code schema has no slot for them. EnvVars cannot
-// be expressed in Claude Code settings.
+// loadClaudeSettings reads a Claude Code settings.json and returns a
+// SourcePerms (or nil if the file doesn't exist) plus any malformed-pattern
+// warnings. Entries are wrapped as `Bash(...)`; non-Bash wrappers (Edit, Read,
+// WebFetch, etc.) are skipped via extractBashPattern without warning since
+// they're valid Claude Code entries for other tools. Reasons are always empty
+// here - the Claude Code schema has no slot for them. EnvVars cannot be
+// expressed in Claude Code settings.
 func loadClaudeSettings(
 	path string,
 ) (*SourcePerms, []ConfigWarning, error) {
@@ -638,34 +655,41 @@ func loadClaudeSettings(
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil, nil
 		}
+
 		return nil, nil, err
 	}
+
 	var settings map[string]any
 	if err := configjson.Decode(data, &settings); err != nil {
 		return nil, nil, fmt.Errorf(
 			"invalid JSON in %s: %v", path, err)
 	}
+
 	permissions, err := readClaudePermissions(settings)
 	if err != nil {
 		return nil, nil, fmt.Errorf(
 			"invalid JSON in %s: %v", path, err)
 	}
+
 	allow, err := readClaudePermissionList(permissions, "allow")
 	if err != nil {
 		return nil, nil, fmt.Errorf(
 			"invalid JSON in %s: %v", path, err)
 	}
+
 	softAsk, err := readClaudePermissionList(
 		permissions, "softAsk")
 	if err != nil {
 		return nil, nil, fmt.Errorf(
 			"invalid JSON in %s: %v", path, err)
 	}
+
 	ask, err := readClaudePermissionList(permissions, "ask")
 	if err != nil {
 		return nil, nil, fmt.Errorf(
 			"invalid JSON in %s: %v", path, err)
 	}
+
 	deny, err := readClaudePermissionList(permissions, "deny")
 	if err != nil {
 		return nil, nil, fmt.Errorf(
@@ -723,23 +747,23 @@ func readClaudePermissionList(
 		if item == nil {
 			continue
 		}
+
 		entry, ok := item.(string)
 		if !ok {
 			return nil, fmt.Errorf(
 				"permissions.%s[%d] must be a string", key, i)
 		}
+
 		entries[i] = entry
 	}
 
 	return entries, nil
 }
 
-// parseTier parses one tier's entries (commands and env
-// vars) into typed patterns and records ConfigWarnings for
-// rejected entries. Both maps may be nil; a nil map yields
-// an empty axis. Commands and EnvVars are stored on
-// TierEntries; the resolution layer walks each axis
-// independently.
+// parseTier parses one tier's entries (commands and env vars) into typed
+// patterns and records ConfigWarnings for rejected entries. Both maps may be
+// nil; a nil map yields an empty axis. Commands and EnvVars are stored on
+// TierEntries; the resolution layer walks each axis independently.
 func parseTier(
 	warnings []ConfigWarning,
 	source string,
@@ -753,10 +777,9 @@ func parseTier(
 	return t, warnings
 }
 
-// appendCommandMap parses a pattern->reason map into
-// Patterns with the reason attached. Order is unstable
-// across runs (Go map iteration), so the result is sorted
-// by Raw for deterministic output.
+// appendCommandMap parses a pattern->reason map into Patterns with the reason
+// attached. Order is unstable across runs (Go map iteration), so the result is
+// sorted by Raw for deterministic output.
 func appendCommandMap(
 	warnings []ConfigWarning,
 	source string,
@@ -773,15 +796,17 @@ func appendCommandMap(
 			})
 			continue
 		}
+
 		pat.Reason = reason
 		into = append(into, pat)
 	}
+
 	sortPatterns(into)
 	return into, warnings
 }
 
-// appendEnvVarMap parses an env var pattern->reason map.
-// Same ConfigWarning treatment as commands. Sorted by Raw.
+// appendEnvVarMap parses an env var pattern->reason map. Same ConfigWarning
+// treatment as commands. Sorted by Raw.
 func appendEnvVarMap(
 	warnings []ConfigWarning,
 	source string,
@@ -798,16 +823,17 @@ func appendEnvVarMap(
 			})
 			continue
 		}
+
 		into = append(into, pat)
 	}
+
 	sortEnvVarPatterns(into)
 	return into, warnings
 }
 
-// appendParsedClaude parses Claude Code Bash(...) entries.
-// Malformed Bash() bodies (e.g. missing close paren) emit
-// a warning; non-Bash wrappers (Read, Edit, WebFetch) are
-// silently skipped - they target other tools.
+// appendParsedClaude parses Claude Code Bash(...) entries. Malformed Bash()
+// bodies (e.g. missing close paren) emit a warning; non-Bash wrappers (Read,
+// Edit, WebFetch) are silently skipped - they target other tools.
 func appendParsedClaude(
 	warnings []ConfigWarning,
 	source string,
@@ -824,8 +850,10 @@ func appendParsedClaude(
 					Reason: "missing closing paren",
 				})
 			}
+
 			continue
 		}
+
 		pat, err := parsePattern(body)
 		if err != nil {
 			warnings = append(warnings, ConfigWarning{
@@ -835,26 +863,27 @@ func appendParsedClaude(
 			})
 			continue
 		}
+
 		into = append(into, pat)
 	}
+
 	sortPatterns(into)
 	return into, warnings
 }
 
-// sortPatterns sorts in place by Raw for deterministic
-// output. The reason text shown to the user (and asserted
-// on by tests) is the first matching pattern's Raw - map
-// iteration in the loader makes the order non-
-// deterministic without this.
+// sortPatterns sorts in place by Raw for deterministic output. The reason text
+// shown to the user (and asserted on by tests) is the first matching pattern's
+// Raw - map iteration in the loader makes the order non-deterministic without
+// this.
 func sortPatterns(patterns []Pattern) {
 	sort.Slice(patterns, func(i, j int) bool {
 		return patterns[i].Raw < patterns[j].Raw
 	})
 }
 
-// sortEnvVarPatterns sorts env-var patterns by Raw for
-// the same reason sortPatterns does - map iteration in
-// the loader makes order non-deterministic.
+// sortEnvVarPatterns sorts env-var patterns by Raw for the same reason
+// sortPatterns does - map iteration in the loader makes order
+// non-deterministic.
 func sortEnvVarPatterns(patterns []EnvVarPattern) {
 	sort.Slice(patterns, func(i, j int) bool {
 		return patterns[i].Raw < patterns[j].Raw

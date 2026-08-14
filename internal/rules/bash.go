@@ -30,54 +30,52 @@ func verifyBashSource(
 
 // breakdownBash handles bash/sh inner command extraction.
 //
-// For --version/--help: returns Safe (read-only, nothing
-// to check).
+// For --version/--help: returns Safe (read-only, nothing to check).
 // For -n (syntax check): returns Safe (doesn't execute).
-// For -c "string": extracts and returns the code string
-// as a command to re-parse.
-// For script.sh positional: returns the file path for
-// scanning.
-// For bare bash or unrecognised flags: falls through to
-// the rules layer, which denies bare bash.
+// For -c "string": extracts and returns the code string as a command to
+// re-parse.
+// For script.sh positional: returns the file path for scanning.
+// For bare bash or unrecognised flags: falls through to the rules layer, which
+// denies bare bash.
 func breakdownBash(
 	input model.ParseResult,
 	state *model.State,
 ) (model.BreakdownOutcome, error) {
-	// --version and --help print info and exit without
-	// executing anything. Allow when they're the sole
-	// argument.
+	// --version and --help print info and exit without executing anything.
+	// Allow when they're the sole argument.
 	if len(input.Raw) == 1 &&
 		(word.DefinitelyEqual(input.Raw[0], "--version") ||
 			word.DefinitelyEqual(input.Raw[0], "--help")) {
 		return model.Safe(), nil
 	}
 
-	// -n only checks syntax without executing anything.
-	// Allow when it's the sole flag.
+	// -n only checks syntax without executing anything. Allow when it's the
+	// sole flag.
 	if len(input.PossibleFlags) == 1 &&
 		input.PossibleFlags[0].Name == "-n" {
 		return model.Safe(), nil
 	}
 
-	// Check PossibleFlags for -c. The caller
-	// (runBreakdown) already populated these via
-	// PopulatePossibleFlags since bash has no Parser.
+	// Check PossibleFlags for -c. The caller (runBreakdown) already
+	// populated these via PopulatePossibleFlags since bash has no Parser.
 	for _, pf := range input.PossibleFlags {
 		if pf.Name != "-c" {
 			continue
 		}
-		// Found -c. Only extract when -c is the sole
-		// flag - other flags (--rcfile, --init-file,
-		// -i, etc.) can source arbitrary code before
-		// the -c body runs.
+
+		// Found -c. Only extract when -c is the sole flag - other flags
+		// (--rcfile, --init-file, -i, etc.) can source arbitrary code
+		// before the -c body runs.
 		for _, other := range input.PossibleFlags {
 			if other.Name != "-c" {
 				return model.FallThrough(), nil
 			}
 		}
+
 		if pf.Value == nil {
 			return model.FallThrough(), nil
 		}
+
 		code, err := verifyBashSource("bash -c", pf.Value)
 		if err != nil {
 			return model.BreakdownOutcome{}, err
@@ -85,17 +83,16 @@ func breakdownBash(
 		if code == "" {
 			return model.Safe(), nil
 		}
+
 		return model.ReplaceOuter(model.BreakdownWork{
 			CodeStrings: []string{code},
 		}), nil
 	}
 
-	// No -c flag. Check for script file: the first arg
-	// must be a non-flag positional (e.g.
-	// "bash script.sh"). If there are any flags before
-	// the positional (e.g. "bash -x script.sh"), we
-	// can't verify the invocation - fall through to the
-	// rules layer deny.
+	// No -c flag. Check for script file: the first arg must be a non-flag
+	// positional (e.g. "bash script.sh"). If there are any flags before the
+	// positional (e.g. "bash -x script.sh"), we can't verify the invocation
+	// - fall through to the rules layer deny.
 	if len(input.Raw) == 0 {
 		return model.FallThrough(), nil
 	}
@@ -107,6 +104,7 @@ func breakdownBash(
 	if !word.Static(scriptWord) {
 		return model.FallThrough(), nil
 	}
+
 	path := word.Text(scriptWord)
 	if state.Cwd == "" && !filepath.IsAbs(path) {
 		return model.BreakdownOutcome{}, &model.RuleError{
@@ -119,13 +117,14 @@ func breakdownBash(
 				path, word.DirectPath(path)),
 		}
 	}
+
 	return model.ReplaceOuter(model.BreakdownWork{
 		ScanFiles: []string{path},
 	}), nil
 }
 
-// hookFormatBashDenial is a HookFunc for bash/sh. Always
-// denies with a formatted reason.
+// hookFormatBashDenial is a HookFunc for bash/sh. Always denies with a
+// formatted reason.
 func hookFormatBashDenial(
 	input model.ParseResult,
 ) (model.Decision, string) {
@@ -138,5 +137,6 @@ func hookFormatBashDenial(
 				"instead",
 			word.DirectPath(text))
 	}
+
 	return model.Deny, "bare invocation"
 }

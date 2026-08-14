@@ -8,8 +8,7 @@ var syntaxRuby = &langSyntax{
 	Quotes: []quoteDef{
 		{Delim: `"`},
 		{Delim: `'`},
-		// Backticks are NOT quotes - they are
-		// shell execution syntax.
+		// Backticks are NOT quotes - they are shell execution syntax.
 	},
 	LineComments: []string{"#"},
 }
@@ -46,10 +45,9 @@ var breakdownRuby = breakdownInterpreter(
 		lang:       model.LangRuby,
 		name:       "ruby",
 		unverified: rubyUnverified,
-		// -v is NOT an info flag in Ruby - it prints
-		// the version but continues execution (sets
-		// $VERBOSE), so ruby -v script.rb runs the
-		// script and must be scanned.
+		// -v is NOT an info flag in Ruby - it prints the version but
+		// continues execution (sets $VERBOSE), so ruby -v script.rb
+		// runs the script and must be scanned.
 		infoFlags: []string{
 			"--version", "--help", "-h",
 		},
@@ -67,17 +65,15 @@ func rubyInterpolationContents(code string) []string {
 
 // --- Snippet matching ---
 
-// rubyBareCall matches bare function calls (system,
-// exec, spawn) while avoiding $-prefixed variables.
-// $ is a sigil in Ruby, not a word boundary.
+// rubyBareCall matches bare function calls (system, exec, spawn) while avoiding
+// $-prefixed variables. $ is a sigil in Ruby, not a word boundary.
 func rubyBareCall(names ...string) matchBuilder {
 	return syntaxRuby.match(
 		`(?:^|[^$\w])(?:` +
 			reAlternation(names) + `)\b`)
 }
 
-// rubyRequire matches Ruby require statements:
-// require 'mod', require('mod').
+// rubyRequire matches Ruby require statements: require 'mod', require('mod').
 func rubyRequire(modules ...string) matchBuilder {
 	return syntaxRuby.match(
 		`\brequire\s*\(?\s*['"](?:` +

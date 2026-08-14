@@ -9,9 +9,9 @@ import (
 	"github.com/sothatsit/agent-permissions/presets"
 )
 
-// presetRuleOwners maps each rule ID mentioned by any preset
-// to the presets that mention it. Built from the embedded
-// presets so the invariants below test the shipped data.
+// presetRuleOwners maps each rule ID mentioned by any preset to the presets
+// that mention it. Built from the embedded presets so the invariants below test
+// the shipped data.
 func presetRuleOwners() map[string][]string {
 	owners := map[string][]string{}
 	for _, p := range presets.MustEmbedded() {
@@ -19,12 +19,12 @@ func presetRuleOwners() map[string][]string {
 			owners[id] = append(owners[id], p.Name)
 		}
 	}
+
 	return owners
 }
 
-// Every rule ID a preset enables must be a real catalog rule.
-// A typo here would silently enable nothing, leaving the
-// command's denial off with no error.
+// Every rule ID a preset enables must be a real catalog rule. A typo here would
+// silently enable nothing, leaving the command's denial off with no error.
 func TestPresetRuleIDsAreValid(t *testing.T) {
 	for id, owners := range presetRuleOwners() {
 		if !rules.IsRuleID(id) {
@@ -36,10 +36,9 @@ func TestPresetRuleIDsAreValid(t *testing.T) {
 }
 
 // Every catalog rule must be owned by exactly one preset.
-// Owned by zero -> the rule ships permanently off (default
-// install stops denying it). Owned by two -> ambiguous
-// ownership, and disabling one preset wouldn't fully turn it
-// off.
+// Owned by zero -> the rule ships permanently off (default install stops
+// denying it). Owned by two -> ambiguous ownership, and disabling one preset
+// wouldn't fully turn it off.
 func TestEveryRuleOwnedByExactlyOnePreset(t *testing.T) {
 	owners := presetRuleOwners()
 	for _, def := range rules.AllRules() {
@@ -58,9 +57,9 @@ func TestEveryRuleOwnedByExactlyOnePreset(t *testing.T) {
 	}
 }
 
-// A command pattern below a Rules-owned prefix never gets
-// consulted. Keep shipped presets out of those subtrees so
-// their apparent policy matches what the hook can enforce.
+// A command pattern below a Rules-owned prefix never gets consulted. Keep
+// shipped presets out of those subtrees so their apparent policy matches what
+// the hook can enforce.
 func TestPresetPatternsAvoidRuleOwnedCommands(t *testing.T) {
 	registry, _ := rules.Registry()
 	for _, p := range presets.MustEmbedded() {
@@ -70,6 +69,7 @@ func TestPresetPatternsAvoidRuleOwnedCommands(t *testing.T) {
 				"preset %q has malformed patterns: %v",
 				p.Name, warnings)
 		}
+
 		for _, pat := range sourceCommandPatterns(src) {
 			owner, ok := ruleOwnedPattern(pat, registry)
 			if ok {
@@ -82,9 +82,8 @@ func TestPresetPatternsAvoidRuleOwnedCommands(t *testing.T) {
 	}
 }
 
-// A default install (all presets, no user config) must
-// resolve every catalog rule to Enabled - matching the
-// behaviour before rules were configurable.
+// A default install (all presets, no user config) must resolve every catalog
+// rule to Enabled - matching the behaviour before rules were configurable.
 func TestDefaultInstallEnablesEveryRule(t *testing.T) {
 	rc := resolveRuleConfig(
 		nil, nil, nil, presets.MustEmbedded())
@@ -97,8 +96,8 @@ func TestDefaultInstallEnablesEveryRule(t *testing.T) {
 	}
 }
 
-// A user .agents override wins over the preset that enabled
-// the rule, and the precedence runs local > project > global.
+// A user .agents override wins over the preset that enabled the rule, and the
+// precedence runs local > project > global.
 func TestRuleConfigOverridePrecedence(t *testing.T) {
 	all := presets.MustEmbedded()
 	const id = "git.branch-writes"
@@ -138,10 +137,9 @@ func TestRuleConfigOverridePrecedence(t *testing.T) {
 	}
 }
 
-// selected is in priority order (external presets before
-// embedded), and resolveRuleConfig walks it in reverse, so
-// an external preset that mentions a rule an embedded
-// preset owns overrides the embedded config.
+// selected is in priority order (external presets before embedded), and
+// resolveRuleConfig walks it in reverse, so an external preset that mentions a
+// rule an embedded preset owns overrides the embedded config.
 func TestRuleConfigExternalPresetOverridesEmbedded(t *testing.T) {
 	const id = "git.branch-writes"
 	def := &model.RuleDef{ID: id}

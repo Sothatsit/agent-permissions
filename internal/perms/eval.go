@@ -8,9 +8,9 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-// evaluateCommandRules checks a command against a rules map. Returns
-// nil when no rules exist or no rule matched and there is
-// no default (fall through to permissions layer).
+// evaluateCommandRules checks a command against a rules map. Returns nil when
+// no rules exist or no rule matched and there is no default (fall through to
+// permissions layer).
 func evaluateCommandRules(
 	rules map[string]*model.CommandRules,
 	name string,
@@ -29,18 +29,18 @@ func evaluateCommandRules(
 		return result
 	}
 	if cr.Default != nil {
-		// The command-level Default is the fail-closed
-		// denial gated by the command's Unverified rule.
+		// The command-level Default is the fail-closed denial gated by
+		// the command's Unverified rule.
 		return formatAction(cr.Default, name, cr.Unverified)
 	}
+
 	return nil
 }
 
-// evaluateRules walks a rule tree. govDef is the rule
-// governing the current subtree - a node's own Def when set,
-// otherwise inherited from an ancestor - so a hook or Default
-// under a Subcmd(...).WithRuleDef(...) is attributed to that
-// ancestor's rule even though it carries no Def of its own.
+// evaluateRules walks a rule tree. govDef is the rule governing the current
+// subtree - a node's own Def when set, otherwise inherited from an ancestor -
+// so a hook or Default under a Subcmd(...).WithRuleDef(...) is attributed to
+// that ancestor's rule even though it carries no Def of its own.
 func evaluateRules(
 	ruleList []model.Rule,
 	input model.ParseResult,
@@ -104,8 +104,8 @@ func evaluateRules(
 			}
 		}
 
-		// Deny is highest priority - no subsequent rule
-		// can upgrade past it.
+		// Deny is highest priority - no subsequent rule can upgrade
+		// past it.
 		if strongest != nil &&
 			strongest.Decision == model.Deny {
 			return strongest
@@ -115,8 +115,8 @@ func evaluateRules(
 	return strongest
 }
 
-// stronger returns the action with the higher-priority
-// decision. Deny > Ask > SoftAsk > Allow.
+// stronger returns the action with the higher-priority decision.
+// Deny > Ask > SoftAsk > Allow.
 func stronger(a, b *model.Action) *model.Action {
 	if a == nil {
 		return b
@@ -127,12 +127,12 @@ func stronger(a, b *model.Action) *model.Action {
 	if b.Decision > a.Decision {
 		return b
 	}
+
 	return a
 }
 
-// formatAction builds a new Action with a formatted reason
-// and the governing rule definition stamped on for
-// attribution. Never mutates the input action.
+// formatAction builds a new Action with a formatted reason and the governing
+// rule definition stamped on for attribution. Never mutates the input action.
 func formatAction(
 	action *model.Action, path string, def *model.RuleDef,
 ) *model.Action {

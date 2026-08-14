@@ -30,6 +30,7 @@ func commandSource(
 	default:
 		t.Fatalf("unsupported decision %v", decision)
 	}
+
 	return src
 }
 
@@ -42,6 +43,7 @@ func envSource(
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	src := SourcePerms{Name: name}
 	switch decision {
 	case model.Allow:
@@ -55,6 +57,7 @@ func envSource(
 	default:
 		t.Fatalf("unsupported decision %v", decision)
 	}
+
 	return src
 }
 
@@ -69,10 +72,9 @@ func TestEnforcedCommandPolicyIsMinimum(t *testing.T) {
 		{"normal deny", model.Deny, model.Allow, model.Deny},
 		{"enforced ask", model.Allow, model.Ask, model.Ask},
 		{"normal ask", model.Ask, model.Allow, model.Ask},
-		// An explicit Allow answers a soft-ask, so an
-		// enforced soft-ask does not outrank one. Without
-		// this, soft-ask would be the one tier no config
-		// could ever silence.
+		// An explicit Allow answers a soft-ask, so an enforced soft-ask
+		// does not outrank one. Without this, soft-ask would be the one
+		// tier no config could ever silence.
 		{"enforced soft-ask yields to allow", model.Allow,
 			model.SoftAsk, model.Allow},
 		// The reverse does not hold: the enforced plane only
@@ -217,10 +219,12 @@ func TestEnforcedSameSourceKeepsEveryEnvVarReason(
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	prefix, err := parseEnvVarPattern("POLICY_*", "prefix")
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	p := &Permissions{EnforcedSources: []SourcePerms{{
 		Name: "enforced",
 		Ask: TierEntries{EnvVars: []EnvVarPattern{

@@ -8,8 +8,8 @@ var syntaxNode = &langSyntax{
 	Quotes: []quoteDef{
 		{Delim: `"`},
 		{Delim: `'`},
-		// Backticks ARE quotes in JS (template
-		// literals), not shell execution.
+		// Backticks ARE quotes in JS (template literals), not shell
+		// execution.
 		{Delim: "`", Multiline: true},
 	},
 	LineComments:  []string{"//"},
@@ -55,8 +55,8 @@ var breakdownNode = breakdownInterpreter(
 		codeFlags: []string{
 			"-e", "--eval", "-p", "--print",
 		},
-		// -i/interactive, -c/--check (syntax
-		// check) - fall through to permissions.
+		// -i/interactive, -c/--check (syntax check) - fall through to
+		// permissions.
 		fallthroughFlags: []string{
 			"-i", "-c", "--check",
 		},
@@ -73,8 +73,8 @@ func nodeInterpolationContents(code string) []string {
 
 // --- Snippet matching ---
 
-// nodeRequire matches Node.js require() calls and
-// ESM from-imports: require('mod'), from 'mod'.
+// nodeRequire matches Node.js require() calls and ESM from-imports:
+// require('mod'), from 'mod'.
 func nodeRequire(modules ...string) matchBuilder {
 	return syntaxNode.match(
 		`\b(?:require\s*\(?\s*|from\s+)['"](?:` +

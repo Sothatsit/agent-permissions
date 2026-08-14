@@ -22,6 +22,7 @@ func LoadPresetCatalog() (*PresetCatalog, error) {
 	if err != nil {
 		return nil, fmt.Errorf("presets: %v", err)
 	}
+
 	all := clonePresets(loaded)
 	if err := validateExternalPresets(all); err != nil {
 		return nil, err
@@ -41,6 +42,7 @@ func clonePresets(all []*presets.Preset) []*presets.Preset {
 	for i, preset := range all {
 		out[i] = preset.Clone()
 	}
+
 	return out
 }
 
@@ -53,8 +55,8 @@ const (
 	AgentConfigLocal
 )
 
-// AgentConfigSource is one captured .agents config file. Config is nil when
-// the path did not exist. SourceName is the name used in decision output.
+// AgentConfigSource is one captured .agents config file. Config is nil when the
+// path did not exist. SourceName is the name used in decision output.
 type AgentConfigSource struct {
 	Path       string
 	SourceName string
@@ -70,8 +72,8 @@ type PolicySnapshot struct {
 	configs [3]AgentConfigSource
 }
 
-// LoadPolicySnapshot reads the presets and .agents configs once. Missing
-// config files remain represented by a source with a nil Config.
+// LoadPolicySnapshot reads the presets and .agents configs once. Missing config
+// files remain represented by a source with a nil Config.
 func LoadPolicySnapshot(cwd string) (*PolicySnapshot, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -108,8 +110,10 @@ func LoadPolicySnapshot(cwd string) (*PolicySnapshot, error) {
 				return AgentConfigSource{}, fmt.Errorf(
 					"%s: %v", errorName, err)
 			}
+
 			loaded[path] = config
 		}
+
 		source.Config = config
 		return source, nil
 	}
@@ -120,12 +124,14 @@ func LoadPolicySnapshot(cwd string) (*PolicySnapshot, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	project, err := load(
 		projectPath,
 		projectPath, "project agent config")
 	if err != nil {
 		return nil, err
 	}
+
 	local, err := load(
 		localPath,
 		localPath, "local agent config")
@@ -163,6 +169,7 @@ func (s *PolicySnapshot) AgentConfig(
 	if scope < AgentConfigGlobal || scope > AgentConfigLocal {
 		panic(fmt.Sprintf("unknown agent config scope %d", scope))
 	}
+
 	return cloneAgentConfigSource(s.configs[scope])
 }
 
@@ -180,9 +187,11 @@ func (s *PolicySnapshot) AgentConfigs() []AgentConfigSource {
 		if source.Config == nil || seen[source.Path] {
 			continue
 		}
+
 		seen[source.Path] = true
 		out = append(out, cloneAgentConfigSource(source))
 	}
+
 	return out
 }
 
@@ -202,5 +211,6 @@ func (s *PolicySnapshot) resolutionConfigs() (
 			s.configs[AgentConfigProject].Path {
 		global = nil
 	}
+
 	return global, project, local
 }

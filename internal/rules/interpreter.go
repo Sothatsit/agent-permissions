@@ -9,35 +9,31 @@ import (
 	"github.com/sothatsit/agent-permissions/internal/word"
 )
 
-// interpreterConfig describes an interpreter's flag
-// classification for the shared breakdown function.
+// interpreterConfig describes an interpreter's flag classification for the
+// shared breakdown function.
 type interpreterConfig struct {
-	// lang is the snippet language constant
-	// (e.g. model.LangPython).
+	// lang is the snippet language constant (e.g. model.LangPython).
 	lang string
-	// name is the interpreter name for error messages
-	// (e.g. "python", "perl").
+	// name is the interpreter name for error messages (e.g. "python",
+	// "perl").
 	name string
-	// unverified governs this interpreter's "cannot
-	// verify" denials (opaque inline code, opaque or
-	// unreadable script path). The breakdown returns them
-	// as a RuleError carrying this def, so they attribute
-	// to the rule and runBreakdown suppresses them when the
-	// rule is disabled.
+	// unverified governs this interpreter's "cannot verify" denials (opaque
+	// inline code, opaque or unreadable script path). The breakdown returns
+	// them as a RuleError carrying this def, so they attribute to the rule
+	// and runBreakdown suppresses them when the rule is disabled.
 	unverified *model.RuleDef
-	// infoFlags cause an immediate fallthrough to
-	// permissions (e.g. --version, --help).
+	// infoFlags cause an immediate fallthrough to permissions (e.g.
+	// --version, --help).
 	infoFlags []string
-	// codeFlags extract inline code as a snippet
-	// (e.g. -c, -e, --eval).
+	// codeFlags extract inline code as a snippet (e.g. -c, -e, --eval).
 	codeFlags []string
-	// fallthroughFlags cause a fallthrough without
-	// extracting code (e.g. -m, -i).
+	// fallthroughFlags cause a fallthrough without extracting code (e.g.
+	// -m, -i).
 	fallthroughFlags []string
 }
 
-// breakdownInterpreter returns a BreakdownFunc that
-// handles interpreter commands generically:
+// breakdownInterpreter returns a BreakdownFunc that handles interpreter
+// commands generically:
 //
 //   - Info flags -> fall through to permissions.
 //   - Fallthrough flags -> fall through.
@@ -51,10 +47,9 @@ func breakdownInterpreter(
 		input model.ParseResult,
 		state *model.State,
 	) (model.BreakdownOutcome, error) {
-		// Collect flags in a single pass. Code flags
-		// take priority - python3 --version -c "code"
-		// must scan the code, not skip because of
-		// --version.
+		// Collect flags in a single pass. Code flags take priority -
+		// python3 --version -c "code" must scan the code, not skip
+		// because of --version.
 		var codeFlag *model.ParsedFlag
 		sawInfo := false
 		sawFallthrough := false
@@ -73,12 +68,11 @@ func breakdownInterpreter(
 				codeFlag = &input.Flags[i]
 			}
 		}
-		// Fallthrough flags (-m, -i) always skip because
-		// we explicitly can't verify these.
-		// Info flags (--version) only skip when
-		// there are no positionals - if a script
-		// is present, scan it defensively in case
-		// our flag classification is wrong and the
+
+		// Fallthrough flags (-m, -i) always skip because we explicitly
+		// can't verify these. Info flags (--version) only skip when
+		// there are no positionals - if a script is present, scan it
+		// defensively in case our flag classification is wrong and the
 		// interpreter actually runs it.
 		if codeFlag == nil {
 			if sawFallthrough {
@@ -112,10 +106,12 @@ func breakdownInterpreter(
 						reason),
 				}
 			}
+
 			code := word.Text(codeFlag.Value)
 			if code == "" {
 				return model.Safe(), nil
 			}
+
 			return model.ReplaceOuter(model.BreakdownWork{
 				CodeSnippets: []model.CodeSnippet{{
 					Language: cfg.lang,
@@ -124,8 +120,8 @@ func breakdownInterpreter(
 			}), nil
 		}
 
-		// No positionals - bare invocation or
-		// flags-only. Fall through to permissions.
+		// No positionals - bare invocation or flags-only. Fall through
+		// to permissions.
 		if len(input.Positionals) == 0 {
 			return model.FallThrough(), nil
 		}

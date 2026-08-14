@@ -57,9 +57,9 @@ var straceParser, breakdownStrace = wrapperBreakdown(
 			{Name: "--raw", Arg: true},
 			{Name: "--kvm", Arg: true},
 			{Name: "--env", Arg: true},
-			// Multi-char short flags (must come before
-			// their single-char counterparts for greedy
-			// cluster matching).
+			// Multi-char short flags (must come before their
+			// single-char counterparts for greedy cluster
+			// matching).
 			{Name: "-DDD"},
 			{Name: "-ttt"},
 			{Name: "-DD"},

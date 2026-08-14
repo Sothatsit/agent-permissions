@@ -35,6 +35,7 @@ func breakdownAwk(
 	if len(snippets) == 0 {
 		return model.Safe(), nil
 	}
+
 	return model.ReplaceOuter(model.BreakdownWork{
 		CodeSnippets: snippets,
 	}), nil
@@ -55,6 +56,7 @@ func parseAwkSources(args []*syntax.Word) (awkProgramSources, error) {
 			if len(sources.files) == 0 {
 				sources.inline = arg
 			}
+
 			return sources, nil
 		}
 
@@ -92,6 +94,7 @@ func parseAwkSources(args []*syntax.Word) (awkProgramSources, error) {
 						"awk %s requires a value", name),
 				}
 			}
+
 			i++
 			value = args[i]
 		} else {
@@ -105,6 +108,7 @@ func parseAwkSources(args []*syntax.Word) (awkProgramSources, error) {
 				}
 			}
 		}
+
 		if !awkWordIsSingleField(value) {
 			return awkProgramSources{}, &model.RuleError{
 				Def: awkCommandExec,
@@ -134,6 +138,7 @@ func awkWordDefinitelyNonOption(w *syntax.Word) bool {
 	if !word.HasUnquotedGlob(w) {
 		return true
 	}
+
 	return word.DefinitelyHasPrefix(w, "/") ||
 		word.DefinitelyHasPrefix(w, "./") ||
 		word.DefinitelyHasPrefix(w, "../")
@@ -156,6 +161,7 @@ func awkWordDefinitelyNonEmpty(w *syntax.Word) bool {
 			}
 		}
 	}
+
 	return false
 }
 
@@ -182,6 +188,7 @@ func awkWordIsSingleField(w *syntax.Word) bool {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -201,6 +208,7 @@ func awkWordHasBraceExpansion(w *syntax.Word) bool {
 				masked.WriteByte(lit.Value[j])
 				continue
 			}
+
 			masked.WriteByte('\\')
 			j++
 			switch lit.Value[j] {
@@ -210,6 +218,7 @@ func awkWordHasBraceExpansion(w *syntax.Word) bool {
 				masked.WriteByte(lit.Value[j])
 			}
 		}
+
 		copy.Value = masked.String()
 		parts[i] = &copy
 	}
@@ -233,13 +242,16 @@ func awkQuotedWordMaySplit(quoted *syntax.DblQuoted) bool {
 			maySplit = true
 			return false
 		}
+
 		index, ok := param.Index.(*syntax.Word)
 		if ok && word.DefinitelyEqual(index, "@") {
 			maySplit = true
 			return false
 		}
+
 		return true
 	})
+
 	return maySplit
 }
 
@@ -254,12 +266,14 @@ func readAwkPrograms(
 			if reason == "" {
 				reason = "pathname expansion"
 			}
+
 			return nil, &model.RuleError{
 				Def: awkCommandExec,
 				Reason: "awk program contains " + reason +
 					"; cannot read and verify it",
 			}
 		}
+
 		return []model.CodeSnippet{{
 			Language: model.LangAwk,
 			Code:     word.Text(program),
@@ -276,6 +290,7 @@ func readAwkPrograms(
 		if err != nil {
 			return nil, err
 		}
+
 		contents = append(contents, code)
 		paths = append(paths, path)
 	}
@@ -288,7 +303,8 @@ func readAwkPrograms(
 		SourceFile: sourceFile,
 	}}
 	// Awk implementations disagree about whether a source-file boundary
-	// inserts a newline. Scan both ordered forms so neither can hide a token.
+	// inserts a newline. Scan both ordered forms so neither can hide a
+	// token.
 	withNewlines := strings.Join(contents, "\n")
 	if withNewlines != exact {
 		snippets = append(snippets, model.CodeSnippet{
@@ -297,6 +313,7 @@ func readAwkPrograms(
 			SourceFile: sourceFile,
 		})
 	}
+
 	return snippets, nil
 }
 
@@ -309,6 +326,7 @@ func readAwkProgramFile(
 		if reason == "" {
 			reason = "pathname expansion"
 		}
+
 		return "", "", &model.RuleError{
 			Def: awkCommandExec,
 			Reason: "awk -f program path contains " + reason +
@@ -349,6 +367,7 @@ func readAwkProgramFile(
 			Reason: fmt.Sprintf("%s: %v", path, err),
 		}
 	}
+
 	return string(data), path, nil
 }
 
@@ -373,6 +392,7 @@ func awkHasCommandExecution(code string) bool {
 			if code[i] == '\n' {
 				expectOperand = true
 			}
+
 			i++
 			continue
 		}
@@ -397,6 +417,7 @@ func awkHasCommandExecution(code string) bool {
 				awkCallFollows(code, i) {
 				return true
 			}
+
 			expectOperand = awkKeywordNeedsOperand(name)
 			continue
 		}
@@ -408,6 +429,7 @@ func awkHasCommandExecution(code string) bool {
 			if awkCallFollows(code, end) {
 				return true
 			}
+
 			i = end
 			expectOperand = true
 			continue
@@ -418,6 +440,7 @@ func awkHasCommandExecution(code string) bool {
 				expectOperand = true
 				continue
 			}
+
 			return true
 		}
 		if isAwkDigit(code[i]) ||
@@ -428,6 +451,7 @@ func awkHasCommandExecution(code string) bool {
 				(isAwkDigit(code[i]) || code[i] == '.') {
 				i++
 			}
+
 			expectOperand = false
 			continue
 		}
@@ -449,6 +473,7 @@ func awkHasCommandExecution(code string) bool {
 		default:
 			expectOperand = true
 		}
+
 		i++
 	}
 
@@ -468,8 +493,10 @@ func scanAwkIdentifier(code string, start int) (string, int) {
 			i += 2
 			continue
 		}
+
 		break
 	}
+
 	return name.String(), i
 }
 
@@ -487,8 +514,10 @@ func awkCallFollows(code string, i int) bool {
 			i = skipAwkComment(code, i)
 			continue
 		}
+
 		return code[i] == '('
 	}
+
 	return false
 }
 
@@ -502,6 +531,7 @@ func skipAwkString(code string, start int) int {
 			return i + 1
 		}
 	}
+
 	return len(code)
 }
 
@@ -514,6 +544,7 @@ func skipAwkRegex(code string, start int) int {
 			if inClass {
 				classCanClose = true
 			}
+
 			continue
 		}
 		if code[i] == '/' && !inClass {
@@ -536,19 +567,23 @@ func skipAwkRegex(code string, start int) int {
 				classCanClose = true
 				continue
 			}
+
 			classCanClose = true
 		case ']':
 			if inClass && classCanClose {
 				inClass = false
 			}
+
 			classCanClose = true
 		default:
 			if inClass && code[i] != '^' {
 				classCanClose = true
 			}
 		}
+
 		i++
 	}
+
 	return len(code)
 }
 
@@ -570,6 +605,7 @@ func skipAwkBracketConstruct(code string, i int) (int, bool) {
 			return i, false
 		}
 	}
+
 	return i, false
 }
 
@@ -578,6 +614,7 @@ func skipAwkComment(code string, start int) int {
 	for i < len(code) && code[i] != '\n' {
 		i++
 	}
+
 	return i
 }
 

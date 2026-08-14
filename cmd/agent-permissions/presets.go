@@ -11,19 +11,18 @@ import (
 	"github.com/sothatsit/agent-permissions/presets"
 )
 
-// runPresetsCommand dispatches the `presets` subcommand group.
-// `list` is the only subcommand today; users opt presets
-// in or out by hand-editing `enabled-presets` /
-// `disabled-presets` in ~/.agents/permissions.json. The
-// previous `enable` / `disable` subcommands were removed
-// because "all enabled by default" made `enable` a
-// no-op-with-a-misleading-success-message in the common
-// case.
+// runPresetsCommand dispatches the `presets` subcommand group. `list` is the
+// only subcommand today; users opt presets in or out by hand-editing
+// `enabled-presets` / `disabled-presets` in ~/.agents/permissions.json. The
+// previous `enable` / `disable` subcommands were removed because
+// "all enabled by default" made `enable` a
+// no-op-with-a-misleading-success-message in the common case.
 func runPresetsCommand(args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf(
 			"usage: agent-permissions presets list")
 	}
+
 	switch args[0] {
 	case "list":
 		return listPresets(args[1:])
@@ -35,17 +34,15 @@ func runPresetsCommand(args []string) error {
 	}
 }
 
-// presetState classifies whether each preset is enabled
-// or disabled, plus the reason (a short note shown
-// inline next to the preset name).
+// presetState classifies whether each preset is enabled or disabled, plus the
+// reason (a short note shown inline next to the preset name).
 type presetState struct {
 	enabled bool
 	reason  string
 }
 
-// listPresets shows every available preset and its state,
-// considering global, project, and local permissions.json
-// files with the same priority as the hook.
+// listPresets shows every available preset and its state, considering global,
+// project, and local permissions.json files with the same priority as the hook.
 func listPresets(args []string) error {
 	if len(args) != 0 {
 		return fmt.Errorf("usage: presets list")
@@ -55,6 +52,7 @@ func listPresets(args []string) error {
 	if err != nil {
 		return fmt.Errorf("cwd: %v", err)
 	}
+
 	snapshot, err := perms.LoadPolicySnapshot(cwd)
 	if err != nil {
 		return err
@@ -88,6 +86,7 @@ func listPresets(args []string) error {
 		fmt.Printf("  %s: %s\n",
 			presets.EnforcedPresetDirsEnv, dirs)
 	}
+
 	if selecting == nil {
 		fmt.Println(
 			"  Preset selection: (none — all " +
@@ -97,11 +96,11 @@ func listPresets(args []string) error {
 			"  Preset selection: %s\n",
 			selecting.Path)
 	}
+
 	fmt.Println()
 
-	// Classify every available preset. Enforced presets are
-	// always active; ordinary external and embedded presets
-	// follow the user's selection.
+	// Classify every available preset. Enforced presets are always active;
+	// ordinary external and embedded presets follow the user's selection.
 	all := snapshot.Presets()
 	rows := make([]classifiedPreset, 0, len(all))
 	for _, p := range all {
@@ -113,6 +112,7 @@ func listPresets(args []string) error {
 			state:       classifyPreset(p, selecting),
 		})
 	}
+
 	sort.Slice(rows, func(i, j int) bool {
 		return rows[i].name < rows[j].name
 	})
@@ -216,8 +216,8 @@ func classifyPreset(
 
 // pickPresetSelector returns the most-specific config that specifies preset
 // selection. It checks local, then project, then global. It returns nil when
-// none has an opinion. This mirrors the resolver's selection so the preset
-// list reports the same effective state the hook applies.
+// none has an opinion. This mirrors the resolver's selection so the preset list
+// reports the same effective state the hook applies.
 func pickPresetSelector(
 	global, project, local *agentconfig.Config,
 ) *agentconfig.Config {
@@ -230,6 +230,7 @@ func pickPresetSelector(
 	if global.HasPresetSelection() {
 		return global
 	}
+
 	return nil
 }
 
@@ -258,11 +259,13 @@ func classify(
 				}
 			}
 		}
+
 		return presetState{
 			enabled: false,
 			reason:  "not in enabled-presets",
 		}
 	}
+
 	return presetState{enabled: true}
 }
 
@@ -272,6 +275,7 @@ func describeConfig(
 	if c == nil {
 		return path + " (not present)"
 	}
+
 	bits := []string{}
 	if c.EnabledPresets != nil {
 		bits = append(bits,
@@ -281,9 +285,11 @@ func describeConfig(
 		bits = append(bits,
 			"disabled-presets")
 	}
+
 	if len(bits) == 0 {
 		return path + " (no preset selection)"
 	}
+
 	return fmt.Sprintf(
 		"%s (%s)", path, strings.Join(bits, ", "))
 }

@@ -20,7 +20,8 @@ func (s *State) SetWorkingDirectory(target *syntax.Word) {
 
 	directory := word.Text(target)
 	// The shell expands an unquoted tilde before cd or env runs. The Word
-	// helpers cannot distinguish that expansion from a quoted literal tilde.
+	// helpers cannot distinguish that expansion from a quoted literal
+	// tilde.
 	if strings.HasPrefix(directory, "~") {
 		s.Cwd = ""
 		return

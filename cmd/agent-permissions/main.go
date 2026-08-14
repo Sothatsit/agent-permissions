@@ -1,5 +1,5 @@
-// Command agent-permissions is a toolkit for managing AI
-// agent permissions. Subcommands:
+// Command agent-permissions is a toolkit for managing AI agent permissions.
+// Subcommands:
 //
 //	claude-hook    PreToolUse hook for Claude Code
 //	check          Simulate the hook and print the decision
@@ -110,8 +110,8 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  --help            Print this help")
 }
 
-// hookInput is the JSON structure received from Claude
-// Code on a PreToolUse event.
+// hookInput is the JSON structure received from Claude Code on a PreToolUse
+// event.
 type hookInput struct {
 	ToolName       string `json:"tool_name"`
 	PermissionMode string `json:"permission_mode"`
@@ -121,8 +121,7 @@ type hookInput struct {
 	CWD string `json:"cwd"`
 }
 
-// hookOutput is the JSON structure returned to Claude
-// Code.
+// hookOutput is the JSON structure returned to Claude Code.
 type hookOutput struct {
 	HookSpecificOutput hookSpecific `json:"hookSpecificOutput"`
 }
@@ -133,9 +132,8 @@ type hookSpecific struct {
 	PermissionDecisionReason string `json:"permissionDecisionReason,omitempty"`
 }
 
-// runClaudeHook runs the Claude Code PreToolUse hook flow:
-// read JSON from stdin, classify the bash command, and
-// emit a decision on stdout.
+// runClaudeHook runs the Claude Code PreToolUse hook flow: read JSON from
+// stdin, classify the bash command, and emit a decision on stdout.
 func runClaudeHook() error {
 	data, err := io.ReadAll(os.Stdin)
 	if err != nil {
@@ -168,11 +166,11 @@ func runClaudeHook() error {
 		return fmt.Errorf(
 			"failed to load permissions: %v", err)
 	}
+
 	permissions := resolved.Permissions
-	// claude-hook is the Claude-Code-bound entrypoint, so
-	// swap the loader's Placeholder harness for the real
-	// one - the user-visible text will reference
-	// /permissions etc.
+	// claude-hook is the Claude-Code-bound entrypoint, so swap the loader's
+	// Placeholder harness for the real one - the user-visible text will
+	// reference /permissions etc.
 	permissions.Harness = harness.ClaudeCode{}
 
 	br, err := resolved.Breakdown(input.ToolInput.Command)
@@ -186,24 +184,23 @@ func runClaudeHook() error {
 
 	switch result.Decision {
 	case model.Allow:
-		// In auto mode, inline code snippets that
-		// passed our static filters get a second
-		// review by the classifier. The classifier
-		// sees the full command string (including
-		// the -c/-e code) and can catch patterns
-		// our rules miss.
+		// In auto mode, inline code snippets that passed our static
+		// filters get a second review by the classifier. The classifier
+		// sees the full command string (including the -c/-e code) and
+		// can catch patterns our rules miss.
 		if input.PermissionMode == "auto" &&
 			hasInlineSnippets(&br) {
 			return nil
 		}
+
 		return writeDecision(model.Allow, result.Reason)
 	case model.SoftAsk:
-		// In auto mode, fall through to the
-		// classifier for per-invocation judgment.
-		// In other modes, prompt the user.
+		// In auto mode, fall through to the classifier for
+		// per-invocation judgment. In other modes, prompt the user.
 		if input.PermissionMode == "auto" {
 			return nil
 		}
+
 		return writeDecision(model.Ask,
 			"\n"+result.Reason+"\n\n")
 	case model.Ask:
@@ -212,18 +209,16 @@ func runClaudeHook() error {
 	case model.Deny:
 		return writeDecision(model.Deny, result.Reason)
 	case model.Undecided:
-		// Truly no opinion (e.g. bare assignment,
-		// suspicious env vars) - always fall through
-		// to Claude Code's own prompt.
+		// Truly no opinion (e.g. bare assignment, suspicious env vars)
+		// - always fall through to Claude Code's own prompt.
 		return nil
 	}
 
 	return nil
 }
 
-// hasInlineSnippets reports whether the breakdown
-// produced any inline code snippets (SourceFile is
-// empty). These are agent-generated code (-c/-e) as
+// hasInlineSnippets reports whether the breakdown produced any inline code
+// snippets (SourceFile is empty). These are agent-generated code (-c/-e) as
 // opposed to user-authored script files.
 func hasInlineSnippets(
 	br *model.BreakdownResult,
@@ -233,13 +228,13 @@ func hasInlineSnippets(
 			return true
 		}
 	}
+
 	return false
 }
 
-// breakdownDenialReason renders a breakdown error as a deny
-// reason. When the denial came from a specific rule (the
-// imperative wrapper/xargs checks return a *model.RuleError),
-// it appends "(from rule:<id>)" so the attribution matches
+// breakdownDenialReason renders a breakdown error as a deny reason. When the
+// denial came from a specific rule (the imperative wrapper/xargs checks return
+// a *model.RuleError), it appends "(from rule:<id>)" so the attribution matches
 // the permissions layer and names the ID to disable.
 func breakdownDenialReason(err error) string {
 	reason := err.Error()
@@ -247,6 +242,7 @@ func breakdownDenialReason(err error) string {
 	if errors.As(err, &re) && re.Def != nil {
 		reason += "  (from rule:" + re.Def.ID + ")"
 	}
+
 	return reason
 }
 

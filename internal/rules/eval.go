@@ -8,9 +8,8 @@ import (
 	"github.com/sothatsit/agent-permissions/internal/word"
 )
 
-// breakdownEval unwraps eval by joining its static args
-// into a single code string for re-parsing. Rejects
-// opaque args since eval could execute anything.
+// breakdownEval unwraps eval by joining its static args into a single code
+// string for re-parsing. Rejects opaque args since eval could execute anything.
 func breakdownEval(
 	input model.ParseResult,
 	_ *model.State,
@@ -18,8 +17,9 @@ func breakdownEval(
 	if len(input.Raw) == 0 {
 		return model.Safe(), nil
 	}
-	// Every arg must be static - eval with a variable
-	// could execute anything.
+
+	// Every arg must be static - eval with a variable could execute
+	// anything.
 	for _, w := range input.Raw {
 		if !word.Static(w) {
 			return model.BreakdownOutcome{}, &model.RuleError{
@@ -33,15 +33,17 @@ func breakdownEval(
 			}
 		}
 	}
-	// All args are static - join and re-parse as a
-	// single code string.
+
+	// All args are static - join and re-parse as a single code string.
 	var b strings.Builder
 	for i, w := range input.Raw {
 		if i > 0 {
 			b.WriteByte(' ')
 		}
+
 		b.WriteString(word.Text(w))
 	}
+
 	code := b.String()
 	return model.ReplaceOuter(model.BreakdownWork{
 		CodeStrings: []string{code},

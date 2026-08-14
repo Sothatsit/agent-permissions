@@ -2,9 +2,8 @@
 set -uo pipefail
 
 #
-# Test orchestrator. Runs Go unit tests, JSON preset invariant
-# tests, and the bash integration tests against the built hook
-# binary.
+# Test orchestrator. Runs Go unit tests, JSON preset invariant tests, and the
+# bash integration tests against the built hook binary.
 #
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"

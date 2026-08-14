@@ -4,22 +4,19 @@ import "github.com/sothatsit/agent-permissions/internal/model"
 
 // Command rules come in two styles:
 //
-// Guarded: no Default. Rules only fire for specific
-// dangerous flags or subcommands; everything else falls
-// through to the permissions layer (Allow/Ask patterns).
-// Used for commands like git/tar/sed where most
+// Guarded: no Default. Rules only fire for specific dangerous flags or
+// subcommands; everything else falls through to the permissions layer
+// (Allow/Ask patterns). Used for commands like git/tar/sed where most
 // invocations are safe and handled by patterns.
 //
-// Managed: has a Default. The rules layer must produce
-// a decision for every invocation; nothing falls through.
-// Used for commands like bash/sh where no invocation
-// should be silently allowed.
+// Managed: has a Default. The rules layer must produce a decision for every
+// invocation; nothing falls through. Used for commands like bash/sh where no
+// invocation should be silently allowed.
 
-// Registry returns the command rules and snippet rules.
-// Command rules are keyed by command name (git, python3,
-// etc.). Snippet rules are keyed by language (python,
-// perl, etc.) - a language may have multiple commands
-// (python3 and python both produce Python snippets).
+// Registry returns the command rules and snippet rules. Command rules are keyed
+// by command name (git, python3, etc.). Snippet rules are keyed by language
+// (python, perl, etc.) - a language may have multiple commands (python3 and
+// python both produce Python snippets).
 func Registry() (
 	map[string]*model.CommandRules,
 	map[string]*model.SnippetLang,
@@ -28,17 +25,16 @@ func Registry() (
 
 	// --- Guarded: deny specific dangerous flags ---
 
-	// git: strip -C <path> in breakdown so permission
-	// patterns match plain git <subcommand>. Deny flags
-	// that open editors, execute arbitrary commands, or
-	// inject config.
+	// git: strip -C <path> in breakdown so permission patterns match plain
+	// git <subcommand>. Deny flags that open editors, execute arbitrary
+	// commands, or inject config.
 	r["git"] = &model.CommandRules{
 		OwnedPatternPrefixes: [][]string{
 			{"branch"}, {"remote"}, {"tag"},
 		},
-		// git accepts repeated -C options. breakdownGit
-		// removes each option and path before the owned
-		// subcommand reaches the rules layer.
+		// git accepts repeated -C options. breakdownGit removes each
+		// option and path before the owned subcommand reaches the rules
+		// layer.
 		PatternPrefixSkips: []model.PatternPrefixSkip{
 			{Option: "-C", Arguments: 1},
 		},
@@ -60,11 +56,11 @@ func Registry() (
 					"via hooks/editor/pager " +
 					"config — use git config " +
 					"instead"),
-			// git branch/tag: the subcommand carries the
-			// def and a DefaultDeny safety net; the hook
-			// (under it, governed by the same def) does the
-			// classification. classifyGit* always decides,
-			// so the default only fires if that ever changes.
+			// git branch/tag: the subcommand carries the def and a
+			// DefaultDeny safety net; the hook (under it, governed
+			// by the same def) does the classification.
+			// classifyGit* always decides, so the default only
+			// fires if that ever changes.
 			model.Subcmd("branch").
 				WithRuleDef(gitBranchWrites).DefaultDeny(
 				"unrecognised flag").Rules(
@@ -157,9 +153,9 @@ func Registry() (
 		},
 	}
 
-	// patch: -e/--ed interprets patch as ed script which
-	// can execute shell commands via ! escape. Auto-format
-	// detection can also trigger this without the flag.
+	// patch: -e/--ed interprets patch as ed script which can execute shell
+	// commands via ! escape. Auto-format detection can also trigger this
+	// without the flag.
 	r["patch"] = &model.CommandRules{
 		Rules: []model.Rule{
 			model.Flag("-e", "--ed").
@@ -169,10 +165,9 @@ func Registry() (
 		},
 	}
 
-	// nm: --plugin loads an arbitrary shared library,
-	// turning a benign-looking symbol lister into a native
-	// code loader. Near-zero legitimate use, so blocking it
-	// costs little.
+	// nm: --plugin loads an arbitrary shared library, turning a
+	// benign-looking symbol lister into a native code loader. Near-zero
+	// legitimate use, so blocking it costs little.
 	r["nm"] = &model.CommandRules{
 		Rules: []model.Rule{
 			model.Flag("--plugin").
@@ -182,8 +177,8 @@ func Registry() (
 	}
 
 	// sed: classify program sources separately from input files, then scan
-	// programs for shell execution. GNU --sandbox is the explicit path for safe
-	// dynamic code.
+	// programs for shell execution. GNU --sandbox is the explicit path for
+	// safe dynamic code.
 	r["sed"] = &model.CommandRules{
 		OwnsAllPatterns: true,
 		Parser:          rawParser{},
@@ -193,8 +188,8 @@ func Registry() (
 		Unverified:      sedCommandExec,
 	}
 
-	// awk: classify programs, variable values, and input files, then scan only
-	// the program sources for shell execution and native code loading.
+	// awk: classify programs, variable values, and input files, then scan
+	// only the program sources for shell execution and native code loading.
 	r["awk"] = &model.CommandRules{
 		OwnsAllPatterns: true,
 		Parser:          rawParser{},
@@ -206,9 +201,9 @@ func Registry() (
 
 	// --- Guarded with breakdown ---
 
-	// find: extract inner commands from -exec/-execdir.
-	// KeepOuter so the rules layer can deny -ok/-okdir
-	// and flattening catches cmd subs in other args.
+	// find: extract inner commands from -exec/-execdir. KeepOuter so the
+	// rules layer can deny -ok/-okdir and flattening catches cmd subs in
+	// other args.
 	r["find"] = &model.CommandRules{
 		Breakdown: breakdownFind,
 		Rules: []model.Rule{
@@ -220,18 +215,15 @@ func Registry() (
 
 	// --- Interpreters ---
 	//
-	// Each interpreter reads script files or inline code
-	// and produces code snippets for scanning. Non-code
-	// invocations (--version, -m, bare) fall through to
-	// the permissions layer. Snippet rules for each
-	// language are defined below alongside the command
-	// registration.
+	// Each interpreter reads script files or inline code and produces code
+	// snippets for scanning. Non-code invocations (--version, -m, bare)
+	// fall through to the permissions layer. Snippet rules for each
+	// language are defined below alongside the command registration.
 
-	// python/python3 - PathAllow so path-invoked
-	// interpreters (e.g. /path/to/venv/bin/python3)
-	// still extract code for scanning but fall through
-	// to permissions, where users can allow specific
-	// interpreter paths.
+	// python/python3 - PathAllow so path-invoked interpreters (e.g.
+	// /path/to/venv/bin/python3) still extract code for scanning but fall
+	// through to permissions, where users can allow specific interpreter
+	// paths.
 	pythonRules := &model.CommandRules{
 		Parser:     pythonParser,
 		Breakdown:  breakdownPython,
@@ -267,11 +259,10 @@ func Registry() (
 
 	// --- Managed ---
 
-	// bash/sh: -n (syntax check) is allowed outright.
-	// -c extracts the code string - only when -c is
-	// the sole flag; other flags (--rcfile, -i, etc.)
-	// fall through to default deny since they source
-	// arbitrary code before the -c body.
+	// bash/sh: -n (syntax check) is allowed outright. -c extracts the code
+	// string - only when -c is the sole flag; other flags (--rcfile, -i,
+	// etc.) fall through to default deny since they source arbitrary code
+	// before the -c body.
 	bashRules := &model.CommandRules{
 		OwnsAllPatterns: true,
 		Breakdown:       breakdownBash,
@@ -287,12 +278,12 @@ func Registry() (
 	r["sh"] = bashRules
 
 	// --- Transparent wrappers ---
-	// Skip wrapper flags, extract the inner command.
-	// Deny flags enumerated in each wrapperDef.
+	// Skip wrapper flags, extract the inner command. Deny flags enumerated
+	// in each wrapperDef.
 
-	// time: skip formatting/output flags, extract inner.
-	// Bash's `time` keyword is already transparent in the
-	// AST - this handles external /usr/bin/time.
+	// time: skip formatting/output flags, extract inner. Bash's `time`
+	// keyword is already transparent in the AST - this handles external
+	// /usr/bin/time.
 	r["time"] = &model.CommandRules{
 		OwnsAllPatterns: true,
 		Parser:          timeParser,
@@ -313,20 +304,18 @@ func Registry() (
 		Breakdown:       breakdownStdbuf,
 	}
 
-	// strace: skip tracing flags, extract inner.
-	// Denies -E/--env (can inject env vars) via
-	// strace.env-injection.
+	// strace: skip tracing flags, extract inner. Denies -E/--env (can
+	// inject env vars) via strace.env-injection.
 	r["strace"] = &model.CommandRules{
 		OwnsAllPatterns: true,
 		Parser:          straceParser,
 		Breakdown:       breakdownStrace,
 	}
 
-	// xargs: skip flags, extract inner command.
-	// Denies -p/--interactive (hangs) and
-	// -o/--open-tty (opens /dev/tty) via xargs.interactive.
-	// The -I-from-stdin / ambiguous-replacement / unknown-
-	// flag denials are gated by xargs.unverified.
+	// xargs: skip flags, extract inner command. Denies -p/--interactive
+	// (hangs) and -o/--open-tty (opens /dev/tty) via xargs.interactive. The
+	// -I-from-stdin / ambiguous-replacement / unknown-flag denials are
+	// gated by xargs.unverified.
 	r["xargs"] = &model.CommandRules{
 		OwnsAllPatterns: true,
 		Parser:          xargsParser,
@@ -335,18 +324,17 @@ func Registry() (
 	}
 
 	// --- Exec wrappers ---
-	// Run an inner command after consuming their own args.
-	// Like timeout/strace, the inner command is re-analysed.
-	// They exec directly (execvp), so a leading NAME=val is
-	// the program name, not an assignment - except env, which
-	// honours assignments and feeds them to the EnvVars axis.
+	// Run an inner command after consuming their own args. Like
+	// timeout/strace, the inner command is re-analysed. They exec directly
+	// (execvp), so a leading NAME=val is the program name, not an
+	// assignment - except env, which honours assignments and feeds them to
+	// the EnvVars axis.
 
-	// env: parse env's flags, split leading NAME=val into
-	// honoured assignments (-> EnvVars deny axis + value
-	// cmd-subs), extract the inner command. -S/--split-string
-	// is denied (env's splitter is not the shell). PathAllow so
-	// /usr/bin/env python3 (shebang style) still unwraps and
-	// scans the inner interpreter.
+	// env: parse env's flags, split leading NAME=val into honoured
+	// assignments (-> EnvVars deny axis + value cmd-subs), extract the
+	// inner command. -S/--split-string is denied (env's splitter is not the
+	// shell). PathAllow so /usr/bin/env python3 (shebang style) still
+	// unwraps and scans the inner interpreter.
 	r["env"] = &model.CommandRules{
 		OwnsAllPatterns: true,
 		Parser:          envParser,
@@ -355,9 +343,9 @@ func Registry() (
 		Unverified:      envUnverified,
 	}
 
-	// nohup/setsid/nice/ionice/exec: transparent exec wrappers.
-	// Skip own flags, extract the inner command; empty inner is
-	// safe (e.g. ionice -p PID, exec > log).
+	// nohup/setsid/nice/ionice/exec: transparent exec wrappers. Skip own
+	// flags, extract the inner command; empty inner is safe (e.g. ionice -p
+	// PID, exec > log).
 	r["nohup"] = &model.CommandRules{
 		OwnsAllPatterns: true,
 		Parser:          nohupParser,
@@ -384,9 +372,8 @@ func Registry() (
 		Breakdown:       breakdownExec,
 	}
 
-	// chroot: skip NEWROOT, extract inner command. With no
-	// command it runs an interactive $SHELL - denied via
-	// chroot.unverified.
+	// chroot: skip NEWROOT, extract inner command. With no command it runs
+	// an interactive $SHELL - denied via chroot.unverified.
 	r["chroot"] = &model.CommandRules{
 		OwnsAllPatterns: true,
 		Parser:          chrootParser,
@@ -394,18 +381,18 @@ func Registry() (
 		Unverified:      chrootUnverified,
 	}
 
-	// flock: skip the lock file and extract the inner command.
-	// By policy, flock FILE -c STR treats static STR as Bash source.
+	// flock: skip the lock file and extract the inner command. By policy,
+	// flock FILE -c STR treats static STR as Bash source.
 	r["flock"] = &model.CommandRules{
 		OwnsAllPatterns: true,
 		Parser:          flockParser,
 		Breakdown:       breakdownFlock,
 	}
 
-	// runuser/setpriv/setarch: privilege/personality wrappers
-	// with shell-string, interactive, and ambiguous-positional
-	// forms we cannot model safely. Deny outright (suppressed,
-	// falling through to permissions, when their rule is off).
+	// runuser/setpriv/setarch: privilege/personality wrappers with
+	// shell-string, interactive, and ambiguous-positional forms we cannot
+	// model safely. Deny outright (suppressed, falling through to
+	// permissions, when their rule is off).
 	r["runuser"] = &model.CommandRules{
 		OwnsAllPatterns: true,
 		Breakdown:       breakdownRunuser,
@@ -421,33 +408,32 @@ func Registry() (
 
 	// --- Shell builtins ---
 
-	// eval: join args and re-parse as code. All args
-	// must be static - variables could execute anything.
+	// eval: join args and re-parse as code. All args must be static -
+	// variables could execute anything.
 	r["eval"] = &model.CommandRules{
 		OwnsAllPatterns: true,
 		Breakdown:       breakdownEval,
 		Unverified:      evalUnverified,
 	}
 
-	// trap: extract the code string (first positional)
-	// for re-parsing. -l/-p and signal resets are safe.
+	// trap: extract the code string (first positional) for re-parsing.
+	// -l/-p and signal resets are safe.
 	r["trap"] = &model.CommandRules{
 		OwnsAllPatterns: true,
 		Breakdown:       breakdownTrap,
 		Unverified:      trapUnverified,
 	}
 
-	// command: strip -v/-V/-p/-- flags, extract the
-	// inner command. Rejects unknown flags.
+	// command: strip -v/-V/-p/-- flags, extract the inner command. Rejects
+	// unknown flags.
 	r["command"] = &model.CommandRules{
 		OwnsAllPatterns: true,
 		Breakdown:       breakdownCommand,
 		Unverified:      commandUnverified,
 	}
 
-	// cd/pushd/popd: track cwd changes. cd with a
-	// static absolute path at unconditional scope
-	// updates Cwd; everything else marks cwd unknown.
+	// cd/pushd/popd: track cwd changes. cd with a static absolute path at
+	// unconditional scope updates Cwd; everything else marks cwd unknown.
 	// Falls through to normal flattening.
 	r["cd"] = &model.CommandRules{
 		Breakdown: breakdownCd,
@@ -459,9 +445,9 @@ func Registry() (
 		Breakdown: breakdownCd,
 	}
 
-	// unset: record SawUnsetF when -f is seen so
-	// function-call detection knows functions may have
-	// been removed. Falls through to normal flattening.
+	// unset: record SawUnsetF when -f is seen so function-call detection
+	// knows functions may have been removed. Falls through to normal
+	// flattening.
 	r["unset"] = &model.CommandRules{
 		Breakdown: breakdownUnset,
 	}
@@ -469,15 +455,13 @@ func Registry() (
 	// =========================================================
 	// Snippet rules - dangerous patterns in code snippets.
 	//
-	// Keyed by language, not command. A language may be
-	// produced by multiple commands (python3 and python
-	// both emit LangPython snippets). Patterns and rules
-	// are defined in each language file (python.go, etc.);
-	// this just wires them into the map. All of a language's
-	// snippet rules detect the same threat - running shell
-	// commands from inside the script - so they share one
-	// def (on the SnippetLang) and are enabled or disabled
-	// together.
+	// Keyed by language, not command. A language may be produced by
+	// multiple commands (python3 and python both emit LangPython snippets).
+	// Patterns and rules are defined in each language file (python.go,
+	// etc.); this just wires them into the map. All of a language's snippet
+	// rules detect the same threat - running shell commands from inside the
+	// script - so they share one def (on the SnippetLang) and are enabled
+	// or disabled together.
 	// =========================================================
 
 	s := map[string]*model.SnippetLang{
@@ -552,9 +536,8 @@ func Registry() (
 	return r, s
 }
 
-// snippetLang builds a SnippetLang governed by def. All of a
-// language's snippet rules share that one def, so users enable
-// or disable the whole set at once.
+// snippetLang builds a SnippetLang governed by def. All of a language's snippet
+// rules share that one def, so users enable or disable the whole set at once.
 func snippetLang(
 	def *model.RuleDef,
 	strip func(string) string,

@@ -19,21 +19,21 @@ type FlagDef struct {
 	Terminal bool // remaining args become positionals
 }
 
-// FlagPlacement describes where a command accepts flags
-// relative to its positional arguments.
+// FlagPlacement describes where a command accepts flags relative to its
+// positional arguments.
 type FlagPlacement int
 
 const (
-	// InterspersedFlags allows flags after positional
-	// arguments until an explicit "--".
+	// InterspersedFlags allows flags after positional arguments until an
+	// explicit "--".
 	InterspersedFlags FlagPlacement = iota
-	// LeadingFlagsOnly makes the first positional argument
-	// end flag parsing.
+	// LeadingFlagsOnly makes the first positional argument end flag
+	// parsing.
 	LeadingFlagsOnly
 )
 
-// FullParser classifies flags by their FlagDef. Unknown
-// flags cause a parse error. Use NewFullParser to create.
+// FullParser classifies flags by their FlagDef. Unknown flags cause a parse
+// error. Use NewFullParser to create.
 type FullParser struct {
 	flags      []FlagDef
 	flagMap    map[string]FlagDef
@@ -41,8 +41,8 @@ type FullParser struct {
 	unknownMsg string
 }
 
-// NewFullParser creates a FullParser from a flag list and
-// the command's flag-placement grammar.
+// NewFullParser creates a FullParser from a flag list and the command's
+// flag-placement grammar.
 func NewFullParser(
 	flags []FlagDef,
 	placement FlagPlacement,
@@ -73,8 +73,10 @@ func NewFullParser(
 			panic(fmt.Sprintf(
 				"duplicate flag definition: %s", f.Name))
 		}
+
 		p.flagMap[f.Name] = f
 	}
+
 	return p
 }
 
@@ -89,8 +91,8 @@ func (p *FullParser) Parse(
 			endOfFlags = true
 			continue
 		}
-		// Positional: after --, bare "-", or
-		// anything not starting with "-".
+		// Positional: after --, bare "-", or anything not starting with
+		// "-".
 		if endOfFlags ||
 			word.DefinitelyEqual(args[i], "-") ||
 			!word.DefinitelyHasPrefix(
@@ -100,6 +102,7 @@ func (p *FullParser) Parse(
 			if p.placement == LeadingFlagsOnly {
 				endOfFlags = true
 			}
+
 			continue
 		}
 
@@ -111,6 +114,7 @@ func (p *FullParser) Parse(
 					fmt.Errorf("%s: %s",
 						p.unknownReason(), name)
 			}
+
 			result.Flags = append(result.Flags,
 				ParsedFlag{
 					Name:  name,
@@ -119,8 +123,8 @@ func (p *FullParser) Parse(
 			continue
 		}
 
-		// Non-equals flag - resolve text for map
-		// lookup and prefix matching.
+		// Non-equals flag - resolve text for map lookup and prefix
+		// matching.
 		text := word.Text(args[i])
 
 		// Exact match.
@@ -132,6 +136,7 @@ func (p *FullParser) Parse(
 							"flag %s requires "+
 								"a value", text)
 				}
+
 				i++
 				result.Flags = append(
 					result.Flags,
@@ -145,9 +150,11 @@ func (p *FullParser) Parse(
 					ParsedFlag{
 						Name: text})
 			}
+
 			if def.Terminal {
 				endOfFlags = true
 			}
+
 			continue
 		}
 
@@ -162,9 +169,8 @@ func (p *FullParser) Parse(
 			continue
 		}
 
-		// Combined short flags: split -uBs into
-		// -u + -B + -s. Only for static words.
-		// Opaque content can't be reliably split.
+		// Combined short flags: split -uBs into -u + -B + -s. Only for
+		// static words. Opaque content can't be reliably split.
 		if word.Static(args[i]) &&
 			len(text) > 2 &&
 			text[0] == '-' && text[1] != '-' {
@@ -182,12 +188,14 @@ func (p *FullParser) Parse(
 									" a value",
 								last.Name)
 					}
+
 					i++
 					last.Value = args[i]
 				}
-				// A terminal flag in a cluster
-				// absorbs remaining args, same
-				// as when parsed standalone.
+
+				// A terminal flag in a cluster absorbs
+				// remaining args, same as when parsed
+				// standalone.
 				lastName := result.Flags[len(
 					result.Flags)-1].Name
 				if def, ok :=
@@ -195,6 +203,7 @@ func (p *FullParser) Parse(
 					def.Terminal {
 					endOfFlags = true
 				}
+
 				continue
 			}
 		}
@@ -206,10 +215,9 @@ func (p *FullParser) Parse(
 	return result, nil
 }
 
-// splitCluster splits combined short flags (e.g. -uBs)
-// into individual flags using greedy left-to-right
-// matching. The constructor stores flags longest-first so
-// -OO matches before -O. When an Arg or Prefix flag appears
+// splitCluster splits combined short flags (e.g. -uBs) into individual flags
+// using greedy left-to-right matching. The constructor stores flags
+// longest-first so -OO matches before -O. When an Arg or Prefix flag appears
 // mid-cluster, the remaining characters become its value.
 func (p *FullParser) splitCluster(
 	text string,
@@ -223,14 +231,16 @@ func (p *FullParser) splitCluster(
 				strings.HasPrefix(sf.Name, "--") {
 				continue
 			}
+
 			body := sf.Name[1:] // strip "-"
 			if !strings.HasPrefix(
 				text[pos:], body) {
 				continue
 			}
+
 			pos += len(body)
-			// Arg/Prefix flag with remaining
-			// chars: rest becomes its value.
+			// Arg/Prefix flag with remaining chars: rest becomes
+			// its value.
 			if (sf.Arg || sf.Prefix) &&
 				pos < len(text) {
 				flags = append(flags,
@@ -241,26 +251,29 @@ func (p *FullParser) splitCluster(
 					})
 				return flags, false, true
 			}
+
 			flags = append(flags,
 				ParsedFlag{Name: sf.Name})
-			// Arg flag at end of cluster:
-			// caller must consume next arg.
+			// Arg flag at end of cluster: caller must consume next
+			// arg.
 			if sf.Arg {
 				return flags, true, true
 			}
+
 			matched = true
 			break
 		}
+
 		if !matched {
 			return nil, false, false
 		}
 	}
+
 	return flags, false, true
 }
 
-// matchPrefix checks if arg starts with a known Prefix
-// flag. Returns the flag name, a value Word, and whether
-// a match was found.
+// matchPrefix checks if arg starts with a known Prefix flag. Returns the flag
+// name, a value Word, and whether a match was found.
 func (p *FullParser) matchPrefix(
 	w *syntax.Word,
 ) (string, *syntax.Word, bool) {
@@ -277,6 +290,7 @@ func (p *FullParser) matchPrefix(
 			}
 		}
 	}
+
 	return "", nil, false
 }
 
@@ -284,5 +298,6 @@ func (p *FullParser) unknownReason() string {
 	if p.unknownMsg != "" {
 		return p.unknownMsg
 	}
+
 	return "unrecognised flag"
 }

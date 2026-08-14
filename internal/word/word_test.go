@@ -49,8 +49,8 @@ func dollarSglWord(s string) *syntax.Word {
 	}
 }
 
-// mixedWord creates a Word with a Lit prefix followed by
-// a ParamExp. E.g. "--flag=$VAR".
+// mixedWord creates a Word with a Lit prefix followed by a ParamExp. E.g.
+// "--flag=$VAR".
 func mixedWord(
 	prefix string, paramName string,
 ) *syntax.Word {
@@ -193,9 +193,11 @@ func TestOpaqueReason(t *testing.T) {
 			if tt.wantSet && got == "" {
 				t.Error("OpaqueReason() empty")
 			}
+
 			if !tt.wantSet && got != "" {
 				t.Errorf("OpaqueReason() = %q", got)
 			}
+
 			if tt.wantSub != "" &&
 				!strings.Contains(got, tt.wantSub) {
 				t.Errorf(
@@ -240,10 +242,12 @@ func TestExpansionReason(t *testing.T) {
 			if tt.wantSet && got == "" {
 				t.Error("ExpansionReason() empty")
 			}
+
 			if !tt.wantSet && got != "" {
 				t.Errorf(
 					"ExpansionReason() = %q", got)
 			}
+
 			if tt.wantSub != "" &&
 				!strings.Contains(got, tt.wantSub) {
 				t.Errorf(
@@ -283,8 +287,8 @@ func TestEqual(t *testing.T) {
 		// Mixed words: static prefix can rule out.
 		{"mixed prefix mismatch",
 			mixedWord("--flag=", "V"), "foo", No},
-		// Mixed words: can't confirm equality (opaque
-		// suffix could be anything).
+		// Mixed words: can't confirm equality (opaque suffix could be
+		// anything).
 		{"mixed prefix matches but opaque remains",
 			mixedWord("--flag=", "V"),
 			"--flag=", Maybe},
@@ -664,9 +668,8 @@ func TestSplitEq(t *testing.T) {
 		{"value with embedded equals",
 			litWord("--flag=a=b"),
 			"--flag", "a=b", false},
-		// --flag=$VALUE: structural split preserves
-		// the ParamExp in the value Word. Text()
-		// prints it as ${VALUE} (printer format).
+		// --flag=$VALUE: structural split preserves the ParamExp in the
+		// value Word. Text() prints it as ${VALUE} (printer format).
 		{"value with param",
 			mixedWord("--flag=", "VALUE"),
 			"--flag", "${VALUE}", false},
@@ -675,10 +678,9 @@ func TestSplitEq(t *testing.T) {
 		{"backslash in name",
 			litWord(`--fl\ag=value`),
 			"--flag", "value", false},
-		// Escaped \= produces literal = in resolved
-		// text. It's the first = so it's the split
-		// point - prevents bypass of flag=value
-		// splitting via backslash escaping.
+		// Escaped \= produces literal = in resolved text. It's the
+		// first = so it's the split point - prevents bypass of
+		// flag=value splitting via backslash escaping.
 		{"escaped equals is split point",
 			litWord(`--action\=exec=ssh`),
 			"--action", "exec=ssh", false},
@@ -693,19 +695,24 @@ func TestSplitEq(t *testing.T) {
 				if vw != nil {
 					t.Error("want nil value Word")
 				}
+
 				if name != "" {
 					t.Errorf("name = %q, want empty",
 						name)
 				}
+
 				return
 			}
+
 			if name != tt.wantName {
 				t.Errorf("name = %q, want %q",
 					name, tt.wantName)
 			}
+
 			if vw == nil {
 				t.Fatal("value Word is nil")
 			}
+
 			gotValue := Text(vw)
 			if gotValue != tt.wantValue {
 				t.Errorf("value = %q, want %q",
@@ -728,9 +735,8 @@ func TestSplitPrefix(t *testing.T) {
 	}{
 		{"simple", litWord("-n5"), 2,
 			"-n", "5", false},
-		// -n$VAR: structural split preserves the
-		// ParamExp in the value Word. Text() prints
-		// it as ${VAR} (printer format).
+		// -n$VAR: structural split preserves the ParamExp in the value
+		// Word. Text() prints it as ${VAR} (printer format).
 		{"with param",
 			mixedWord("-n", "VAR"), 2,
 			"-n", "${VAR}", false},
@@ -750,20 +756,25 @@ func TestSplitPrefix(t *testing.T) {
 				if vw != nil {
 					t.Error("want nil value Word")
 				}
+
 				if tt.wantName != "" &&
 					name != tt.wantName {
 					t.Errorf("name = %q, want %q",
 						name, tt.wantName)
 				}
+
 				return
 			}
+
 			if name != tt.wantName {
 				t.Errorf("name = %q, want %q",
 					name, tt.wantName)
 			}
+
 			if vw == nil {
 				t.Fatal("value Word is nil")
 			}
+
 			gotValue := Text(vw)
 			if gotValue != tt.wantValue {
 				t.Errorf("value = %q, want %q",
@@ -780,6 +791,7 @@ func TestLit(t *testing.T) {
 	if len(w.Parts) != 1 {
 		t.Fatalf("parts = %d, want 1", len(w.Parts))
 	}
+
 	if lit, ok := w.Parts[0].(*syntax.Lit); !ok {
 		t.Error("part is not Lit")
 	} else if lit.Value != "hello" {
@@ -792,6 +804,7 @@ func TestFromStrings(t *testing.T) {
 	if len(ws) != 2 {
 		t.Fatalf("len = %d", len(ws))
 	}
+
 	if Text(ws[0]) != "a" || Text(ws[1]) != "b" {
 		t.Error("wrong values")
 	}

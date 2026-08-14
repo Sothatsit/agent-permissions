@@ -6,8 +6,8 @@ import (
 	"github.com/sothatsit/agent-permissions/internal/model"
 )
 
-// A node whose Def is disabled is pruned with its subtree; an
-// enabled one is kept.
+// A node whose Def is disabled is pruned with its subtree; an enabled one is
+// kept.
 func TestFilterByConfigPrunesDisabledNode(t *testing.T) {
 	def := &model.RuleDef{ID: "x.test"}
 	build := func() map[string]*model.CommandRules {
@@ -33,8 +33,8 @@ func TestFilterByConfigPrunesDisabledNode(t *testing.T) {
 	}
 }
 
-// A disabled rule nested under an enabled parent is still
-// pruned, while the parent and its other children survive.
+// A disabled rule nested under an enabled parent is still pruned, while the
+// parent and its other children survive.
 func TestFilterByConfigPrunesNestedDisabledNode(t *testing.T) {
 	parent := &model.RuleDef{ID: "p"}
 	child := &model.RuleDef{ID: "c"}
@@ -59,8 +59,8 @@ func TestFilterByConfigPrunesNestedDisabledNode(t *testing.T) {
 	}
 }
 
-// A command's Default is nil'd when its Unverified rule is
-// disabled, and kept when enabled.
+// A command's Default is nil'd when its Unverified rule is disabled, and kept
+// when enabled.
 func TestFilterByConfigNilsDefault(t *testing.T) {
 	unv := &model.RuleDef{ID: "foo.unverified"}
 	build := func() map[string]*model.CommandRules {
@@ -111,8 +111,8 @@ func TestFilterByConfigNilsBreakdownAndParser(t *testing.T) {
 	}
 }
 
-// A disabled language's snippet rules are dropped entirely so
-// the permissions layer scans nothing for it.
+// A disabled language's snippet rules are dropped entirely so the permissions
+// layer scans nothing for it.
 func TestFilterByConfigDropsDisabledSnippetLang(t *testing.T) {
 	def := &model.RuleDef{ID: "lang.test"}
 	snips := map[string]*model.SnippetLang{
@@ -126,9 +126,8 @@ func TestFilterByConfigDropsDisabledSnippetLang(t *testing.T) {
 	}
 }
 
-// The shipped registry must satisfy the attribution
-// invariant: every restrictive decision can be named and
-// disabled.
+// The shipped registry must satisfy the attribution invariant: every
+// restrictive decision can be named and disabled.
 func TestValidateRegistryPassesOnRealRegistry(t *testing.T) {
 	reg, snips := Registry()
 	if err := ValidateRegistry(reg, snips); err != nil {
@@ -147,8 +146,8 @@ func TestValidateRegistryCatchesParserWithoutBreakdown(t *testing.T) {
 	}
 }
 
-// A restrictive node with no governing Def is the mistake the
-// invariant exists to catch.
+// A restrictive node with no governing Def is the mistake the invariant exists
+// to catch.
 func TestValidateRegistryCatchesMissingNodeDef(t *testing.T) {
 	reg := map[string]*model.CommandRules{
 		"foo": {Rules: []model.Rule{
@@ -160,8 +159,8 @@ func TestValidateRegistryCatchesMissingNodeDef(t *testing.T) {
 	}
 }
 
-// A restrictive command Default with no Unverified rule could
-// never be disabled.
+// A restrictive command Default with no Unverified rule could never be
+// disabled.
 func TestValidateRegistryCatchesDefaultWithoutUnverified(t *testing.T) {
 	reg := map[string]*model.CommandRules{
 		"foo": {Default: model.DenyAction("cannot verify")},
@@ -180,6 +179,7 @@ func TestValidateRegistryCatchesSnippetLangWithoutDef(t *testing.T) {
 				Action: model.DenyAction("x")},
 		}},
 	}
+
 	err := ValidateRegistry(
 		map[string]*model.CommandRules{}, snips)
 	if err == nil {

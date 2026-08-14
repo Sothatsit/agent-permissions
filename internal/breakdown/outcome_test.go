@@ -152,6 +152,7 @@ func TestOutcomesScanArgumentsOnce(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
+
 			for _, name := range test.want {
 				if countCommands(result, name) != 1 {
 					t.Fatalf(
@@ -171,5 +172,6 @@ func countCommands(result model.BreakdownResult, name string) int {
 			count++
 		}
 	}
+
 	return count
 }

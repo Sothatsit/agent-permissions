@@ -43,6 +43,7 @@ func TestReadScriptSizeLimit(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ReadScript: %v", err)
 			}
+
 			if !bytes.Equal(got, data) {
 				t.Error("ReadScript returned different contents")
 			}

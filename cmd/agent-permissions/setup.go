@@ -13,19 +13,17 @@ import (
 	"github.com/sothatsit/agent-permissions/presets"
 )
 
-// setup writes a populated ~/.agents/permissions.json so
-// the user has a starting point to customise. The file
-// includes empty tier arrays as placeholders and leaves
-// preset selection unspecified (which means "all ordinary
-// presets enabled" - new presets in future binary updates
-// are picked up automatically). Enforced presets sit outside
-// user selection and remain active.
+// setup writes a populated ~/.agents/permissions.json so the user has a
+// starting point to customise. The file includes empty tier arrays as
+// placeholders and leaves preset selection unspecified (which means
+// "all ordinary presets enabled" - new presets in future binary updates are
+// picked up automatically). Enforced presets sit outside user selection and
+// remain active.
 //
-// Refuses to overwrite an existing file unless --force is
-// passed. Any non-NotExist stat error is treated as a
-// hard failure rather than silently writing - a transient
-// filesystem error on the parent directory could otherwise
-// clobber a real, customised file.
+// Refuses to overwrite an existing file unless --force is passed. Any
+// non-NotExist stat error is treated as a hard failure rather than silently
+// writing - a transient filesystem error on the parent directory could
+// otherwise clobber a real, customised file.
 func setup(args []string) error {
 	force := false
 	for _, a := range args {
@@ -42,6 +40,7 @@ func setup(args []string) error {
 	if err != nil {
 		return fmt.Errorf("home: %v", err)
 	}
+
 	path := filepath.Join(
 		home, ".agents", "permissions.json")
 
@@ -52,10 +51,9 @@ func setup(args []string) error {
 					"overwrite)", path)
 		}
 	} else if !errors.Is(err, fs.ErrNotExist) {
-		// Any error that isn't "file not found" means we
-		// can't safely decide whether overwriting is OK.
-		// Refuse rather than risk clobbering a real file
-		// behind a transient stat failure.
+		// Any error that isn't "file not found" means we can't safely
+		// decide whether overwriting is OK. Refuse rather than risk
+		// clobbering a real file behind a transient stat failure.
 		return fmt.Errorf(
 			"stat %s: %v", path, err)
 	}
@@ -64,6 +62,7 @@ func setup(args []string) error {
 	if err != nil {
 		return err
 	}
+
 	all := catalog.Presets()
 
 	body, err := buildSetupTemplate()
@@ -90,6 +89,7 @@ func setup(args []string) error {
 			embeddedCount++
 		}
 	}
+
 	fmt.Printf(
 		"Embedded presets active: %d\n",
 		embeddedCount)
@@ -103,6 +103,7 @@ func setup(args []string) error {
 			"Enforced presets active: %d (from %s)\n",
 			enforcedCount, presets.EnforcedPresetDirsEnv)
 	}
+
 	fmt.Println(
 		"To narrow the ordinary preset set, add " +
 			"`enabled-presets` " +
@@ -112,13 +113,14 @@ func setup(args []string) error {
 			"Enforced presets stay active regardless of " +
 				"preset selection.")
 	}
+
 	return nil
 }
 
-// buildSetupTemplate returns the initial JSON body with empty
-// tier objects (each holding empty Commands and EnvVars
-// maps) as placeholders for hand-editing. encoding/json sorts
-// the keys, which gives the starter file stable output.
+// buildSetupTemplate returns the initial JSON body with empty tier objects
+// (each holding empty Commands and EnvVars maps) as placeholders for
+// hand-editing. encoding/json sorts the keys, which gives the starter file
+// stable output.
 func buildSetupTemplate() ([]byte, error) {
 	body := map[string]any{
 		"Allow":   buildEmptyTier(),
@@ -130,6 +132,7 @@ func buildSetupTemplate() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	out = append(out, '\n')
 	return out, nil
 }

@@ -19,6 +19,7 @@ func flagNames(pf []ParsedFlag) []string {
 	for i, f := range pf {
 		names[i] = f.Name
 	}
+
 	return names
 }
 
@@ -28,6 +29,7 @@ func flagValue(pf []ParsedFlag, name string) string {
 			return word.Text(f.Value)
 		}
 	}
+
 	return ""
 }
 
@@ -47,6 +49,7 @@ func TestWorkOutcomesRejectEmptyWork(t *testing.T) {
 					t.Error("expected panic for empty work")
 				}
 			}()
+
 			constructor.construct()
 		})
 	}
@@ -86,6 +89,7 @@ func TestPopulatePossibleFlags(t *testing.T) {
 				t.Fatalf("got %v, want %v",
 					got, tt.wantNames)
 			}
+
 			for i := range got {
 				if got[i] != tt.wantNames[i] {
 					t.Errorf(
@@ -117,8 +121,8 @@ func TestPopulatePossibleFlagsValues(t *testing.T) {
 		{"short next arg",
 			ws("-o", "file.txt"),
 			"-o", "file.txt"},
-		// Last flag with no next arg - value is
-		// nil, flagValue returns "".
+		// Last flag with no next arg - value is nil, flagValue returns
+		// "".
 		{"short no next arg",
 			ws("-o"),
 			"-o", ""},
@@ -143,8 +147,8 @@ func TestPopulatePossibleFlagsValues(t *testing.T) {
 }
 
 func TestPopulatePossibleFlagsSkipsOpaque(t *testing.T) {
-	// Opaque words (variable expansion) are skipped.
-	// They can't be classified as flags.
+	// Opaque words (variable expansion) are skipped. They can't be
+	// classified as flags.
 	raw := []*syntax.Word{
 		word.Lit("-v"),
 		{Parts: []syntax.WordPart{
@@ -168,9 +172,8 @@ func TestPopulatePossibleFlagsSkipsOpaque(t *testing.T) {
 func TestPopulatePossibleFlagsOpaqueEquals(
 	t *testing.T,
 ) {
-	// --flag=$VAR: the name is in the static prefix
-	// before =, the value is opaque. SplitEq extracts
-	// the name from the first Lit part.
+	// --flag=$VAR: the name is in the static prefix before =, the value is
+	// opaque. SplitEq extracts the name from the first Lit part.
 	raw := []*syntax.Word{
 		{Parts: []syntax.WordPart{
 			&syntax.Lit{Value: "--method="},
@@ -185,14 +188,17 @@ func TestPopulatePossibleFlagsOpaqueEquals(
 		t.Fatalf("got %d flags, want 1",
 			len(input.PossibleFlags))
 	}
+
 	f := input.PossibleFlags[0]
 	if f.Name != "--method" {
 		t.Errorf("name = %q, want --method",
 			f.Name)
 	}
+
 	if f.Value == nil {
 		t.Fatal("value is nil")
 	}
+
 	// Value should be opaque (contains ParamExp).
 	if word.Static(f.Value) {
 		t.Error("value should be opaque")
@@ -202,8 +208,8 @@ func TestPopulatePossibleFlagsOpaqueEquals(
 func TestPopulatePossibleFlagsOpaqueNoEquals(
 	t *testing.T,
 ) {
-	// Fully opaque words like $FLAG are skipped - no
-	// static prefix to extract a name from.
+	// Fully opaque words like $FLAG are skipped - no static prefix to
+	// extract a name from.
 	raw := []*syntax.Word{
 		{Parts: []syntax.WordPart{
 			&syntax.ParamExp{

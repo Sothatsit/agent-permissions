@@ -172,6 +172,7 @@ func TestDecodeMapAllowsOpenFieldsAndNull(t *testing.T) {
 	if got := value["large"]; got != json.Number("9007199254740993") {
 		t.Fatalf("large = %#v, want json.Number", got)
 	}
+
 	nested, ok := value["future"].(map[string]any)
 	if !ok || nested["nested"] != nil {
 		t.Fatalf("future = %#v, want nested null", value["future"])

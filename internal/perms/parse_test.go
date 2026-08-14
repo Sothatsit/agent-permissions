@@ -5,14 +5,14 @@ import (
 	"testing"
 )
 
-// parseEntry is the canonical entry point: extract a raw
-// pattern from a Bash(...) wrapped Claude Code entry (or
-// pass through a plain agent-permissions entry) and run
-// parsePattern.
+// parseEntry is the canonical entry point: extract a raw pattern from
+// a Bash(...) wrapped Claude Code entry (or pass through a plain
+// agent-permissions entry) and run parsePattern.
 func parseEntry(entry string) (Pattern, error) {
 	if raw, ok := extractBashPattern(entry); ok {
 		return parsePattern(raw)
 	}
+
 	return parsePattern(entry)
 }
 
@@ -83,18 +83,22 @@ func TestParsePatternValid(t *testing.T) {
 					"parseEntry %q failed: %v",
 					tc.entry, err)
 			}
+
 			if p.Mode != tc.wantMode {
 				t.Errorf("mode: got %v, want %v",
 					p.Mode, tc.wantMode)
 			}
+
 			if p.Raw != tc.wantRaw {
 				t.Errorf("raw: got %q, want %q",
 					p.Raw, tc.wantRaw)
 			}
+
 			if len(p.Elements) != len(tc.wantElems) {
 				t.Fatalf("elements: got %v, want %v",
 					p.Elements, tc.wantElems)
 			}
+
 			for i := range p.Elements {
 				if p.Elements[i] != tc.wantElems[i] {
 					t.Errorf(
@@ -150,6 +154,7 @@ func TestParsePatternRejectsDegenerate(t *testing.T) {
 					tc.entry)
 				return
 			}
+
 			if !strings.Contains(
 				err.Error(), tc.wantReason,
 			) {

@@ -16,13 +16,12 @@ var syntaxPython = &langSyntax{
 	LineComments: []string{"#"},
 }
 
-// pythonFlags defines all recognised Python interpreter
-// flags.
+// pythonFlags defines all recognised Python interpreter flags.
 var pythonFlags = []model.FlagDef{
 	{Name: "--version"}, {Name: "--help"},
 	{Name: "-OO"},
-	// Terminal flags - remaining args belong to the
-	// script/module, not to Python.
+	// Terminal flags - remaining args belong to the script/module, not to
+	// Python.
 	{Name: "-c", Arg: true, Terminal: true},
 	{Name: "-m", Arg: true, Terminal: true},
 	{Name: "-W", Arg: true},
@@ -73,12 +72,14 @@ func pythonInterpolationPrefix(code string, quoteStart int) bool {
 		if start == 0 || !isPythonInterpolationPrefix(code[start-1]) {
 			return false
 		}
+
 		start--
 	} else if !isPythonInterpolationPrefix(code[start]) {
 		return false
 	} else if start > 0 && isPythonRawPrefix(code[start-1]) {
 		start--
 	}
+
 	return start == 0 || !isPythonNameByte(code[start-1])
 }
 
@@ -104,24 +105,24 @@ func pythonHasReplacementField(content string) bool {
 			i++
 			continue
 		}
+
 		return true
 	}
+
 	return false
 }
 
 // --- Snippet matching ---
 
-// pythonDangerousOSFuncs lists os module functions that
-// execute shell commands.
+// pythonDangerousOSFuncs lists os module functions that execute shell commands.
 var pythonDangerousOSFuncs = []string{
 	"system", "popen", "exec",
 }
 
-// pythonImport matches "import module" at statement
-// start and "from module import ..." (including
-// wildcard and parenthesized multi-line). When names
-// is nil, any import of the module matches. When set,
-// only from-imports of those names match (prefix).
+// pythonImport matches "import module" at statement start and
+// "from module import ..." (including wildcard and parenthesized multi-line).
+// When names is nil, any import of the module matches. When set, only
+// from-imports of those names match (prefix).
 func pythonImport(
 	module string, names []string,
 ) matchBuilder {
@@ -129,8 +130,7 @@ func pythonImport(
 		rePythonImport(module, names))
 }
 
-// pythonCall matches qualified calls like os.system(),
-// os.popen(), etc.
+// pythonCall matches qualified calls like os.system(), os.popen(), etc.
 func pythonCall(
 	module string, names []string,
 ) matchBuilder {
@@ -148,6 +148,7 @@ func rePythonImport(
 			`\bimport\b[^\n]*\b` + m + `\b` +
 			`|\bfrom\s+` + m + `\s+import\b)`
 	}
+
 	np := reAlternation(names)
 	return `\bfrom\s+` + m + `\s+import\s+` +
 		`(?:\*` +

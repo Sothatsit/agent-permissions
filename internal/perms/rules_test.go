@@ -97,9 +97,11 @@ func TestCheckRuleDefaultsAreStableAndAttributed(t *testing.T) {
 					first, second,
 				)
 			}
+
 			if first.Decision != model.Deny {
 				t.Errorf("decision = %v, want deny", first.Decision)
 			}
+
 			if first.Reason != test.wantReason {
 				t.Errorf("reason = %q, want %q", first.Reason, test.wantReason)
 			}

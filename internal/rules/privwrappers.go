@@ -2,19 +2,17 @@ package rules
 
 import "github.com/sothatsit/agent-permissions/internal/model"
 
-// Privilege/personality wrappers we cannot model safely. Each
-// runs an inner command but with forms that defeat simple
-// flag/positional parsing: runuser has a -c shell-string and an
-// interactive form, setpriv has a large privilege-flag surface,
-// and setarch's leading architecture argument is ambiguous with
-// its command. Rather than risk masking the inner command, deny.
-// This is stricter than today's unmodelled fallback, which merely
-// asks. The RuleError is suppressed when the governing
-// rule is off, so the command then falls through to the
-// permissions layer.
+// Privilege/personality wrappers we cannot model safely. Each runs an inner
+// command but with forms that defeat simple flag/positional parsing: runuser
+// has a -c shell-string and an interactive form, setpriv has a large
+// privilege-flag surface, and setarch's leading architecture argument is
+// ambiguous with its command. Rather than risk masking the inner command, deny.
+// This is stricter than today's unmodelled fallback, which merely asks. The
+// RuleError is suppressed when the governing rule is off, so the command then
+// falls through to the permissions layer.
 
-// denyWrapper returns a BreakdownFunc that denies outright,
-// attributed to def so the user can disable it.
+// denyWrapper returns a BreakdownFunc that denies outright, attributed to def
+// so the user can disable it.
 func denyWrapper(
 	def *model.RuleDef, reason string,
 ) model.BreakdownFunc {

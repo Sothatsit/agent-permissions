@@ -9,11 +9,10 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-// breakdownCommand unwraps the command builtin by
-// extracting the inner command. Handles -v/-V (lookups),
-// -p (standard PATH), and -- separators. All flag checks
-// are strict - if an arg is opaque, we can't verify its
-// meaning and reject it.
+// breakdownCommand unwraps the command builtin by extracting the inner command.
+// Handles -v/-V (lookups), -p (standard PATH), and -- separators. All flag
+// checks are strict - if an arg is opaque, we can't verify its meaning and
+// reject it.
 func breakdownCommand(
 	input model.ParseResult,
 	_ *model.State,
@@ -38,6 +37,7 @@ func breakdownCommand(
 		if idx >= len(input.Raw) {
 			return model.Safe(), nil
 		}
+
 		w = input.Raw[idx]
 		if word.DefinitelyEqual(w, "--") {
 			idx++

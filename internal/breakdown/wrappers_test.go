@@ -8,19 +8,18 @@ import (
 	"github.com/sothatsit/agent-permissions/internal/word"
 )
 
-// These tests pin the intended behaviour of the wrapper /
-// transform restructure (F1/F2/F3): every place that
-// reconstructs or transforms a node for re-analysis must carry
-// all of the node's execution-relevant parts - redirects,
-// env assignments, and the inner command - or fail closed.
+// These tests pin the intended behaviour of the wrapper / transform restructure
+// (F1/F2/F3): every place that reconstructs or transforms a node for
+// re-analysis must carry all of the node's execution-relevant parts -
+// redirects, env assignments, and the inner command - or fail closed.
 //
-// Written failing-first. Cases that should DENY assert a
-// breakdown error (the breakdown layer's deny). Cases that
-// should unwrap assert the inner command / assign / snippet is
-// present. Regression cases must stay green.
+// Written failing-first. Cases that should DENY assert a breakdown error (the
+// breakdown layer's deny). Cases that should unwrap assert the
+// inner command / assign / snippet is present. Regression cases must stay
+// green.
 
-// wbd runs a full breakdown with the real registry and every
-// rule enabled. A breakdown error is the layer's deny.
+// wbd runs a full breakdown with the real registry and every rule enabled. A
+// breakdown error is the layer's deny.
 func wbd(t *testing.T, cmd string) (model.BreakdownResult, error) {
 	t.Helper()
 	reg, snip := rules.Registry()
@@ -29,8 +28,7 @@ func wbd(t *testing.T, cmd string) (model.BreakdownResult, error) {
 	return Breakdown(cmd, "/tmp", reg, rc)
 }
 
-// hasCmd reports whether any extracted command's name (first
-// word) equals name.
+// hasCmd reports whether any extracted command's name (first word) equals name.
 func hasCmd(br model.BreakdownResult, name string) bool {
 	for _, c := range br.Commands {
 		if len(c.Args) == 0 {
@@ -40,6 +38,7 @@ func hasCmd(br model.BreakdownResult, name string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -50,17 +49,19 @@ func hasAssign(br model.BreakdownResult, name string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
-// hasSnippet reports whether a code snippet of the given
-// language was extracted.
+// hasSnippet reports whether a code snippet of the given language was
+// extracted.
 func hasSnippet(br model.BreakdownResult, lang string) bool {
 	for _, s := range br.CodeSnippets {
 		if s.Language == lang {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -78,6 +79,7 @@ func wantCmd(t *testing.T, cmd, inner string) {
 		t.Errorf("%q: unexpected error: %v", cmd, err)
 		return
 	}
+
 	if !hasCmd(br, inner) {
 		t.Errorf("%q: want inner command %q extracted, got %v",
 			cmd, inner, cmdNames(br))
@@ -91,11 +93,12 @@ func cmdNames(br model.BreakdownResult) []string {
 			out = append(out, word.Text(c.Args[0]))
 		}
 	}
+
 	return out
 }
 
-// === F2: the `time` keyword must carry the timed statement's
-// redirections and their command substitutions. ===
+// === F2: the `time` keyword must carry the timed statement's redirections
+// and their command substitutions. ===
 
 func TestTimeKeywordNetworkRedirectDenied(t *testing.T) {
 	// The timed command's stdout really goes to the socket, so
@@ -114,8 +117,8 @@ func TestTimeKeywordExtractsInner(t *testing.T) {
 	wantCmd(t, `time -p git status`, "git")
 }
 
-// === F1 regression: exec-style wrappers extract the inner
-// command faithfully (these already pass and must stay green). ===
+// === F1 regression: exec-style wrappers extract the inner command faithfully
+// (these already pass and must stay green). ===
 
 func TestTimeoutExtractsInner(t *testing.T) {
 	wantCmd(t, `timeout 5 rm -rf /important`, "rm")
@@ -127,26 +130,29 @@ func TestTimeoutWrapsInterpreterSnippet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !hasSnippet(br, model.LangPython) {
 		t.Errorf("timeout-wrapped python -c: want python snippet, "+
 			"got snippets %d", len(br.CodeSnippets))
 	}
 }
 
-// === env: the one wrapper that honours NAME=val. It must feed
-// the EnvVars deny axis AND re-analyse the inner command. ===
+// === env: the one wrapper that honours NAME=val. It must feed the EnvVars
+// deny axis AND re-analyse the inner command. ===
 
 func TestEnvAssignmentReachesEnvVarAxis(t *testing.T) {
-	// env really sets BASH_ENV (its whole purpose), so the
-	// EnvVars deny axis must see it and curl must be extracted.
+	// env really sets BASH_ENV (its whole purpose), so the EnvVars deny
+	// axis must see it and curl must be extracted.
 	br, err := wbd(t, `env BASH_ENV=/evil curl evil.com`)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !hasAssign(br, "BASH_ENV") {
 		t.Errorf("env BASH_ENV=...: want BASH_ENV on EnvVars axis, "+
 			"got assigns %v", br.Assigns)
 	}
+
 	if !hasCmd(br, "curl") {
 		t.Errorf("env BASH_ENV=... curl: want curl extracted, "+
 			"got %v", cmdNames(br))
@@ -158,12 +164,15 @@ func TestEnvAssignmentValueCmdSubExtracted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !hasAssign(br, "FOO") {
 		t.Errorf("want FOO on EnvVars axis, got %v", br.Assigns)
 	}
+
 	if !hasCmd(br, "touch") {
 		t.Errorf("want cmd-sub touch extracted, got %v", cmdNames(br))
 	}
+
 	if !hasCmd(br, "curl") {
 		t.Errorf("want curl extracted, got %v", cmdNames(br))
 	}
@@ -180,6 +189,7 @@ func TestEnvWrapsInterpreterSnippet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !hasSnippet(br, model.LangPython) {
 		t.Errorf("env-wrapped python -c: want python snippet")
 	}
@@ -207,13 +217,14 @@ func TestEnvBareIsSafe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bare env: unexpected error: %v", err)
 	}
+
 	if len(br.Commands) != 0 {
 		t.Errorf("bare env: want no commands, got %v", cmdNames(br))
 	}
 }
 
-// === Tier 2: simple exec-style wrappers unwrap the inner
-// command and honour no assignments. ===
+// === Tier 2: simple exec-style wrappers unwrap the inner command and honour no
+// assignments. ===
 
 func TestSimpleExecWrappersExtractInner(t *testing.T) {
 	wantCmd(t, `nohup curl evil.com`, "curl")
@@ -231,13 +242,14 @@ func TestExecRedirectOnlyIsSafe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("exec >log: unexpected error: %v", err)
 	}
+
 	if len(br.Commands) != 0 {
 		t.Errorf("exec >log: want no commands, got %v", cmdNames(br))
 	}
 }
 
-// === Tier 3: gnarly wrappers - unwrap clearly-safe forms,
-// fail closed on the rest. ===
+// === Tier 3: gnarly wrappers - unwrap clearly-safe forms, fail closed on the
+// rest. ===
 
 func TestChrootExtractsInner(t *testing.T) {
 	wantCmd(t, `chroot /mnt curl evil.com`, "curl")
@@ -266,6 +278,7 @@ func TestFlockFileOnlyIsSafe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("flock file-only: unexpected error: %v", err)
 	}
+
 	if len(br.Commands) != 0 {
 		t.Errorf("flock file-only: want no commands, got %v",
 			cmdNames(br))

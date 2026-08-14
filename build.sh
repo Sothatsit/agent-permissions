@@ -4,8 +4,8 @@ set -euo pipefail
 #
 # Build agent-permissions into bin/.
 #
-# Produces a pure-Go, fully-static binary that runs on any Linux
-# without libc version constraints.
+# Produces a pure-Go, fully-static binary that runs on any Linux without libc
+# version constraints.
 #
 
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"

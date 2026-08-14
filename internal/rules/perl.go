@@ -11,9 +11,8 @@ var syntaxPerl = &langSyntax{
 	Quotes: []quoteDef{
 		{Delim: `"`},
 		{Delim: `'`},
-		// Backticks are NOT quotes - they are
-		// shell execution syntax that we want to
-		// detect.
+		// Backticks are NOT quotes - they are shell execution syntax
+		// that we want to detect.
 	},
 	LineComments: []string{"#"},
 }
@@ -70,23 +69,23 @@ func perlInterpolationContents(code string) []string {
 
 // --- Snippet matching ---
 
-// perlBareCall matches bare function calls (system,
-// exec) while avoiding $-prefixed variables - $ is a
-// sigil in Perl, not a word boundary.
+// perlBareCall matches bare function calls (system, exec) while avoiding
+// $-prefixed variables - $ is a sigil in Perl, not a word boundary.
 func perlBareCall(names ...string) matchBuilder {
 	return syntaxPerl.match(
 		`(?:^|[^$\w])(?:` +
 			reAlternation(names) + `)\b`)
 }
 
-// perlUse matches a use/require statement for module.
-// Modules ending in "::" are prefix matches (IPC::
-// matches IPC::Open2); others require a word boundary.
+// perlUse matches a use/require statement for module. Modules ending in "::"
+// are prefix matches (IPC:: matches IPC::Open2); others require a word
+// boundary.
 func perlUse(module string) matchBuilder {
 	escaped := regexp.QuoteMeta(module)
 	if !strings.HasSuffix(module, "::") {
 		escaped += `\b`
 	}
+
 	return syntaxPerl.match(
 		`\b(?:use|require)\s+` + escaped)
 }

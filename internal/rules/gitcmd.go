@@ -9,12 +9,10 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-// breakdownGit strips -C <path> from git's global
-// options so the command matches permission patterns
-// written for plain git <subcommand>. -C only changes
-// git's working directory - no security implication.
-// Scanning stops at the first non-flag arg (the
-// subcommand), so subcommand-level -C flags (e.g.
+// breakdownGit strips -C <path> from git's global options so the command
+// matches permission patterns written for plain git <subcommand>. -C only
+// changes git's working directory - no security implication. Scanning stops at
+// the first non-flag arg (the subcommand), so subcommand-level -C flags (e.g.
 // git branch -C) are not affected.
 func breakdownGit(
 	input model.ParseResult,
@@ -32,13 +30,14 @@ func breakdownGit(
 				return model.BreakdownOutcome{}, fmt.Errorf(
 					"git -C requires a path argument")
 			}
+
 			found = true
 			i++ // skip path
 			continue
 		}
 
-		// Non-flag word = subcommand. Stop scanning
-		// for global options and copy the rest as-is.
+		// Non-flag word = subcommand. Stop scanning for global options
+		// and copy the rest as-is.
 		if !word.DefinitelyHasPrefix(w, "-") {
 			stripped = append(stripped, args[i:]...)
 			break
@@ -61,8 +60,8 @@ func breakdownGit(
 	}), nil
 }
 
-// gitBranchParser classifies git branch flags. Unknown
-// flags cause a parse error (deny).
+// gitBranchParser classifies git branch flags. Unknown flags cause a parse
+// error (deny).
 var gitBranchParser = model.NewFullParser(
 	[]model.FlagDef{
 		{Name: "--edit-description"},

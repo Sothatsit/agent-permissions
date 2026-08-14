@@ -13,6 +13,7 @@ func TestLoadMissingReturnsNil(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
+
 	if c != nil {
 		t.Errorf("expected nil config for missing file")
 	}
@@ -32,6 +33,7 @@ func TestParseBasicTiers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if !reflect.DeepEqual(
 		c.Allow.Commands,
 		map[string]string{"a:*": "", "b:*": "why-b"},
@@ -39,6 +41,7 @@ func TestParseBasicTiers(t *testing.T) {
 		t.Errorf("Allow.Commands: got %v",
 			c.Allow.Commands)
 	}
+
 	if !reflect.DeepEqual(
 		c.Deny.Commands,
 		map[string]string{"bad:*": ""},
@@ -46,6 +49,7 @@ func TestParseBasicTiers(t *testing.T) {
 		t.Errorf("Deny.Commands: got %v",
 			c.Deny.Commands)
 	}
+
 	if !reflect.DeepEqual(
 		c.Deny.EnvVars,
 		map[string]string{"BASH_ENV": "shell startup"},
@@ -53,6 +57,7 @@ func TestParseBasicTiers(t *testing.T) {
 		t.Errorf("Deny.EnvVars: got %v",
 			c.Deny.EnvVars)
 	}
+
 	if c.HasPresetSelection() {
 		t.Errorf("expected no preset selection")
 	}
@@ -77,11 +82,13 @@ func TestParseEnabledPresets(t *testing.T) {
 	if c.EnabledPresets == nil {
 		t.Fatal("EnabledPresets is nil")
 	}
+
 	if !reflect.DeepEqual(
 		*c.EnabledPresets, []string{"git", "python"},
 	) {
 		t.Errorf("got %v", *c.EnabledPresets)
 	}
+
 	if !c.HasPresetSelection() {
 		t.Errorf("expected HasPresetSelection true")
 	}
@@ -97,6 +104,7 @@ func TestParseDisabledPresetsEmpty(t *testing.T) {
 	if c.DisabledPresets == nil {
 		t.Fatal("DisabledPresets is nil; expected []")
 	}
+
 	if !c.HasPresetSelection() {
 		t.Errorf(
 			"expected HasPresetSelection true even " +
@@ -233,16 +241,19 @@ func TestSaveLoadRoundtrip(t *testing.T) {
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("file not created: %v", err)
 	}
+
 	loaded, err := Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if !reflect.DeepEqual(
 		loaded.Allow.Commands, c.Allow.Commands,
 	) {
 		t.Errorf("Allow.Commands: got %v, want %v",
 			loaded.Allow.Commands, c.Allow.Commands)
 	}
+
 	if !reflect.DeepEqual(
 		*loaded.EnabledPresets, *c.EnabledPresets,
 	) {

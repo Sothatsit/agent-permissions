@@ -24,8 +24,7 @@ func TestStripLineCommentPreservesStrings(
 		Quotes:       []quoteDef{{Delim: `"`}},
 		LineComments: []string{"#"},
 	}
-	// # inside a string should not be treated as a
-	// comment.
+	// # inside a string should not be treated as a comment.
 	got := s.stripComments(`x = "has # in it"`)
 	want := `x = "has # in it"`
 	if got != want {
@@ -172,6 +171,7 @@ func TestSkipCacheComputedOnce(t *testing.T) {
 	if p1 != p2 {
 		t.Error("cache should return same value")
 	}
+
 	if !s.skipCacheSet {
 		t.Error("skipCacheSet should be true")
 	}
@@ -183,6 +183,7 @@ func TestSkipCacheEmptyQuotes(t *testing.T) {
 	if p != "" {
 		t.Errorf("expected empty, got %q", p)
 	}
+
 	// Second call should not recompute.
 	if !s.skipCacheSet {
 		t.Error("skipCacheSet should be true")
@@ -197,6 +198,7 @@ func TestMatchBuilderDeny(t *testing.T) {
 	if !rule.Check("system()") {
 		t.Error("rule should match")
 	}
+
 	if rule.Action.Reason != "bad" {
 		t.Errorf("reason = %q", rule.Action.Reason)
 	}
