@@ -84,9 +84,13 @@ func (snapshot *PolicySnapshot) Resolve(
 ) (*Resolved, error) {
 	globalAgent, projectAgent, localAgent :=
 		snapshot.resolutionConfigs()
-	selected := selectPresets(
-		snapshot.presets.available,
-		globalAgent, projectAgent, localAgent)
+	var selected []*presets.Preset
+	for _, policyPreset := range snapshot.presetSelection.Presets {
+		if policyPreset.Active() {
+			selected = append(selected, policyPreset.Preset)
+		}
+	}
+
 	ruleConfig := resolveRuleConfig(
 		globalAgent, projectAgent, localAgent, selected)
 	registry, snippetRules := rules.Registry()
@@ -477,50 +481,6 @@ func globLanguagesOverlap(a, b string) bool {
 	return false
 }
 
-// selectPresets returns the presets from all (kept in the given order) selected
-// by the most-specific agent config that specifies preset selection - local,
-// else project, else global - otherwise every preset. `enabled-presets` narrows
-// ordinary external and embedded presets to a whitelist; `disabled-presets`
-// then filters that result. Enforced presets are always retained.
-func selectPresets(
-	all []*presets.Preset,
-	global, project, local *agentconfig.Config,
-) []*presets.Preset {
-	// Checked least- to most-specific so the most-specific config that has
-	// an opinion is the one left in cfg.
-	cfg := global
-	if project.HasPresetSelection() {
-		cfg = project
-	}
-	if local.HasPresetSelection() {
-		cfg = local
-	}
-
-	if cfg == nil || !cfg.HasPresetSelection() {
-		return all
-	}
-
-	var enforced, selectable []*presets.Preset
-	for _, p := range all {
-		if p.Enforced {
-			enforced = append(enforced, p)
-		} else {
-			selectable = append(selectable, p)
-		}
-	}
-
-	out := selectable
-	if cfg.EnabledPresets != nil {
-		out = filterByName(out, *cfg.EnabledPresets, true)
-	}
-	if cfg.DisabledPresets != nil {
-		out = filterByName(
-			out, *cfg.DisabledPresets, false)
-	}
-
-	return append(enforced, out...)
-}
-
 // resolveRuleConfig resolves per-rule config across the rule-config sources.
 // Rules ship default-OFF in code, so a rule absent from every source stays
 // disabled. Ordinary presets form the base, then global/project/local .agents
@@ -569,26 +529,6 @@ func resolveRuleConfig(
 			if cfg.Enabled {
 				out[id] = cfg
 			}
-		}
-	}
-
-	return out
-}
-
-func filterByName(
-	in []*presets.Preset,
-	names []string,
-	include bool,
-) []*presets.Preset {
-	set := map[string]bool{}
-	for _, n := range names {
-		set[n] = true
-	}
-
-	var out []*presets.Preset
-	for _, p := range in {
-		if set[p.Name] == include {
-			out = append(out, p)
 		}
 	}
 

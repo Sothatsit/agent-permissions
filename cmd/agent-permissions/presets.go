@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sothatsit/agent-permissions/internal/agentconfig"
 	"github.com/sothatsit/agent-permissions/internal/perms"
 	"github.com/sothatsit/agent-permissions/presets"
 )
@@ -34,13 +33,6 @@ func runPresetsCommand(args []string) error {
 	}
 }
 
-// presetState classifies whether each preset is enabled or disabled, plus the
-// reason (a short note shown inline next to the preset name).
-type presetState struct {
-	enabled bool
-	reason  string
-}
-
 // listPresets shows every available preset and its state, considering global,
 // project, and local permissions.json files with the same priority as the hook.
 func listPresets(args []string) error {
@@ -61,21 +53,19 @@ func listPresets(args []string) error {
 	global := snapshot.AgentConfig(perms.AgentConfigGlobal)
 	project := snapshot.AgentConfig(perms.AgentConfigProject)
 	local := snapshot.AgentConfig(perms.AgentConfigLocal)
-
-	selecting := pickPresetSelector(
-		global.Config, project.Config, local.Config)
+	selection := snapshot.PresetSelection()
 
 	// Show which file owns preset selection so this view matches the hook.
 	fmt.Println("Configs:")
 	fmt.Printf(
 		"  ~ %s\n",
-		describeConfig(global.Path, global.Config))
+		describeConfig(global))
 	fmt.Printf(
 		"  cwd: %s\n",
-		describeConfig(project.Path, project.Config))
+		describeConfig(project))
 	fmt.Printf(
 		"  cwd-local: %s\n",
-		describeConfig(local.Path, local.Config))
+		describeConfig(local))
 	if dirs := os.Getenv(
 		presets.PresetDirsEnv); dirs != "" {
 		fmt.Printf(
@@ -87,48 +77,27 @@ func listPresets(args []string) error {
 			presets.EnforcedPresetDirsEnv, dirs)
 	}
 
-	if selecting == nil {
+	if selection.SelectorPath == "" {
 		fmt.Println(
 			"  Preset selection: (none — all " +
 				"presets enabled by default)")
 	} else {
 		fmt.Printf(
 			"  Preset selection: %s\n",
-			selecting.Path)
+			selection.SelectorPath)
 	}
 
 	fmt.Println()
 
-	// Classify every available preset. Enforced presets are always active;
-	// ordinary external and embedded presets follow the user's selection.
-	all := snapshot.Presets()
-	rows := make([]classifiedPreset, 0, len(all))
-	for _, p := range all {
-		rows = append(rows, classifiedPreset{
-			name:        p.Name,
-			dir:         p.Dir,
-			enforced:    p.Enforced,
-			description: p.Description,
-			state:       classifyPreset(p, selecting),
-		})
-	}
-
+	rows := selection.Presets
 	sort.Slice(rows, func(i, j int) bool {
-		return rows[i].name < rows[j].name
+		return rows[i].Preset.Name < rows[j].Preset.Name
 	})
 
 	printPresetGroup(enforcedPresetGroup, rows)
 	printPresetGroup(enabledPresetGroup, rows)
 	printPresetGroup(disabledPresetGroup, rows)
 	return nil
-}
-
-type classifiedPreset struct {
-	name        string
-	dir         string
-	enforced    bool
-	description string
-	state       presetState
 }
 
 type presetGroup int
@@ -140,11 +109,11 @@ const (
 )
 
 func printPresetGroup(
-	group presetGroup, rows []classifiedPreset,
+	group presetGroup, rows []perms.PolicyPreset,
 ) {
 	var hasRows bool
 	for _, r := range rows {
-		if r.group() == group {
+		if presetGroupFor(r) == group {
 			hasRows = true
 			break
 		}
@@ -156,36 +125,53 @@ func printPresetGroup(
 
 	fmt.Printf("%s:\n", group)
 	for _, r := range rows {
-		if r.group() != group {
+		if presetGroupFor(r) != group {
 			continue
 		}
 
 		reason := ""
-		if r.state.reason != "" {
-			reason = "  (" + r.state.reason + ")"
+		if stateReason := presetStateReason(r.State); stateReason != "" {
+			reason = "  (" + stateReason + ")"
 		}
 
 		fmt.Printf(
-			"  %-22s%s\n", r.name, reason)
-		fmt.Printf("    %s\n", r.description)
-		if r.dir != "" {
-			fmt.Printf("    from: %s\n", r.dir)
+			"  %-22s%s\n", r.Preset.Name, reason)
+		fmt.Printf("    %s\n", r.Preset.Description)
+		if r.Preset.Dir != "" {
+			fmt.Printf("    from: %s\n", r.Preset.Dir)
 		}
 	}
 
 	fmt.Println()
 }
 
-func (p classifiedPreset) group() presetGroup {
-	if p.enforced {
+func presetGroupFor(p perms.PolicyPreset) presetGroup {
+	if p.State == perms.PresetEnforced {
 		return enforcedPresetGroup
 	}
 
-	if p.state.enabled {
+	if p.Active() {
 		return enabledPresetGroup
 	}
 
 	return disabledPresetGroup
+}
+
+func presetStateReason(state perms.PresetState) string {
+	switch state {
+	case perms.PresetEnforced:
+		return "always active"
+	case perms.PresetEnabledByDefault:
+		return ""
+	case perms.PresetEnabledByName:
+		return "in enabled-presets"
+	case perms.PresetDisabledByName:
+		return "in disabled-presets"
+	case perms.PresetDisabledByOmission:
+		return "not in enabled-presets"
+	default:
+		panic(fmt.Sprintf("unknown preset state %d", state))
+	}
 }
 
 func (g presetGroup) String() string {
@@ -201,77 +187,9 @@ func (g presetGroup) String() string {
 	}
 }
 
-func classifyPreset(
-	p *presets.Preset, sel *agentconfig.Config,
-) presetState {
-	if p.Enforced {
-		return presetState{
-			enabled: true,
-			reason:  "always active",
-		}
-	}
-
-	return classify(p.Name, sel)
-}
-
-// pickPresetSelector returns the most-specific config that specifies preset
-// selection. It checks local, then project, then global. It returns nil when
-// none has an opinion. This mirrors the resolver's selection so the preset list
-// reports the same effective state the hook applies.
-func pickPresetSelector(
-	global, project, local *agentconfig.Config,
-) *agentconfig.Config {
-	if local.HasPresetSelection() {
-		return local
-	}
-	if project.HasPresetSelection() {
-		return project
-	}
-	if global.HasPresetSelection() {
-		return global
-	}
-
-	return nil
-}
-
-func classify(
-	name string, sel *agentconfig.Config,
-) presetState {
-	if sel == nil {
-		return presetState{enabled: true}
-	}
-	if sel.DisabledPresets != nil {
-		for _, n := range *sel.DisabledPresets {
-			if n == name {
-				return presetState{
-					enabled: false,
-					reason:  "in disabled-presets",
-				}
-			}
-		}
-	}
-	if sel.EnabledPresets != nil {
-		for _, n := range *sel.EnabledPresets {
-			if n == name {
-				return presetState{
-					enabled: true,
-					reason:  "in enabled-presets",
-				}
-			}
-		}
-
-		return presetState{
-			enabled: false,
-			reason:  "not in enabled-presets",
-		}
-	}
-
-	return presetState{enabled: true}
-}
-
-func describeConfig(
-	path string, c *agentconfig.Config,
-) string {
+func describeConfig(source perms.AgentConfigSource) string {
+	path := source.Path
+	c := source.Config
 	if c == nil {
 		return path + " (not present)"
 	}

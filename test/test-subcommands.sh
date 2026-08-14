@@ -162,6 +162,20 @@ assert_contains "presets list shows Disabled heading" \
 assert_contains "presets list shows git as disabled" \
     "$out" "in disabled-presets"
 
+# An enabled-presets list is a whitelist. The list should show both why a
+# named preset remains enabled and why every omitted preset is disabled.
+h=$(_fresh_home)
+mkdir -p "$h/.agents"
+echo '{"enabled-presets":["git"]}' \
+    > "$h/.agents/permissions.json"
+out=$(_sc_run "$h" presets list)
+assert_contains "presets list names selecting config" \
+    "$out" "Preset selection: $h/.agents/permissions.json"
+assert_contains "presets list explains named enable" \
+    "$out" "in enabled-presets"
+assert_contains "presets list explains whitelist omission" \
+    "$out" "not in enabled-presets"
+
 # Enforced presets have their own group and cannot be moved into Disabled
 # through user selection.
 enforced_dir="$_sc_tmpdir/enforced-presets"

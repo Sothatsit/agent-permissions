@@ -1,6 +1,7 @@
 package perms
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,6 +54,222 @@ func TestResolveReturnsEvaluationReadyPermissions(t *testing.T) {
 		result.Reason, "(from rule:tar.command-execution)",
 	) {
 		t.Fatalf("denial does not name tar rule: %q", result.Reason)
+	}
+}
+
+func TestPolicySnapshotPresetSelectionStates(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	project := filepath.Join(root, "project")
+	externalDir := filepath.Join(root, "external")
+	enforcedDir := filepath.Join(root, "enforced")
+	agentPath := filepath.Join(
+		project, ".agents", "permissions.json")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatalf("create home: %v", err)
+	}
+
+	writeSnapshotTestFile(t, filepath.Join(
+		enforcedDir, "shared.json"), presetWithCommand(
+		"state-enforced:*"))
+	writeSnapshotTestFile(t, filepath.Join(
+		externalDir, "disabled.json"), presetWithCommand(
+		"state-disabled:*"))
+	writeSnapshotTestFile(t, filepath.Join(
+		externalDir, "named.json"), presetWithCommand(
+		"state-named:*"))
+	writeSnapshotTestFile(t, filepath.Join(
+		externalDir, "omitted.json"), presetWithCommand(
+		"state-omitted:*"))
+	writeSnapshotTestFile(t, filepath.Join(
+		externalDir, "promoted.json"), presetWithCommand(
+		"state-promoted:*"))
+	writeSnapshotTestFile(t, filepath.Join(
+		externalDir, "shared.json"), presetWithCommand(
+		"state-shared:*"))
+	writeSnapshotTestFile(t, agentPath, `{
+  "enabled-presets": ["disabled", "named", "shared"],
+  "disabled-presets": ["disabled", "shared"]
+}`)
+
+	t.Setenv("HOME", home)
+	t.Setenv(presets.PresetDirsEnv, externalDir)
+	t.Setenv(presets.EnforcedPresetDirsEnv, enforcedDir)
+	t.Setenv(presets.EnforcedPresetsEnv, "promoted")
+
+	snapshot, err := LoadPolicySnapshot(project)
+	if err != nil {
+		t.Fatalf("load snapshot: %v", err)
+	}
+
+	selection := snapshot.PresetSelection()
+	if selection.SelectorPath != agentPath {
+		t.Fatalf(
+			"selector path = %q, want %q",
+			selection.SelectorPath, agentPath)
+	}
+
+	want := []struct {
+		name   string
+		dir    string
+		state  PresetState
+		active bool
+	}{
+		{"shared", enforcedDir, PresetEnforced, true},
+		{"promoted", externalDir, PresetEnforced, true},
+		{"disabled", externalDir, PresetDisabledByName, false},
+		{"named", externalDir, PresetEnabledByName, true},
+		{"omitted", externalDir, PresetDisabledByOmission, false},
+		{"shared", externalDir, PresetDisabledByName, false},
+	}
+	for i, expected := range want {
+		got := selection.Presets[i]
+		if got.Preset.Name != expected.name ||
+			got.Preset.Dir != expected.dir ||
+			got.State != expected.state ||
+			got.Active() != expected.active {
+			t.Errorf(
+				"preset %d = {%q %q %d %t}, want {%q %q %d %t}",
+				i, got.Preset.Name, got.Preset.Dir,
+				got.State, got.Active(), expected.name,
+				expected.dir, expected.state, expected.active)
+		}
+	}
+
+	resolved, err := snapshot.Resolve("")
+	if err != nil {
+		t.Fatalf("resolve snapshot: %v", err)
+	}
+
+	assertSnapshotDecision(t, resolved, "state-enforced", model.Allow)
+	assertSnapshotDecision(t, resolved, "state-promoted", model.Allow)
+	assertSnapshotDecision(t, resolved, "state-named", model.Allow)
+	assertSnapshotDoesNotAllow(t, resolved, "state-disabled")
+	assertSnapshotDoesNotAllow(t, resolved, "state-omitted")
+	assertSnapshotDoesNotAllow(t, resolved, "state-shared")
+}
+
+func TestPolicySnapshotPresetSelectorPrecedence(t *testing.T) {
+	tests := []struct {
+		name        string
+		global      string
+		project     string
+		local       string
+		selector    AgentConfigScope
+		hasSelector bool
+		preset      string
+		state       PresetState
+		omitted     string
+	}{
+		{
+			name:   "all by default",
+			preset: "git",
+			state:  PresetEnabledByDefault,
+		},
+		{
+			name:        "empty disabled list owns selection",
+			global:      `{"disabled-presets": []}`,
+			selector:    AgentConfigGlobal,
+			hasSelector: true,
+			preset:      "git",
+			state:       PresetEnabledByDefault,
+		},
+		{
+			name:        "empty enabled list disables by omission",
+			global:      `{"enabled-presets": []}`,
+			selector:    AgentConfigGlobal,
+			hasSelector: true,
+			preset:      "git",
+			state:       PresetDisabledByOmission,
+		},
+		{
+			name:        "silent local defers to project",
+			global:      `{"enabled-presets": ["git"]}`,
+			project:     `{"enabled-presets": ["languages"]}`,
+			local:       `{}`,
+			selector:    AgentConfigProject,
+			hasSelector: true,
+			preset:      "languages",
+			state:       PresetEnabledByName,
+			omitted:     "git",
+		},
+		{
+			name:        "local overrides project and global",
+			global:      `{"enabled-presets": ["git"]}`,
+			project:     `{"enabled-presets": ["languages"]}`,
+			local:       `{"enabled-presets": ["containers"]}`,
+			selector:    AgentConfigLocal,
+			hasSelector: true,
+			preset:      "containers",
+			state:       PresetEnabledByName,
+			omitted:     "languages",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			home := filepath.Join(root, "home")
+			project := filepath.Join(root, "project")
+			if err := os.MkdirAll(home, 0o755); err != nil {
+				t.Fatalf("create home: %v", err)
+			}
+
+			paths := map[AgentConfigScope]string{
+				AgentConfigGlobal: filepath.Join(
+					home, ".agents", "permissions.json"),
+				AgentConfigProject: filepath.Join(
+					project, ".agents", "permissions.json"),
+				AgentConfigLocal: filepath.Join(
+					project, ".agents", "permissions.local.json"),
+			}
+			for scope, body := range map[AgentConfigScope]string{
+				AgentConfigGlobal:  test.global,
+				AgentConfigProject: test.project,
+				AgentConfigLocal:   test.local,
+			} {
+				if body != "" {
+					writeSnapshotTestFile(t, paths[scope], body)
+				}
+			}
+
+			t.Setenv("HOME", home)
+			t.Setenv(presets.PresetDirsEnv, "")
+			t.Setenv(presets.EnforcedPresetDirsEnv, "")
+			t.Setenv(presets.EnforcedPresetsEnv, "")
+
+			snapshot, err := LoadPolicySnapshot(project)
+			if err != nil {
+				t.Fatalf("load snapshot: %v", err)
+			}
+
+			selection := snapshot.PresetSelection()
+			wantPath := ""
+			if test.hasSelector {
+				wantPath = paths[test.selector]
+			}
+
+			if selection.SelectorPath != wantPath {
+				t.Errorf(
+					"selector path = %q, want %q",
+					selection.SelectorPath, wantPath)
+			}
+			if got := policyPresetState(
+				t, selection, test.preset,
+			); got != test.state {
+				t.Errorf(
+					"%s state = %d, want %d",
+					test.preset, got, test.state)
+			}
+
+			if test.omitted != "" {
+				got := policyPresetState(t, selection, test.omitted)
+				if got != PresetDisabledByOmission {
+					t.Errorf("%s state = %d, want disabled by omission",
+						test.omitted, got)
+				}
+			}
+		})
 	}
 }
 
@@ -151,6 +368,15 @@ func TestPolicySnapshotViewsCannotMutateCapturedPolicy(t *testing.T) {
 		}
 	}
 
+	selection := snapshot.PresetSelection()
+	for i, policyPreset := range selection.Presets {
+		if policyPreset.Preset.Name == "snapshot" {
+			delete(policyPreset.Preset.Allow.Commands,
+				"snapshot-preset:*")
+			selection.Presets[i].State = PresetDisabledByName
+		}
+	}
+
 	projectConfig := snapshot.AgentConfig(AgentConfigProject)
 	delete(projectConfig.Config.Allow.Commands, "snapshot-agent:*")
 
@@ -198,6 +424,27 @@ func writeSnapshotTestFile(
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
+}
+
+func presetWithCommand(pattern string) string {
+	return fmt.Sprintf(
+		`{"Allow":{"Commands":{%q:"test"}}}`, pattern)
+}
+
+func policyPresetState(
+	t *testing.T,
+	selection PresetSelection,
+	name string,
+) PresetState {
+	t.Helper()
+	for _, policyPreset := range selection.Presets {
+		if policyPreset.Preset.Name == name {
+			return policyPreset.State
+		}
+	}
+
+	t.Fatalf("preset %q not found", name)
+	return PresetEnabledByDefault
 }
 
 func assertSnapshotDecision(

@@ -207,9 +207,9 @@ func collectUnknownRules(
 
 // collectUnknownPresets returns preset names referenced by
 // enabled-presets / disabled-presets in the user .agents configs that don't
-// match any active preset (embedded or external). A typo there silently no-ops
-// (filterByName just never matches it) - the same failure mode
-// collectUnknownRules guards for rule IDs.
+// match any available preset (embedded or external). A typo there silently
+// has no effect - the same failure mode collectUnknownRules guards for rule
+// IDs.
 func collectUnknownPresets(
 	configs []perms.AgentConfigSource,
 	all []*presets.Preset,

@@ -46,6 +46,47 @@ func clonePresets(all []*presets.Preset) []*presets.Preset {
 	return out
 }
 
+// PresetState identifies why one available preset is active or inactive.
+type PresetState int
+
+const (
+	PresetEnabledByDefault PresetState = iota
+	PresetEnabledByName
+	PresetDisabledByName
+	PresetDisabledByOmission
+	PresetEnforced
+)
+
+// PolicyPreset is one available preset and its effective selection state.
+type PolicyPreset struct {
+	Preset *presets.Preset
+	State  PresetState
+}
+
+// Active reports whether this preset contributes to resolved policy.
+func (p PolicyPreset) Active() bool {
+	switch p.State {
+	case PresetEnabledByDefault,
+		PresetEnabledByName,
+		PresetEnforced:
+		return true
+	case PresetDisabledByName,
+		PresetDisabledByOmission:
+		return false
+	default:
+		panic(fmt.Sprintf("unknown preset state %d", p.State))
+	}
+}
+
+// PresetSelection is the effective state of every available preset. With an
+// explicit selector, enforced presets precede ordinary presets while each
+// group keeps catalog order. SelectorPath is empty when no config specifies
+// preset selection.
+type PresetSelection struct {
+	SelectorPath string
+	Presets      []PolicyPreset
+}
+
 // AgentConfigScope identifies one .agents config slot.
 type AgentConfigScope int
 
@@ -67,9 +108,10 @@ type AgentConfigSource struct {
 // validated presets and each .agents config. Harness-native settings are read
 // only by Resolve, so unrelated settings cannot break preset-only commands.
 type PolicySnapshot struct {
-	cwd     string
-	presets *PresetCatalog
-	configs [3]AgentConfigSource
+	cwd             string
+	presets         *PresetCatalog
+	configs         [3]AgentConfigSource
+	presetSelection PresetSelection
 }
 
 // LoadPolicySnapshot reads the presets and .agents configs once. Missing config
@@ -144,21 +186,40 @@ func LoadPolicySnapshot(cwd string) (*PolicySnapshot, error) {
 		return nil, err
 	}
 
+	configs := [3]AgentConfigSource{
+		AgentConfigGlobal:  global,
+		AgentConfigProject: project,
+		AgentConfigLocal:   local,
+	}
 	return &PolicySnapshot{
-		cwd:     cwd,
-		presets: catalog,
-		configs: [3]AgentConfigSource{
-			AgentConfigGlobal:  global,
-			AgentConfigProject: project,
-			AgentConfigLocal:   local,
-		},
+		cwd:             cwd,
+		presets:         catalog,
+		configs:         configs,
+		presetSelection: makePresetSelection(catalog.available, configs),
 	}, nil
 }
 
 // Presets returns every preset captured by the snapshot, including disabled
-// presets needed by listing and validation.
+// presets needed by validation.
 func (s *PolicySnapshot) Presets() []*presets.Preset {
 	return s.presets.Presets()
+}
+
+// PresetSelection returns an independent copy of the captured preset states.
+func (s *PolicySnapshot) PresetSelection() PresetSelection {
+	selection := PresetSelection{
+		SelectorPath: s.presetSelection.SelectorPath,
+		Presets: make(
+			[]PolicyPreset, len(s.presetSelection.Presets)),
+	}
+	for i, policyPreset := range s.presetSelection.Presets {
+		selection.Presets[i] = PolicyPreset{
+			Preset: policyPreset.Preset.Clone(),
+			State:  policyPreset.State,
+		}
+	}
+
+	return selection
 }
 
 // AgentConfig returns an independent copy of one logical config slot. Project
@@ -198,6 +259,83 @@ func (s *PolicySnapshot) AgentConfigs() []AgentConfigSource {
 func cloneAgentConfigSource(source AgentConfigSource) AgentConfigSource {
 	source.Config = source.Config.Clone()
 	return source
+}
+
+func makePresetSelection(
+	all []*presets.Preset,
+	configs [3]AgentConfigSource,
+) PresetSelection {
+	var selector AgentConfigSource
+	for _, scope := range []AgentConfigScope{
+		AgentConfigLocal,
+		AgentConfigProject,
+		AgentConfigGlobal,
+	} {
+		if configs[scope].Config.HasPresetSelection() {
+			selector = configs[scope]
+			break
+		}
+	}
+
+	var enabled, disabled map[string]bool
+	if selector.Config != nil {
+		if selector.Config.EnabledPresets != nil {
+			enabled = map[string]bool{}
+			for _, name := range *selector.Config.EnabledPresets {
+				enabled[name] = true
+			}
+		}
+
+		if selector.Config.DisabledPresets != nil {
+			disabled = map[string]bool{}
+			for _, name := range *selector.Config.DisabledPresets {
+				disabled[name] = true
+			}
+		}
+	}
+
+	selection := PresetSelection{
+		SelectorPath: selector.Path,
+		Presets:      make([]PolicyPreset, len(all)),
+	}
+	ordered := all
+	if selector.Config != nil {
+		ordered = make([]*presets.Preset, 0, len(all))
+		for _, preset := range all {
+			if preset.Enforced {
+				ordered = append(ordered, preset)
+			}
+		}
+
+		for _, preset := range all {
+			if !preset.Enforced {
+				ordered = append(ordered, preset)
+			}
+		}
+	}
+
+	for i, preset := range ordered {
+		state := PresetEnabledByDefault
+		switch {
+		case preset.Enforced:
+			state = PresetEnforced
+		case disabled[preset.Name]:
+			state = PresetDisabledByName
+		case enabled == nil:
+			state = PresetEnabledByDefault
+		case enabled[preset.Name]:
+			state = PresetEnabledByName
+		default:
+			state = PresetDisabledByOmission
+		}
+
+		selection.Presets[i] = PolicyPreset{
+			Preset: preset,
+			State:  state,
+		}
+	}
+
+	return selection
 }
 
 func (s *PolicySnapshot) resolutionConfigs() (
