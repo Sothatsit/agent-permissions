@@ -378,26 +378,22 @@ assert_contains "allow: assignment before command" "$(_decision "$out")" "allow"
 out=$(_run_hook "A=1 B=2 echo hello")
 assert_contains "allow: multiple assignments" "$(_decision "$out")" "allow"
 
-# Assignment-only - no command to run, falls through to Claude Code.
+# Assignment-only input has no executable command after its variable names and
+# substitutions have been checked.
 out=$(_run_hook "VAR=val")
-decision=$(_decision "$out")
-assert_contains "assignment only falls through" "${decision:-empty}" "empty"
+assert_contains "allow: assignment only" "$(_decision "$out")" "allow"
 
 out=$(_run_hook "export VAR=val")
-decision=$(_decision "$out")
-assert_contains "export falls through" "${decision:-empty}" "empty"
+assert_contains "allow: export assignment" "$(_decision "$out")" "allow"
 
 out=$(_run_hook "local VAR=val")
-decision=$(_decision "$out")
-assert_contains "local falls through" "${decision:-empty}" "empty"
+assert_contains "allow: local assignment" "$(_decision "$out")" "allow"
 
 out=$(_run_hook "declare -x VAR=val")
-decision=$(_decision "$out")
-assert_contains "declare falls through" "${decision:-empty}" "empty"
+assert_contains "allow: declare assignment" "$(_decision "$out")" "allow"
 
 out=$(_run_hook "readonly VAR=val")
-decision=$(_decision "$out")
-assert_contains "readonly falls through" "${decision:-empty}" "empty"
+assert_contains "allow: readonly assignment" "$(_decision "$out")" "allow"
 
 
 # =========================================================================
@@ -6646,6 +6642,9 @@ assert_contains "fmt: multi-script guidance" \
 # python3 is not in permissions.sh - the hook owns all decisions via breakdown +
 # code snippet scanning. Only specific safe invocations have allow entries.
 
+# A file named "-" must not hide the interpreters' stdin source mode.
+: > "$_bp_scripts/-"
+
 # --version and --help are explicitly allowed.
 out=$(_run_hook "python3 --version")
 assert_contains "python: --version allow" \
@@ -6665,13 +6664,31 @@ out=$(_run_hook "python3")
 assert_contains "python: bare python3 ask" \
     "$(_decision "$out")" "ask"
 
-# -m with unknown module - ask with smart suggestion.
+out=$(_run_hook "python3 -i")
+assert_contains "python: interactive source deny" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    'python3 -W ignore::example.Warning -c "print(42)"')
+assert_contains "python: warning category import deny" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'python3 -X presite=example -c "print(42)"')
+assert_contains "python: implementation hook deny" \
+    "$(_decision "$out")" "deny"
+
+# -m executes a module outside the source adapter, so it fails closed.
 out=$(_run_hook "python3 -m unknown-module")
-assert_contains "python: -m unknown ask" \
-    "$(_decision "$out")" "ask"
-assert_contains "python: -m unknown suggestion" \
-    "$(_reason "$out")" \
-    "Bash(python3 -m unknown-module:*)"
+assert_contains "python: -m unknown deny" \
+    "$(_decision "$out")" "deny"
+assert_contains "python: -m unknown attributes rule" \
+    "$(_reason "$out")" "(from rule:python.unverified)"
+
+out=$(_run_hook "printf 'import subprocess\n' | python3 -")
+assert_contains "python: stdin program source deny" \
+    "$(_decision "$out")" "deny"
+assert_contains "python: stdin source attributes rule" \
+    "$(_reason "$out")" "(from rule:python.unverified)"
 
 # --- Python: code snippet scanning (files) ---
 #
@@ -6778,8 +6795,35 @@ out=$(_run_hook 'python3 -c "print(42)"')
 assert_contains "python: clean -c allow" \
     "$(_decision "$out")" "allow"
 
-# Shell substitutions run before the interpreter sees its program or arguments
-# and must survive snippet extraction.
+# The adapter scans program text already present in the source word. Variables,
+# substitutions, and ANSI-C quoted text need outer-shell evaluation and fail
+# closed. Expansion-like text inside a literal program remains valid source.
+out=$(_run_hook \
+    "python3 -c \"\$(printf 'import subprocess')\"")
+assert_contains "python: generated -c source denied" \
+    "$(_decision "$out")" "deny"
+assert_contains "python: generated -c source attributes rule" \
+    "$(_reason "$out")" "(from rule:python.unverified)"
+
+out=$(_run_hook 'python3 -c "$PYTHON_CODE"')
+assert_contains "python: variable -c source denied" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'python3 -c "$((1 + 1))"')
+assert_contains "python: arithmetic -c source denied" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'python3 -c <(printf "print(42)")')
+assert_contains "python: process substitution -c source denied" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    "python3 -c 'print(\"\$(printf ok)\")'")
+assert_contains "python: literal expansion text allowed" \
+    "$(_decision "$out")" "allow"
+
+# Shell substitutions in interpreter arguments still reach recursive command
+# extraction.
 out=$(_run_hook 'python3 -c "print($(ssh host))"')
 assert_contains "python: command substitution in code denied" \
     "$(_decision "$out")" "deny"
@@ -7073,8 +7117,8 @@ assert_contains "python: -c trailing args allow" \
     "$(_decision "$out")" "allow"
 
 out=$(_run_hook "python3 -m pytest --tb=short -v")
-assert_contains "python: -m trailing args ask" \
-    "$(_decision "$out")" "ask"
+assert_contains "python: -m trailing args deny" \
+    "$(_decision "$out")" "deny"
 
 # Combined flags: -Bc makes -c terminal, trailing args are positionals.
 out=$(_run_hook 'python3 -Bc "print(42)" --flag')
@@ -7099,18 +7143,18 @@ out=$(_run_hook "python python2-test.py")
 assert_contains "python: python (not python3) scans" \
     "$(_decision "$out")" "ask"
 
-# --- Python: -m falls through to permissions ---
+# --- Python: module execution is unverified ---
 #
-# -m invocations are not scanned; they fall through to the permissions layer.
-# pip install is in the SoftAsk tier.
+# -m selects executable code outside the source adapter. Reject it until the
+# adapter can resolve and scan modules.
 
 out=$(_run_hook "python3 -m pip install requests")
-assert_contains "python: -m pip install ask" \
-    "$(_decision "$out")" "ask"
+assert_contains "python: -m pip install deny" \
+    "$(_decision "$out")" "deny"
 
 out=$(_run_hook "python -m pip install requests")
-assert_contains "python: python -m pip install ask" \
-    "$(_decision "$out")" "ask"
+assert_contains "python: python -m pip install deny" \
+    "$(_decision "$out")" "deny"
 
 
 # =========================================================================
@@ -7139,11 +7183,39 @@ out=$(_run_hook "perl")
 assert_contains "perl: bare perl ask" \
     "$(_decision "$out")" "ask"
 
+out=$(_run_hook "printf 'system(\"id\");\n' | perl -")
+assert_contains "perl: stdin program source deny" \
+    "$(_decision "$out")" "deny"
+assert_contains "perl: stdin source attributes rule" \
+    "$(_reason "$out")" "(from rule:perl.unverified)"
+
 # --- Perl: inline -e scanning ---
 
 out=$(_run_hook 'perl -e "print 42"')
 assert_contains "perl: clean -e allow" \
     "$(_decision "$out")" "allow"
+
+# Perl joins repeated -e programs, so scanning only one would lose executable
+# input. The shared adapter accepts one inline program.
+out=$(_run_hook \
+    'perl -e "system(\"ls\");" -e "print 42"')
+assert_contains "perl: repeated -e deny" \
+    "$(_decision "$out")" "deny"
+assert_contains "perl: repeated -e attributes rule" \
+    "$(_reason "$out")" "(from rule:perl.unverified)"
+
+out=$(_run_hook 'perl -Mstrict -e "print 42"')
+assert_contains "perl: module preload deny" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'perl -d -e "print 42"')
+assert_contains "perl: debugger preload deny" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    "perl '-F(?{system q(id)})' -lane 'print 42'")
+assert_contains "perl: executable field separator deny" \
+    "$(_decision "$out")" "deny"
 
 out=$(_run_hook 'perl -e "system(\"ls\")"')
 assert_contains "perl: system -e deny" \
@@ -7255,6 +7327,14 @@ out=$(_run_hook 'perl -we "system(\"ls\")"')
 assert_contains "perl: -we combined deny" \
     "$(_decision "$out")" "deny"
 
+out=$(_run_hook 'perl -0e "system(\"ls\")"')
+assert_contains "perl: optional -0 value keeps code visible" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "perl -C perl-flagtest.pl")
+assert_contains "perl: optional -C value keeps file visible" \
+    "$(_decision "$out")" "ask"
+
 # After -e "code", Perl continues parsing its own flags (unlike Python).
 # Flag-like args are rejected; non-flag positionals are accepted once leading
 # flag parsing ends.
@@ -7288,11 +7368,32 @@ out=$(_run_hook "ruby")
 assert_contains "ruby: bare ruby ask" \
     "$(_decision "$out")" "ask"
 
+out=$(_run_hook "printf 'system(\"id\");\n' | ruby -")
+assert_contains "ruby: stdin program source deny" \
+    "$(_decision "$out")" "deny"
+assert_contains "ruby: stdin source attributes rule" \
+    "$(_reason "$out")" "(from rule:ruby.unverified)"
+
 # --- Ruby: inline -e scanning ---
 
 out=$(_run_hook 'ruby -e "puts 42"')
 assert_contains "ruby: clean -e allow" \
     "$(_decision "$out")" "allow"
+
+# Ruby executes every repeated -e program, so the adapter rejects more than
+# one source.
+out=$(_run_hook \
+    'ruby -e "system(\"ls\")" -e "puts 42"')
+assert_contains "ruby: repeated -e deny" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'ruby -ropen3 -e "puts 42"')
+assert_contains "ruby: library preload deny" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'ruby -C / -e "puts 42"')
+assert_contains "ruby: changed directory deny" \
+    "$(_decision "$out")" "deny"
 
 out=$(_run_hook 'ruby -e "system(\"ls\")"')
 assert_contains "ruby: system -e deny" \
@@ -7388,6 +7489,24 @@ out=$(_run_hook 'ruby -e "puts 42" arg1')
 assert_contains "ruby: -e positional arg allow" \
     "$(_decision "$out")" "allow"
 
+out=$(_run_hook 'ruby -0e "system(\"ls\")"')
+assert_contains "ruby: optional -0 value keeps code visible" \
+    "$(_decision "$out")" "deny"
+
+# --enable/--disable consume a separate feature list. It must not look like the
+# script and hide a later inline program.
+echo 'puts "decoy"' > "$_bp_scripts/ruby-features"
+
+out=$(_run_hook \
+    'ruby --disable ruby-features -e "system(\"id\")"')
+assert_contains "ruby: --disable value keeps code visible" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    'ruby --enable ruby-features -e "system(\"id\")"')
+assert_contains "ruby: --enable value keeps code visible" \
+    "$(_decision "$out")" "deny"
+
 
 # =========================================================================
 # NODE - code snippet scanning
@@ -7406,16 +7525,34 @@ out=$(_run_hook "node -v")
 assert_contains "node: -v allow" \
     "$(_decision "$out")" "allow"
 
-# -i/interactive - fall through to ask.
+# -i reads more source from stdin, which the adapter cannot scan.
 out=$(_run_hook "node -i")
-assert_contains "node: -i ask" \
-    "$(_decision "$out")" "ask"
+assert_contains "node: interactive source deny" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    "printf 'require(\"child_process\");\n' | node -")
+assert_contains "node: stdin program source deny" \
+    "$(_decision "$out")" "deny"
+assert_contains "node: stdin source attributes rule" \
+    "$(_reason "$out")" "(from rule:node.unverified)"
 
 # --- Node: inline -e scanning ---
 
 out=$(_run_hook 'node -e "console.log(42)"')
 assert_contains "node: clean -e allow" \
     "$(_decision "$out")" "allow"
+
+# Node selects one of repeated evaluation flags. Reject the ambiguous form
+# instead of assuming which program the installed Node version will run.
+out=$(_run_hook \
+    'node -e "require(\"child_process\")" -e "console.log(42)"')
+assert_contains "node: repeated -e deny" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'node -r fs -e "console.log(42)"')
+assert_contains "node: CommonJS preload deny" \
+    "$(_decision "$out")" "deny"
 
 out=$(_run_hook \
     'node -e "require(\"child_process\")"')
@@ -7467,6 +7604,22 @@ cp.exec("ls");' \
 out=$(_run_hook "node uses-child-process.js")
 assert_contains "node: child_process file ask" \
     "$(_decision "$out")" "ask"
+
+# --inspect has an optional attached address. A separate word is still the
+# script path and must reach the source scanner.
+out=$(_run_hook "node --inspect uses-child-process.js")
+assert_contains "node: inspect still scans file" \
+    "$(_decision "$out")" "ask"
+
+out=$(_run_hook \
+    "node --inspect=127.0.0.1:9229 uses-child-process.js")
+assert_contains "node: attached inspect address scans file" \
+    "$(_decision "$out")" "ask"
+
+echo 'console.log("decoy");' > "$_bp_scripts/inspect"
+out=$(_run_hook "node inspect uses-child-process.js")
+assert_contains "node: debugger subcommand deny" \
+    "$(_decision "$out")" "deny"
 
 out=$(_run_hook "node nonexistent.js")
 assert_contains "node: missing file deny" \

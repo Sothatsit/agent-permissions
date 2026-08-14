@@ -97,7 +97,7 @@ func TestPolicySnapshotPresetSelectionStates(t *testing.T) {
 	t.Setenv(presets.EnforcedPresetDirsEnv, enforcedDir)
 	t.Setenv(presets.EnforcedPresetsEnv, "promoted")
 
-	snapshot, err := LoadPolicySnapshot(project)
+	snapshot, err := LoadPolicySnapshot("", project)
 	if err != nil {
 		t.Fatalf("load snapshot: %v", err)
 	}
@@ -136,10 +136,7 @@ func TestPolicySnapshotPresetSelectionStates(t *testing.T) {
 		}
 	}
 
-	resolved, err := snapshot.Resolve("")
-	if err != nil {
-		t.Fatalf("resolve snapshot: %v", err)
-	}
+	resolved := snapshot.Resolve()
 
 	assertSnapshotDecision(t, resolved, "state-enforced", model.Allow)
 	assertSnapshotDecision(t, resolved, "state-promoted", model.Allow)
@@ -238,7 +235,7 @@ func TestPolicySnapshotPresetSelectorPrecedence(t *testing.T) {
 			t.Setenv(presets.EnforcedPresetDirsEnv, "")
 			t.Setenv(presets.EnforcedPresetsEnv, "")
 
-			snapshot, err := LoadPolicySnapshot(project)
+			snapshot, err := LoadPolicySnapshot("", project)
 			if err != nil {
 				t.Fatalf("load snapshot: %v", err)
 			}
@@ -273,19 +270,145 @@ func TestPolicySnapshotPresetSelectorPrecedence(t *testing.T) {
 	}
 }
 
+func TestPolicySnapshotRejectsNonObjectClaudeSettings(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "null", body: `null`},
+		{name: "array", body: `[]`},
+		{name: "scalar", body: `true`},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			home := filepath.Join(root, "home")
+			configDir := filepath.Join(home, ".claude")
+			path := filepath.Join(configDir, "settings.json")
+			writeSnapshotTestFile(t, path, test.body)
+
+			t.Setenv("HOME", home)
+			t.Setenv(presets.PresetDirsEnv, "")
+			t.Setenv(presets.EnforcedPresetDirsEnv, "")
+			t.Setenv(presets.EnforcedPresetsEnv, "")
+
+			_, err := LoadPolicySnapshot(configDir, "")
+			if err == nil {
+				t.Fatal("expected settings root error")
+			}
+			if !strings.Contains(err.Error(), "user settings") ||
+				!strings.Contains(err.Error(), path) {
+				t.Fatalf("error does not identify settings source: %v", err)
+			}
+		})
+	}
+}
+
+func TestPolicySnapshotDeduplicatesPhysicalPolicySources(t *testing.T) {
+	t.Run("agent config symlink", func(t *testing.T) {
+		root := t.TempDir()
+		home := filepath.Join(root, "home")
+		project := filepath.Join(root, "project-link")
+		globalPath := filepath.Join(
+			home, ".agents", "permissions.json")
+		projectPath := filepath.Join(
+			project, ".agents", "permissions.json")
+		writeSnapshotTestFile(t, globalPath, `{
+  "enabled-presets": ["git"],
+  "Allow": {"Commands": {"snapshot-alias:*": "test"}}
+}`)
+		if err := os.Symlink(home, project); err != nil {
+			t.Fatalf("create project symlink: %v", err)
+		}
+
+		t.Setenv("HOME", home)
+		t.Setenv(presets.PresetDirsEnv, "")
+		t.Setenv(presets.EnforcedPresetDirsEnv, "")
+		t.Setenv(presets.EnforcedPresetsEnv, "")
+
+		snapshot, err := LoadPolicySnapshot("", project)
+		if err != nil {
+			t.Fatalf("load snapshot: %v", err)
+		}
+
+		configs := snapshot.AgentConfigs()
+		if len(configs) != 1 {
+			t.Fatalf("got %d agent config sources, want 1", len(configs))
+		}
+		if configs[0].SourceName != projectPath {
+			t.Fatalf(
+				"source name = %q, want higher-priority %q",
+				configs[0].SourceName, projectPath)
+		}
+		if got := snapshot.PresetSelection().SelectorPath; got != projectPath {
+			t.Fatalf("selector path = %q, want %q", got, projectPath)
+		}
+
+		resolved := snapshot.Resolve()
+		assertSnapshotDecision(t, resolved,
+			"snapshot-alias", model.Allow)
+	})
+
+	t.Run("Claude settings at home", func(t *testing.T) {
+		home := t.TempDir()
+		configDir := filepath.Join(home, ".claude")
+		path := filepath.Join(configDir, "settings.json")
+		writeSnapshotTestFile(t, path, `{
+  "permissions": {
+    "allow": ["Bash(snapshot-claude:*)", "Bash(bad :*)"]
+  }
+}`)
+
+		t.Setenv("HOME", home)
+		t.Setenv(presets.PresetDirsEnv, "")
+		t.Setenv(presets.EnforcedPresetDirsEnv, "")
+		t.Setenv(presets.EnforcedPresetsEnv, "")
+
+		snapshot, err := LoadPolicySnapshot(configDir, home)
+		if err != nil {
+			t.Fatalf("load snapshot: %v", err)
+		}
+
+		resolved := snapshot.Resolve()
+		var sourceCount, warningCount int
+		for _, source := range resolved.Permissions.Sources {
+			if source.Name == path {
+				sourceCount++
+			}
+		}
+		for _, warning := range resolved.Permissions.Warnings {
+			if warning.Source == path {
+				warningCount++
+			}
+		}
+
+		if sourceCount != 1 {
+			t.Errorf("got %d Claude sources, want 1", sourceCount)
+		}
+		if warningCount != 1 {
+			t.Errorf("got %d Claude warnings, want 1", warningCount)
+		}
+	})
+}
+
 func TestPolicySnapshotRemainsStableAcrossFileChanges(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
 	project := filepath.Join(root, "project")
+	configDir := filepath.Join(home, ".claude")
 	presetDir := filepath.Join(root, "presets")
 	presetPath := filepath.Join(presetDir, "snapshot.json")
 	agentPath := filepath.Join(
 		project, ".agents", "permissions.json")
+	claudePath := filepath.Join(configDir, "settings.json")
 
 	writeSnapshotTestFile(t, presetPath,
 		`{"Allow":{"Commands":{"snapshot-preset-old:*":"old"}}}`)
 	writeSnapshotTestFile(t, agentPath,
 		`{"Allow":{"Commands":{"snapshot-agent-old:*":"old"}}}`)
+	writeSnapshotTestFile(t, claudePath,
+		`{"permissions":{"allow":["Bash(snapshot-claude-old:*)"]}}`)
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		t.Fatalf("create home: %v", err)
 	}
@@ -295,7 +418,7 @@ func TestPolicySnapshotRemainsStableAcrossFileChanges(t *testing.T) {
 	t.Setenv(presets.EnforcedPresetDirsEnv, "")
 	t.Setenv(presets.EnforcedPresetsEnv, "")
 
-	captured, err := LoadPolicySnapshot(project)
+	captured, err := LoadPolicySnapshot(configDir, project)
 	if err != nil {
 		t.Fatalf("load captured snapshot: %v", err)
 	}
@@ -304,50 +427,58 @@ func TestPolicySnapshotRemainsStableAcrossFileChanges(t *testing.T) {
 		`{"Allow":{"Commands":{"snapshot-preset-new:*":"new"}}}`)
 	writeSnapshotTestFile(t, agentPath,
 		`{"Allow":{"Commands":{"snapshot-agent-new:*":"new"}}}`)
+	writeSnapshotTestFile(t, claudePath,
+		`{"permissions":{"allow":["Bash(snapshot-claude-new:*)"]}}`)
 
-	capturedPolicy, err := captured.Resolve("")
-	if err != nil {
-		t.Fatalf("resolve captured snapshot: %v", err)
-	}
+	capturedPolicy := captured.Resolve()
 
-	fresh, err := LoadPolicySnapshot(project)
+	fresh, err := LoadPolicySnapshot(configDir, project)
 	if err != nil {
 		t.Fatalf("load fresh snapshot: %v", err)
 	}
 
-	freshPolicy, err := fresh.Resolve("")
-	if err != nil {
-		t.Fatalf("resolve fresh snapshot: %v", err)
-	}
+	freshPolicy := fresh.Resolve()
 
 	assertSnapshotDecision(t, capturedPolicy,
 		"snapshot-preset-old", model.Allow)
 	assertSnapshotDecision(t, capturedPolicy,
 		"snapshot-agent-old", model.Allow)
+	assertSnapshotDecision(t, capturedPolicy,
+		"snapshot-claude-old", model.Allow)
 	assertSnapshotDoesNotAllow(t, capturedPolicy,
 		"snapshot-preset-new")
 	assertSnapshotDoesNotAllow(t, capturedPolicy,
 		"snapshot-agent-new")
+	assertSnapshotDoesNotAllow(t, capturedPolicy,
+		"snapshot-claude-new")
 	assertSnapshotDoesNotAllow(t, freshPolicy,
 		"snapshot-preset-old")
 	assertSnapshotDoesNotAllow(t, freshPolicy,
 		"snapshot-agent-old")
+	assertSnapshotDoesNotAllow(t, freshPolicy,
+		"snapshot-claude-old")
 	assertSnapshotDecision(t, freshPolicy,
 		"snapshot-preset-new", model.Allow)
 	assertSnapshotDecision(t, freshPolicy,
 		"snapshot-agent-new", model.Allow)
+	assertSnapshotDecision(t, freshPolicy,
+		"snapshot-claude-new", model.Allow)
 }
 
-func TestPolicySnapshotViewsCannotMutateCapturedPolicy(t *testing.T) {
+func TestPolicySnapshotOutputsCannotMutateCapturedPolicy(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
 	project := filepath.Join(root, "project")
+	configDir := filepath.Join(home, ".claude")
+	claudePath := filepath.Join(configDir, "settings.json")
 	presetDir := filepath.Join(root, "presets")
 	writeSnapshotTestFile(t, filepath.Join(presetDir, "snapshot.json"),
 		`{"Allow":{"Commands":{"snapshot-preset:*":"old"}}}`)
 	writeSnapshotTestFile(t, filepath.Join(
 		project, ".agents", "permissions.json"),
 		`{"Allow":{"Commands":{"snapshot-agent:*":"old"}}}`)
+	writeSnapshotTestFile(t, claudePath,
+		`{"permissions":{"allow":["Bash(snapshot-claude:*)"]}}`)
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		t.Fatalf("create home: %v", err)
 	}
@@ -357,7 +488,7 @@ func TestPolicySnapshotViewsCannotMutateCapturedPolicy(t *testing.T) {
 	t.Setenv(presets.EnforcedPresetDirsEnv, "")
 	t.Setenv(presets.EnforcedPresetsEnv, "")
 
-	snapshot, err := LoadPolicySnapshot(project)
+	snapshot, err := LoadPolicySnapshot(configDir, project)
 	if err != nil {
 		t.Fatalf("load snapshot: %v", err)
 	}
@@ -380,15 +511,30 @@ func TestPolicySnapshotViewsCannotMutateCapturedPolicy(t *testing.T) {
 	projectConfig := snapshot.AgentConfig(AgentConfigProject)
 	delete(projectConfig.Config.Allow.Commands, "snapshot-agent:*")
 
-	resolved, err := snapshot.Resolve("")
-	if err != nil {
-		t.Fatalf("resolve snapshot: %v", err)
+	resolved := snapshot.Resolve()
+	var mutatedClaude bool
+	for i := range resolved.Permissions.Sources {
+		source := &resolved.Permissions.Sources[i]
+		if source.Name != claudePath {
+			continue
+		}
+
+		source.Allow.Commands[0].Raw = "mutated:*"
+		source.Allow.Commands[0].Elements[0] = "mutated"
+		mutatedClaude = true
 	}
+	if !mutatedClaude {
+		t.Fatal("resolved policy does not contain Claude settings")
+	}
+
+	resolved = snapshot.Resolve()
 
 	assertSnapshotDecision(t, resolved,
 		"snapshot-preset", model.Allow)
 	assertSnapshotDecision(t, resolved,
 		"snapshot-agent", model.Allow)
+	assertSnapshotDecision(t, resolved,
+		"snapshot-claude", model.Allow)
 }
 
 func TestPresetCatalogDoesNotShareEmbeddedCache(t *testing.T) {

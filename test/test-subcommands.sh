@@ -51,9 +51,8 @@ _sc_run() {
 }
 
 # validate reads <cwd>/.agents/permissions.json as well as the global config, so
-# run it from a fresh empty project dir: a stray <repo>/.agents config must not
-# perturb the counts, and the cwd must differ from HOME or the global and
-# project agent paths collide and Resolve counts every source twice.
+# run it from a fresh empty project dir so a stray <repo>/.agents config cannot
+# perturb the counts.
 _validate_run() {
     local h="$1" proj
     local preset_dirs="${_sc_preset_dirs:-}"

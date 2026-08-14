@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/sothatsit/agent-permissions/internal/harness"
@@ -41,6 +42,11 @@ type Pattern struct {
 	Reason   string
 }
 
+func (p Pattern) clone() Pattern {
+	p.Elements = slices.Clone(p.Elements)
+	return p
+}
+
 // EnvVarPattern matches an assigned environment variable by name. Syntax: exact
 // name (`BASH_ENV`) or a name with a trailing `*` for prefix match (`LD_*`
 // covers LD_PRELOAD, LD_LIBRARY_PATH, etc.). No value matching. The schema
@@ -59,6 +65,18 @@ type EnvVarPattern struct {
 type TierEntries struct {
 	Commands []Pattern
 	EnvVars  []EnvVarPattern
+}
+
+func (t TierEntries) clone() TierEntries {
+	commands := slices.Clone(t.Commands)
+	for i := range commands {
+		commands[i] = commands[i].clone()
+	}
+
+	return TierEntries{
+		Commands: commands,
+		EnvVars:  slices.Clone(t.EnvVars),
+	}
 }
 
 // SourcePerms holds one config source's entries, classified by tier and tool
@@ -81,6 +99,14 @@ type SourcePerms struct {
 	SoftAsk TierEntries
 	Ask     TierEntries
 	Deny    TierEntries
+}
+
+func (s SourcePerms) clone() SourcePerms {
+	s.Allow = s.Allow.clone()
+	s.SoftAsk = s.SoftAsk.clone()
+	s.Ask = s.Ask.clone()
+	s.Deny = s.Deny.clone()
+	return s
 }
 
 // Permissions holds parsed permission rules across every config source
@@ -403,7 +429,7 @@ func (p *Permissions) Check(
 	// evaluate (or with all of them allowed), bare safe input still allows.
 	if len(cmds) == 0 && len(snippets) == 0 &&
 		aggregate == model.Allow {
-		if result.Safe {
+		if result.IsSafe() {
 			return Result{Decision: model.Allow}
 		}
 
@@ -725,6 +751,52 @@ func (p *Permissions) checkSnippet(
 	}
 }
 
+type commandIdentityKind int
+
+const (
+	trustedCommandName commandIdentityKind = iota
+	trustedCommandPath
+	untrustedCommandPath
+)
+
+// Restrictive policy recognizes basenameArgs for every explicit path. Only a
+// path in the captured PATH can use that basename to gain an Allow.
+type commandIdentity struct {
+	kind         commandIdentityKind
+	name         string
+	args         []string
+	basenameArgs []string
+}
+
+func (p *Permissions) identifyCommand(
+	cmd model.Command,
+) commandIdentity {
+	args := word.Texts(cmd.Args)
+	executable := args[0]
+	identity := commandIdentity{
+		kind: trustedCommandName,
+		name: executable,
+		args: args,
+	}
+	if !strings.Contains(executable, "/") {
+		return identity
+	}
+
+	identity.kind = untrustedCommandPath
+	identity.name = filepath.Base(executable)
+	identity.basenameArgs = make([]string, len(args))
+	copy(identity.basenameArgs, args)
+	identity.basenameArgs[0] = identity.name
+
+	if filepath.IsAbs(executable) {
+		if _, ok := p.PathDirs[filepath.Dir(executable)]; ok {
+			identity.kind = trustedCommandPath
+		}
+	}
+
+	return identity
+}
+
 func (p *Permissions) checkOne(
 	cmd model.Command,
 ) commandCheck {
@@ -735,13 +807,13 @@ func (p *Permissions) checkOne(
 		}
 	}
 
-	name := filepath.Base(word.Text(cmd.Args[0]))
+	identity := p.identifyCommand(cmd)
 
 	// 1. Rules layer - operates on Words directly, no string conversion
 	// needed.
 	if p.rules != nil {
 		if action := evaluateCommandRules(
-			p.rules, name, cmd.Args[1:],
+			p.rules, identity, cmd.Args[1:],
 		); action != nil {
 			subject, desc := splitRuleReason(
 				action.Reason)
@@ -759,31 +831,17 @@ func (p *Permissions) checkOne(
 	// semantics. Enforced sources form a minimum policy: every matching
 	// entry participates, and their strongest decision combines with the
 	// normal result.
-	argTexts := word.Texts(cmd.Args)
-	var stripped []string
-	if strings.Contains(argTexts[0], "/") {
-		stripped = make([]string, len(argTexts))
-		copy(stripped, argTexts)
-		stripped[0] = filepath.Base(argTexts[0])
-	}
-
-	// pathResolved is the basename-stripped form that non-Deny tiers may
-	// use when the absolute path's directory is in PATH - i.e. when the
-	// shell would have resolved the bare name to this same binary. An
-	// out-of-PATH absolute path falls through to require an explicit
-	// absolute-path pattern. Deny never uses this; it strips
-	// unconditionally for safety.
 	var pathResolved []string
-	if stripped != nil && filepath.IsAbs(argTexts[0]) {
-		if _, ok := p.PathDirs[filepath.Dir(argTexts[0])]; ok {
-			pathResolved = stripped
-		}
+	if identity.kind == trustedCommandPath {
+		pathResolved = identity.basenameArgs
 	}
 
 	normal := matchCommandSources(
-		p.Sources, argTexts, stripped, pathResolved)
+		p.Sources, identity.args,
+		identity.basenameArgs, pathResolved)
 	enforced := matchEnforcedCommandSources(
-		p.EnforcedSources, argTexts, stripped, pathResolved)
+		p.EnforcedSources, identity.args,
+		identity.basenameArgs, pathResolved)
 	check := combinePolicyChecks(normal, enforced)
 	if check.decision != model.Undecided {
 		return check
@@ -803,7 +861,7 @@ func (p *Permissions) checkOne(
 	return commandCheck{
 		decision: model.Undecided,
 		source:   sourceNone,
-		args:     argTexts,
+		args:     identity.args,
 	}
 }
 

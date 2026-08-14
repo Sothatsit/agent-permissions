@@ -47,15 +47,12 @@ func validate(args []string) error {
 		return err
 	}
 
-	snapshot, err := perms.LoadPolicySnapshot(cwd)
+	snapshot, err := perms.LoadPolicySnapshot(configDir, cwd)
 	if err != nil {
 		return err
 	}
 
-	resolved, err := snapshot.Resolve(configDir)
-	if err != nil {
-		return err
-	}
+	resolved := snapshot.Resolve()
 
 	all := snapshot.Presets()
 	agentConfigs := snapshot.AgentConfigs()

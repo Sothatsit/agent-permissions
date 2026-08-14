@@ -209,8 +209,7 @@ func runClaudeHook() error {
 	case model.Deny:
 		return writeDecision(model.Deny, result.Reason)
 	case model.Undecided:
-		// Truly no opinion (e.g. bare assignment, suspicious env vars)
-		// - always fall through to Claude Code's own prompt.
+		// Truly no opinion always falls through to Claude Code's own prompt.
 		return nil
 	}
 

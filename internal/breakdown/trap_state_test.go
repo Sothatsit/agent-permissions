@@ -198,7 +198,7 @@ func TestEmptyTrapHandlerIsSafe(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected breakdown error: %v", err)
 			}
-			if !result.Safe {
+			if !result.IsSafe() {
 				t.Fatal("empty handler is not safe")
 			}
 		})

@@ -118,3 +118,89 @@ func TestDenyBeatsAllowForAbsolutePath(t *testing.T) {
 		t.Errorf("Deny should beat Allow; got %v", got)
 	}
 }
+
+func TestCheckRuleAllowRequiresTrustedCommandIdentity(t *testing.T) {
+	tests := []struct {
+		name    string
+		command string
+		allow   []string
+		want    model.Decision
+	}{
+		{
+			name:    "bare name",
+			command: "tool",
+			want:    model.Allow,
+		},
+		{
+			name:    "explicit path in PATH",
+			command: "/usr/bin/tool",
+			want:    model.Allow,
+		},
+		{
+			name:    "explicit path outside PATH",
+			command: "/opt/untrusted/tool",
+			want:    model.SoftAsk,
+		},
+		{
+			name:    "relative explicit path",
+			command: "./tool",
+			want:    model.SoftAsk,
+		},
+		{
+			name:    "explicit path allowed by policy",
+			command: "/opt/untrusted/tool",
+			allow:   []string{"/opt/untrusted/tool:*"},
+			want:    model.Allow,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			permissions := pathPerms(
+				t, []string{"/usr/bin"}, test.allow, nil)
+			permissions.rules = map[string]*model.CommandRules{
+				"tool": {
+					Rules: []model.Rule{
+						model.Always().Allow("read-only"),
+					},
+				},
+			}
+
+			got := permissions.Check(model.BreakdownResult{
+				Commands: []model.Command{{
+					Args: word.FromStrings([]string{
+						test.command,
+					}),
+				}},
+			})
+			if got.Decision != test.want {
+				t.Errorf(
+					"decision = %v, want %v",
+					got.Decision, test.want)
+			}
+		})
+	}
+}
+
+func TestCheckRuleRestrictionAppliesToUntrustedPath(t *testing.T) {
+	permissions := pathPerms(
+		t, []string{"/usr/bin"}, nil, nil)
+	permissions.rules = map[string]*model.CommandRules{
+		"tool": {
+			Rules: []model.Rule{
+				model.Always().Deny("unsafe"),
+			},
+		},
+	}
+
+	got := permissions.Check(model.BreakdownResult{
+		Commands: []model.Command{{
+			Args: word.FromStrings([]string{
+				"/opt/untrusted/tool",
+			}),
+		}},
+	})
+	if got.Decision != model.Deny {
+		t.Errorf("decision = %v, want deny", got.Decision)
+	}
+}

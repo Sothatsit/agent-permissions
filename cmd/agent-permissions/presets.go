@@ -45,7 +45,12 @@ func listPresets(args []string) error {
 		return fmt.Errorf("cwd: %v", err)
 	}
 
-	snapshot, err := perms.LoadPolicySnapshot(cwd)
+	configDir, err := resolveClaudeConfigDir()
+	if err != nil {
+		return err
+	}
+
+	snapshot, err := perms.LoadPolicySnapshot(configDir, cwd)
 	if err != nil {
 		return err
 	}

@@ -140,11 +140,6 @@ func (b *breaker) breakdownTrapHandler(
 	if err != nil {
 		return model.BreakdownResult{}, err
 	}
-	if len(result.Commands) == 0 &&
-		len(result.CodeSnippets) == 0 &&
-		len(result.Assigns) == 0 {
-		result.Safe = true
-	}
 
 	return result, nil
 }
@@ -196,6 +191,9 @@ func (b *breaker) breakdownAt(
 	}
 
 	result.Assigns = append(result.Assigns, collectAssigns(f)...)
+	if len(result.Commands) == 0 && len(result.CodeSnippets) == 0 {
+		result.Merge(model.SafeBreakdown())
+	}
 
 	return result, nil
 }
@@ -313,13 +311,6 @@ func (b *breaker) runBreakdown(
 	work := outcome.Work()
 
 	var result model.BreakdownResult
-	if disposition == model.OuterSafe ||
-		(len(work.Commands) == 0 &&
-			len(work.CodeStrings) == 0 &&
-			len(work.ScanFiles) == 0 &&
-			len(work.CodeSnippets) == 0) {
-		result.Safe = true
-	}
 
 	// A handled outcome may consume argv before normal flattening. Scan
 	// only the original words it did not pass to an inner command.
@@ -484,7 +475,7 @@ func (b *breaker) scanFile(
 	// circular source chains and diamond patterns (A sources B and C, both
 	// source D).
 	if b.Visited[realPath] {
-		return model.BreakdownResult{Safe: true}, nil
+		return model.BreakdownResult{}, nil
 	}
 
 	data, err := model.ReadScript(realPath, "")
@@ -503,12 +494,6 @@ func (b *breaker) scanFile(
 	result, err := b.breakdownAt(string(data), depth+1)
 	if err != nil {
 		return model.BreakdownResult{}, err
-	}
-
-	// A successfully scanned file with no commands is safe (e.g.
-	// comments-only or empty file).
-	if len(result.Commands) == 0 {
-		result.Safe = true
 	}
 
 	return result, nil
@@ -611,11 +596,10 @@ func (b *breaker) processCommand(
 	case *syntax.BinaryCmd:
 		return b.processBinaryCmd(c, depth)
 	case *syntax.Subshell:
-		// Subshell runs in a child process - cd and function
-		// definitions don't propagate out. Not conditional (always
-		// executes), so don't increment ConditionalDepth - that would
-		// disable cd tracking inside the subshell.
-		restore := b.isolateShellState(childStartsFresh)
+		// A subshell inherits functions, but its cwd and function changes do
+		// not propagate out. It always executes, so keep its body outside
+		// conditional scope and retain cwd tracking within it.
+		restore := b.isolateShellState(childInheritsFunctions)
 		r, err := b.processStmts(c.Stmts, depth)
 		restore()
 		return r, err
@@ -638,7 +622,6 @@ func (b *breaker) processCommand(
 			return model.BreakdownResult{}, err
 		}
 
-		result.Safe = true
 		return result, nil
 	case *syntax.ArithmCmd:
 		// (( ... )) - operands can contain command subs.
@@ -648,7 +631,6 @@ func (b *breaker) processCommand(
 			return model.BreakdownResult{}, err
 		}
 
-		result.Safe = true
 		return result, nil
 	case *syntax.TimeClause:
 		// Bash's `time` keyword is a separate AST node, not a command -
@@ -663,7 +645,7 @@ func (b *breaker) processCommand(
 		// /usr/bin/time is a normal CallExpr handled by the `time`
 		// wrapper. Bare `time` is a safe no-op.
 		if c.Stmt == nil {
-			return model.BreakdownResult{Safe: true}, nil
+			return model.BreakdownResult{}, nil
 		}
 
 		return b.processStmt(c.Stmt, depth)
@@ -1002,17 +984,17 @@ func (b *breaker) processBinaryCmd(
 ) (model.BreakdownResult, error) {
 	switch bc.Op {
 	case syntax.Pipe, syntax.PipeAll:
-		// Both sides always execute in subshells - cd and function
-		// definitions don't propagate out. Not conditional (both sides
-		// always run), so don't increment ConditionalDepth.
-		restore := b.isolateShellState(childStartsFresh)
+		// Both sides inherit functions and run in child processes, so their
+		// cwd and function changes do not propagate. Both sides always run,
+		// so keep them outside conditional scope.
+		restore := b.isolateShellState(childInheritsFunctions)
 		left, err := b.processStmt(bc.X, depth)
 		restore()
 		if err != nil {
 			return model.BreakdownResult{}, err
 		}
 
-		restore = b.isolateShellState(childStartsFresh)
+		restore = b.isolateShellState(childInheritsFunctions)
 		right, err := b.processStmt(bc.Y, depth)
 		restore()
 		if err != nil {

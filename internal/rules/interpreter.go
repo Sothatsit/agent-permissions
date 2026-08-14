@@ -27,8 +27,15 @@ type interpreterConfig struct {
 	infoFlags []string
 	// codeFlags extract inline code as a snippet (e.g. -c, -e, --eval).
 	codeFlags []string
-	// fallthroughFlags cause a fallthrough without extracting code (e.g.
-	// -m, -i).
+	// unverifiedFlags can add code or change which source the interpreter
+	// runs. The shared adapter rejects them until it knows how to scan every
+	// executable input.
+	unverifiedFlags []string
+	// unverifiedPositionals select a source mode instead of naming a script
+	// file. The adapter always rejects the shared stdin marker `-` as well.
+	unverifiedPositionals []string
+	// fallthroughFlags cause a fallthrough without extracting code, such as
+	// an interpreter's syntax-check mode.
 	fallthroughFlags []string
 }
 
@@ -37,7 +44,8 @@ type interpreterConfig struct {
 //
 //   - Info flags -> fall through to permissions.
 //   - Fallthrough flags -> fall through.
-//   - Code flags -> extract inline code as a CodeSnippet.
+//   - One code flag -> extract inline code as a CodeSnippet.
+//   - Unverified or repeated code flags -> return a governed error.
 //   - Positional -> read script file as a CodeSnippet.
 //   - Bare invocation -> fall through.
 func breakdownInterpreter(
@@ -47,14 +55,23 @@ func breakdownInterpreter(
 		input model.ParseResult,
 		state *model.State,
 	) (model.BreakdownOutcome, error) {
-		// Collect flags in a single pass. Code flags take priority -
-		// python3 --version -c "code" must scan the code, not skip
-		// because of --version.
+		// Collect flags in a single pass. Code flags take priority because
+		// python3 --version -c "code" must scan the code rather than skip it.
 		var codeFlag *model.ParsedFlag
 		sawInfo := false
 		sawFallthrough := false
 		for i := range input.Flags {
 			name := input.Flags[i].Name
+			if slices.Contains(cfg.unverifiedFlags, name) {
+				return model.BreakdownOutcome{}, &model.RuleError{
+					Def: cfg.unverified,
+					Reason: fmt.Sprintf(
+						"%s %s can add code or change which "+
+							"program runs — cannot verify the "+
+							"invocation",
+						cfg.name, name),
+				}
+			}
 			if slices.Contains(
 				cfg.infoFlags, name) {
 				sawInfo = true
@@ -65,15 +82,24 @@ func breakdownInterpreter(
 			}
 			if slices.Contains(
 				cfg.codeFlags, name) {
+				if codeFlag != nil {
+					return model.BreakdownOutcome{}, &model.RuleError{
+						Def: cfg.unverified,
+						Reason: fmt.Sprintf(
+							"%s: multiple inline code "+
+								"arguments cannot be verified",
+							cfg.name),
+					}
+				}
+
 				codeFlag = &input.Flags[i]
 			}
 		}
 
-		// Fallthrough flags (-m, -i) always skip because we explicitly
-		// can't verify these. Info flags (--version) only skip when
-		// there are no positionals - if a script is present, scan it
-		// defensively in case our flag classification is wrong and the
-		// interpreter actually runs it.
+		// Fallthrough flags represent modes such as syntax checking that do
+		// not execute the supplied source. Info flags (--version) skip only
+		// when there are no positionals. If a script is present, scan it in
+		// case the interpreter continues after printing the information.
 		if codeFlag == nil {
 			if sawFallthrough {
 				return model.FallThrough(), nil
@@ -94,8 +120,7 @@ func breakdownInterpreter(
 						codeFlag.Name),
 				}
 			}
-			if reason := word.ExpansionReason(
-				codeFlag.Value); reason != "" {
+			if !word.Static(codeFlag.Value) {
 				return model.BreakdownOutcome{}, &model.RuleError{
 					Def: cfg.unverified,
 					Reason: fmt.Sprintf(
@@ -103,7 +128,7 @@ func breakdownInterpreter(
 							" — cannot read and "+
 							"verify it",
 						cfg.name, codeFlag.Name,
-						reason),
+						word.OpaqueReason(codeFlag.Value)),
 				}
 			}
 
@@ -128,6 +153,26 @@ func breakdownInterpreter(
 
 		// First positional is the script file.
 		scriptWord := input.Positionals[0]
+		if word.DefinitelyEqual(scriptWord, "-") {
+			return model.BreakdownOutcome{}, &model.RuleError{
+				Def: cfg.unverified,
+				Reason: fmt.Sprintf(
+					"%s reads program source from stdin — "+
+						"cannot verify the invocation",
+					cfg.name),
+			}
+		}
+		for _, mode := range cfg.unverifiedPositionals {
+			if word.DefinitelyEqual(scriptWord, mode) {
+				return model.BreakdownOutcome{}, &model.RuleError{
+					Def: cfg.unverified,
+					Reason: fmt.Sprintf(
+						"%s %s selects an unverified source mode",
+						cfg.name, mode),
+				}
+			}
+		}
+
 		if !word.Static(scriptWord) {
 			return model.BreakdownOutcome{}, &model.RuleError{
 				Def: cfg.unverified,

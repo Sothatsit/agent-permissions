@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -69,19 +70,17 @@ func (r *Resolved) Breakdown(
 func Resolve(
 	configDir, cwd string,
 ) (*Resolved, error) {
-	snapshot, err := LoadPolicySnapshot(cwd)
+	snapshot, err := LoadPolicySnapshot(configDir, cwd)
 	if err != nil {
 		return nil, err
 	}
 
-	return snapshot.Resolve(configDir)
+	return snapshot.Resolve(), nil
 }
 
-// Resolve builds the effective policy from this captured shared policy and the
-// harness-native Claude settings selected by configDir.
-func (snapshot *PolicySnapshot) Resolve(
-	configDir string,
-) (*Resolved, error) {
+// Resolve builds the effective policy from the snapshot without reading any
+// source again.
+func (snapshot *PolicySnapshot) Resolve() *Resolved {
 	globalAgent, projectAgent, localAgent :=
 		snapshot.resolutionConfigs()
 	var selected []*presets.Preset
@@ -97,45 +96,15 @@ func (snapshot *PolicySnapshot) Resolve(
 	rules.FilterByConfig(
 		registry, snippetRules, ruleConfig)
 
-	// Build sources highest -> lowest priority. Each source-load may return
-	// ConfigWarnings for malformed entries; they accumulate into
-	// Permissions.Warnings.
-	var sources []SourcePerms
+	// Build sources highest -> lowest priority. ConfigWarnings for malformed
+	// entries accumulate into Permissions.Warnings.
+	sources := make([]SourcePerms, 0, len(snapshot.claudeSettings))
 	var enforcedSources []SourcePerms
 	var warnings []ConfigWarning
 
-	addClaude := func(path, label string) error {
-		src, w, err := loadClaudeSettings(path)
-		if err != nil {
-			return fmt.Errorf("%s: %v", label, err)
-		}
-		if src != nil {
-			sources = append(sources, *src)
-			warnings = append(warnings, w...)
-		}
-
-		return nil
-	}
-
-	if snapshot.cwd != "" {
-		if err := addClaude(filepath.Join(
-			snapshot.cwd, ".claude", "settings.local.json"),
-			"local settings"); err != nil {
-			return nil, err
-		}
-		if err := addClaude(filepath.Join(
-			snapshot.cwd, ".claude", "settings.json"),
-			"project settings"); err != nil {
-			return nil, err
-		}
-	}
-
-	if configDir != "" {
-		if err := addClaude(filepath.Join(
-			configDir, "settings.json"),
-			"user settings"); err != nil {
-			return nil, err
-		}
+	for _, loaded := range snapshot.claudeSettings {
+		sources = append(sources, loaded.permissions.clone())
+		warnings = append(warnings, loaded.warnings...)
 	}
 
 	for _, loaded := range snapshot.AgentConfigs() {
@@ -167,7 +136,7 @@ func (snapshot *PolicySnapshot) Resolve(
 			Warnings:        warnings,
 			rules:           registry,
 			snippetRules:    snippetRules,
-			PathDirs:        parsePathDirs(os.Getenv("PATH")),
+			PathDirs:        maps.Clone(snapshot.pathDirs),
 			// Resolve doesn't know which harness is the consumer.
 			// Tools that produce harness-bound output (claude-hook)
 			// replace this with the concrete harness; tools that
@@ -177,7 +146,7 @@ func (snapshot *PolicySnapshot) Resolve(
 			// one harness or another.
 			Harness: harness.Placeholder{},
 		},
-	}, nil
+	}
 }
 
 // parsePathDirs splits the PATH value into a set of cleaned directory paths.
@@ -580,13 +549,7 @@ func fromAgentConfig(
 	return src, warnings
 }
 
-// loadClaudeSettings reads a Claude Code settings.json and returns a
-// SourcePerms (or nil if the file doesn't exist) plus any malformed-pattern
-// warnings. Entries are wrapped as `Bash(...)`; non-Bash wrappers (Edit, Read,
-// WebFetch, etc.) are skipped via extractBashPattern without warning since
-// they're valid Claude Code entries for other tools. Reasons are always empty
-// here - the Claude Code schema has no slot for them. EnvVars cannot be
-// expressed in Claude Code settings.
+// loadClaudeSettings reads one Claude settings file for a policy snapshot.
 func loadClaudeSettings(
 	path string,
 ) (*SourcePerms, []ConfigWarning, error) {
@@ -599,40 +562,59 @@ func loadClaudeSettings(
 		return nil, nil, err
 	}
 
+	source, warnings, err := parseClaudeSettings(path, data)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return &source, warnings, nil
+}
+
+// parseClaudeSettings validates captured Claude Code settings and converts its
+// Bash permission entries. Other tool wrappers are valid but do not contribute
+// to command policy. Claude settings cannot express reasons or environment
+// variable permissions.
+func parseClaudeSettings(
+	path string, data []byte,
+) (SourcePerms, []ConfigWarning, error) {
 	var settings map[string]any
 	if err := configjson.Decode(data, &settings); err != nil {
-		return nil, nil, fmt.Errorf(
+		return SourcePerms{}, nil, fmt.Errorf(
 			"invalid JSON in %s: %v", path, err)
+	}
+	if settings == nil {
+		return SourcePerms{}, nil, fmt.Errorf(
+			"invalid JSON in %s: root must be an object", path)
 	}
 
 	permissions, err := readClaudePermissions(settings)
 	if err != nil {
-		return nil, nil, fmt.Errorf(
+		return SourcePerms{}, nil, fmt.Errorf(
 			"invalid JSON in %s: %v", path, err)
 	}
 
 	allow, err := readClaudePermissionList(permissions, "allow")
 	if err != nil {
-		return nil, nil, fmt.Errorf(
+		return SourcePerms{}, nil, fmt.Errorf(
 			"invalid JSON in %s: %v", path, err)
 	}
 
 	softAsk, err := readClaudePermissionList(
 		permissions, "softAsk")
 	if err != nil {
-		return nil, nil, fmt.Errorf(
+		return SourcePerms{}, nil, fmt.Errorf(
 			"invalid JSON in %s: %v", path, err)
 	}
 
 	ask, err := readClaudePermissionList(permissions, "ask")
 	if err != nil {
-		return nil, nil, fmt.Errorf(
+		return SourcePerms{}, nil, fmt.Errorf(
 			"invalid JSON in %s: %v", path, err)
 	}
 
 	deny, err := readClaudePermissionList(permissions, "deny")
 	if err != nil {
-		return nil, nil, fmt.Errorf(
+		return SourcePerms{}, nil, fmt.Errorf(
 			"invalid JSON in %s: %v", path, err)
 	}
 
@@ -650,7 +632,7 @@ func loadClaudeSettings(
 	src.Deny.Commands, warnings = appendParsedClaude(
 		warnings, path,
 		deny, src.Deny.Commands)
-	return &src, warnings, nil
+	return src, warnings, nil
 }
 
 func readClaudePermissions(

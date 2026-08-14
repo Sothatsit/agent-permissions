@@ -50,8 +50,10 @@ var breakdownPython = breakdownInterpreter(
 		infoFlags: []string{
 			"--version", "--help", "-V", "-h",
 		},
-		codeFlags:        []string{"-c"},
-		fallthroughFlags: []string{"-m", "-i"},
+		codeFlags: []string{"-c"},
+		unverifiedFlags: []string{
+			"-W", "-X", "-i", "-m",
+		},
 	})
 
 func pythonInterpolationContents(code string) []string {

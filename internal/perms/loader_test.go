@@ -1,8 +1,6 @@
 package perms
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -11,26 +9,13 @@ import (
 	"github.com/sothatsit/agent-permissions/presets"
 )
 
-func writeClaudeSettings(t *testing.T, body string) string {
-	t.Helper()
-
-	path := filepath.Join(t.TempDir(), "settings.json")
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	return path
-}
-
-func TestLoadClaudeSettingsRejectsDuplicatePermission(t *testing.T) {
-	path := writeClaudeSettings(t, `{
+func TestParseClaudeSettingsRejectsDuplicatePermission(t *testing.T) {
+	_, _, err := parseClaudeSettings("settings.json", []byte(`{
   "permissions": {
     "deny": ["Bash(ssh:*)"],
     "deny": []
   }
-}`)
-
-	_, _, err := loadClaudeSettings(path)
+}`))
 	if err == nil {
 		t.Fatal("expected duplicate deny field to be rejected")
 	}
@@ -40,8 +25,9 @@ func TestLoadClaudeSettingsRejectsDuplicatePermission(t *testing.T) {
 	}
 }
 
-func TestLoadClaudeSettingsAllowsUnknownFieldsAndNull(t *testing.T) {
-	path := writeClaudeSettings(t, `{
+func TestParseClaudeSettingsAllowsUnknownFieldsAndNull(t *testing.T) {
+	src, warnings, err := parseClaudeSettings(
+		"settings.json", []byte(`{
   "future": {"items": [null, {"large": 9007199254740993}]},
 	"permissions": {
 		"allow": [null],
@@ -49,9 +35,7 @@ func TestLoadClaudeSettingsAllowsUnknownFieldsAndNull(t *testing.T) {
 		"deny": ["Bash(ssh:*)"],
 		"future": null
 	}
-}`)
-
-	src, warnings, err := loadClaudeSettings(path)
+}`))
 	if err != nil {
 		t.Fatal(err)
 	}

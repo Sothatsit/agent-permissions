@@ -215,10 +215,11 @@ func Registry() (
 
 	// --- Interpreters ---
 	//
-	// Each interpreter reads script files or inline code and produces code
-	// snippets for scanning. Non-code invocations (--version, -m, bare)
-	// fall through to the permissions layer. Snippet rules for each
-	// language are defined below alongside the command registration.
+	// Each interpreter reads one script file or inline program and produces a
+	// code snippet for scanning. Unsupported extra code sources return the
+	// interpreter's governed unverified error. Info and bare invocations fall
+	// through to the permissions layer. Snippet rules for each language are
+	// defined below alongside the command registration.
 
 	// python/python3 - PathAllow so path-invoked interpreters (e.g.
 	// /path/to/venv/bin/python3) still extract code for scanning but fall

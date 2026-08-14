@@ -384,6 +384,11 @@ shell would resolve `git` to first; we care whether the
 absolute path the agent typed lives in a directory the shell
 would consult.
 
+Rule Allows use the same command identity. An arbitrary explicit path
+cannot borrow an Allow from a rule registered for the same basename.
+Restrictive rule decisions still apply to that basename, and an explicit
+path pattern can still allow the binary.
+
 ### Distribution
 
 **Q: How do users install agent-permissions?**
@@ -611,6 +616,13 @@ The enforced check evaluates every enforced source, keeps every reason
 at the strongest matching tier, and combines that result with the
 normal decision by decision strength.
 
+`LoadPolicySnapshot` reads Claude settings, `.agents` configs, presets,
+and `PATH` once. `Resolve` derives an evaluation-ready policy from that
+captured data without reading files or environment state. The hook,
+`check`, `validate`, and `presets list` therefore use one policy view per
+invocation. `setup --force` keeps a catalog-only load path so it can
+repair a malformed `.agents` config without first parsing that file.
+
 ### Safety constraints on `install`
 
 After the first code review, `install` was hardened:
@@ -658,6 +670,11 @@ dropped — the hook believes it fully handled a node it only
 partly handled. Two real instances and one abstraction came out of
 this:
 
+`breakdownAt` alone marks a complete shell source as handled with no
+executable work. It does so only after parsing and walking the source,
+and only when no command or snippet remains. Individual syntax handlers
+cannot make a partly processed aggregate look safe.
+
 - The `time` keyword transform dropped redirections. A `TimeClause`
   wraps a whole statement, but the handler rebuilt a bare
   `CallExpr` from the timed command's args and lost
@@ -698,6 +715,17 @@ this:
   knowledge. It keeps state between its own commands, then leaves the outer
   shell's cwd and function knowledge unknown. This conservative trap rule
   avoids guessing when a signal fires.
+
+- Subshells and pipeline stages inherit functions known when the child starts.
+  Their working-directory and function changes stay in the child and do not
+  affect later commands in the parent shell.
+
+- Each language interpreter contributes one script file or one inline program
+  whose source does not come from a variable, substitution, or ANSI-C quote.
+  Repeated inline programs, preloads, interactive input, module execution, and
+  options that can change the source return the interpreter's governed
+  `*.unverified` error. This keeps executable input from disappearing while
+  still letting users disable the fail-closed boundary explicitly.
 
 - `env` is the one wrapper that honours a leading `NAME=val`, so it
   uses `Assigns`: `env LD_PRELOAD=/x.so cmd` is a real injection and

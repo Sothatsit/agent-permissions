@@ -15,22 +15,23 @@ var syntaxRuby = &langSyntax{
 
 // rubyFlags defines recognised Ruby interpreter flags.
 var rubyFlags = []model.FlagDef{
-	{Name: "--disable"}, {Name: "--version"},
-	{Name: "--enable"}, {Name: "--help"},
+	{Name: "--disable", Arg: true}, {Name: "--version"},
+	{Name: "--enable", Arg: true}, {Name: "--help"},
 	// Unlike Python's -c, Ruby continues parsing its own flags after -e.
 	// Leading-only parsing handles script arguments after a file name.
 	{Name: "-e", Arg: true},
 	{Name: "-r", Arg: true},
 	{Name: "-I", Arg: true},
 	{Name: "-F", Arg: true},
-	{Name: "-0", Arg: true},
+	// -0 takes only an optional attached value. A separate word is source.
+	{Name: "-0"},
 	{Name: "-C", Arg: true},
 	{Name: "-W", Prefix: true},
 	// No-arg flags.
 	{Name: "-a"}, {Name: "-c"}, {Name: "-d"},
 	{Name: "-h"}, {Name: "-l"}, {Name: "-n"},
 	{Name: "-p"}, {Name: "-s"}, {Name: "-S"},
-	{Name: "-v"}, {Name: "-w"}, {Name: "-x"},
+	{Name: "-v"}, {Name: "-w"}, {Name: "-x", Prefix: true},
 	{Name: "-y"},
 }
 
@@ -51,7 +52,8 @@ var breakdownRuby = breakdownInterpreter(
 		infoFlags: []string{
 			"--version", "--help", "-h",
 		},
-		codeFlags: []string{"-e"},
+		codeFlags:       []string{"-e"},
+		unverifiedFlags: []string{"-r", "-C", "-S", "-x"},
 	})
 
 func rubyInterpolationContents(code string) []string {

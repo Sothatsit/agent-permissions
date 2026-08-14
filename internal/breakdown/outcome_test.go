@@ -50,6 +50,48 @@ func TestBreakdownAcceptsMissingOutcomeWithError(t *testing.T) {
 	}
 }
 
+func TestAssignmentOnlyInputIsHandled(t *testing.T) {
+	for _, command := range []string{
+		"FOO=bar",
+		"export FOO=bar",
+		"[[ true ]]; FOO=bar",
+	} {
+		t.Run(command, func(t *testing.T) {
+			result, err := wbd(t, command)
+			if err != nil {
+				t.Fatalf("breakdown error: %v", err)
+			}
+			if !result.IsSafe() {
+				t.Fatal("assignment-only input is not handled")
+			}
+			if !hasAssign(result, "FOO") {
+				t.Fatalf("assignments = %v, want FOO", result.Assigns)
+			}
+		})
+	}
+}
+
+func TestNonExecutableInputIsHandled(t *testing.T) {
+	for _, command := range []string{
+		"# comment",
+		"case x in esac",
+		"[[ true ]]; case x in esac",
+		"bash -c '# comment'",
+		"eval '# comment'",
+		"flock lock -c '# comment'",
+	} {
+		t.Run(command, func(t *testing.T) {
+			result, err := wbd(t, command)
+			if err != nil {
+				t.Fatalf("breakdown error: %v", err)
+			}
+			if !result.IsSafe() {
+				t.Fatal("non-executable input is not handled")
+			}
+		})
+	}
+}
+
 func TestOutcomesScanArgumentsOnce(t *testing.T) {
 	safe := func(
 		model.ParseResult,

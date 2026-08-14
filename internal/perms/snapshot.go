@@ -96,27 +96,55 @@ const (
 	AgentConfigLocal
 )
 
+type policyFileID string
+
+func identifyPolicyFile(path string) (policyFileID, error) {
+	identity, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+
+		identity = path
+	}
+
+	identity, err = filepath.Abs(identity)
+	if err != nil {
+		return "", err
+	}
+
+	return policyFileID(filepath.Clean(identity)), nil
+}
+
 // AgentConfigSource is one captured .agents config file. Config is nil when the
 // path did not exist. SourceName is the name used in decision output.
 type AgentConfigSource struct {
 	Path       string
 	SourceName string
 	Config     *agentconfig.Config
+	fileID     policyFileID
 }
 
-// PolicySnapshot captures the harness-neutral policy inputs for one command:
-// validated presets and each .agents config. Harness-native settings are read
-// only by Resolve, so unrelated settings cannot break preset-only commands.
+type claudeSettingsSource struct {
+	permissions SourcePerms
+	warnings    []ConfigWarning
+}
+
+// PolicySnapshot captures every policy input used by one command. Resolution
+// derives an evaluation-ready policy without reading files or environment
+// state again.
 type PolicySnapshot struct {
 	cwd             string
 	presets         *PresetCatalog
 	configs         [3]AgentConfigSource
+	claudeSettings  []claudeSettingsSource
 	presetSelection PresetSelection
+	pathDirs        map[string]struct{}
 }
 
-// LoadPolicySnapshot reads the presets and .agents configs once. Missing config
-// files remain represented by a source with a nil Config.
-func LoadPolicySnapshot(cwd string) (*PolicySnapshot, error) {
+// LoadPolicySnapshot reads and validates every policy source once. Missing
+// .agents files remain represented by a source with a nil Config.
+func LoadPolicySnapshot(configDir, cwd string) (*PolicySnapshot, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("resolve home directory: %v", err)
@@ -133,7 +161,7 @@ func LoadPolicySnapshot(cwd string) (*PolicySnapshot, error) {
 			cwd, ".agents", "permissions.local.json")
 	}
 
-	loaded := map[string]*agentconfig.Config{}
+	parsedAgents := map[policyFileID]*agentconfig.Config{}
 	load := func(
 		path, sourceName, errorName string,
 	) (AgentConfigSource, error) {
@@ -145,18 +173,30 @@ func LoadPolicySnapshot(cwd string) (*PolicySnapshot, error) {
 			return source, nil
 		}
 
-		config, ok := loaded[path]
-		if !ok {
+		fileID, err := identifyPolicyFile(path)
+		if err != nil {
+			return AgentConfigSource{}, fmt.Errorf(
+				"%s: %v", errorName, err)
+		}
+
+		config, parsed := parsedAgents[fileID]
+		if !parsed {
 			config, err = agentconfig.Load(path)
 			if err != nil {
 				return AgentConfigSource{}, fmt.Errorf(
 					"%s: %v", errorName, err)
 			}
 
-			loaded[path] = config
+			parsedAgents[fileID] = config
+		} else if config != nil {
+			config = config.Clone()
+			config.Path = path
 		}
 
 		source.Config = config
+		if config != nil {
+			source.fileID = fileID
+		}
 		return source, nil
 	}
 
@@ -181,6 +221,54 @@ func LoadPolicySnapshot(cwd string) (*PolicySnapshot, error) {
 		return nil, err
 	}
 
+	var claudeSettings []claudeSettingsSource
+	seenClaude := map[policyFileID]bool{}
+	loadClaude := func(path, label string) error {
+		fileID, err := identifyPolicyFile(path)
+		if err != nil {
+			return fmt.Errorf("%s: %v", label, err)
+		}
+		if seenClaude[fileID] {
+			return nil
+		}
+
+		seenClaude[fileID] = true
+		source, warnings, err := loadClaudeSettings(path)
+		if err != nil {
+			return fmt.Errorf("%s: %v", label, err)
+		}
+		if source == nil {
+			return nil
+		}
+
+		claudeSettings = append(claudeSettings, claudeSettingsSource{
+			permissions: *source,
+			warnings:    warnings,
+		})
+		return nil
+	}
+
+	if cwd != "" {
+		if err := loadClaude(filepath.Join(
+			cwd, ".claude", "settings.local.json"),
+			"local settings"); err != nil {
+			return nil, err
+		}
+		if err := loadClaude(filepath.Join(
+			cwd, ".claude", "settings.json"),
+			"project settings"); err != nil {
+			return nil, err
+		}
+	}
+
+	if configDir != "" {
+		if err := loadClaude(filepath.Join(
+			configDir, "settings.json"),
+			"user settings"); err != nil {
+			return nil, err
+		}
+	}
+
 	catalog, err := LoadPresetCatalog()
 	if err != nil {
 		return nil, err
@@ -195,7 +283,9 @@ func LoadPolicySnapshot(cwd string) (*PolicySnapshot, error) {
 		cwd:             cwd,
 		presets:         catalog,
 		configs:         configs,
+		claudeSettings:  claudeSettings,
 		presetSelection: makePresetSelection(catalog.available, configs),
+		pathDirs:        parsePathDirs(os.Getenv("PATH")),
 	}, nil
 }
 
@@ -222,8 +312,8 @@ func (s *PolicySnapshot) PresetSelection() PresetSelection {
 	return selection
 }
 
-// AgentConfig returns an independent copy of one logical config slot. Project
-// and global may refer to the same captured file when cwd is the user's home.
+// AgentConfig returns an independent copy of one logical config slot. Two
+// slots may refer to the same captured file through different paths.
 func (s *PolicySnapshot) AgentConfig(
 	scope AgentConfigScope,
 ) AgentConfigSource {
@@ -238,18 +328,18 @@ func (s *PolicySnapshot) AgentConfig(
 // local, project, then global.
 func (s *PolicySnapshot) AgentConfigs() []AgentConfigSource {
 	var out []AgentConfigSource
-	seen := map[string]bool{}
+	seen := map[policyFileID]bool{}
 	for _, scope := range []AgentConfigScope{
 		AgentConfigLocal,
 		AgentConfigProject,
 		AgentConfigGlobal,
 	} {
 		source := s.configs[scope]
-		if source.Config == nil || seen[source.Path] {
+		if source.Config == nil || seen[source.fileID] {
 			continue
 		}
 
-		seen[source.Path] = true
+		seen[source.fileID] = true
 		out = append(out, cloneAgentConfigSource(source))
 	}
 
@@ -341,14 +431,23 @@ func makePresetSelection(
 func (s *PolicySnapshot) resolutionConfigs() (
 	global, project, local *agentconfig.Config,
 ) {
-	global = s.configs[AgentConfigGlobal].Config
-	project = s.configs[AgentConfigProject].Config
-	local = s.configs[AgentConfigLocal].Config
-	if global != nil && project != nil &&
-		s.configs[AgentConfigGlobal].Path ==
-			s.configs[AgentConfigProject].Path {
-		global = nil
+	selected := [3]*agentconfig.Config{}
+	seen := map[policyFileID]bool{}
+	for _, scope := range []AgentConfigScope{
+		AgentConfigLocal,
+		AgentConfigProject,
+		AgentConfigGlobal,
+	} {
+		source := s.configs[scope]
+		if source.Config == nil || seen[source.fileID] {
+			continue
+		}
+
+		seen[source.fileID] = true
+		selected[scope] = source.Config
 	}
 
-	return global, project, local
+	return selected[AgentConfigGlobal],
+		selected[AgentConfigProject],
+		selected[AgentConfigLocal]
 }

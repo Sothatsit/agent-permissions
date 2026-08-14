@@ -18,9 +18,11 @@ var syntaxNode = &langSyntax{
 
 // nodeFlags defines recognised Node.js interpreter flags.
 var nodeFlags = []model.FlagDef{
-	{Name: "--inspect-brk", Arg: true},
+	// Inspector addresses are optional and attach with `=`. A following word
+	// is the script rather than the option value.
+	{Name: "--inspect-brk"},
 	{Name: "--version"}, {Name: "--require", Arg: true},
-	{Name: "--inspect", Arg: true},
+	{Name: "--inspect"},
 	{Name: "--check"},
 	{Name: "--print", Arg: true},
 	{Name: "--help"},
@@ -55,10 +57,12 @@ var breakdownNode = breakdownInterpreter(
 		codeFlags: []string{
 			"-e", "--eval", "-p", "--print",
 		},
-		// -i/interactive, -c/--check (syntax check) - fall through to
-		// permissions.
+		unverifiedFlags:       []string{"-i", "-r", "--require"},
+		unverifiedPositionals: []string{"inspect"},
+		// -c/--check performs a syntax check without running the source, so it
+		// falls through to permissions.
 		fallthroughFlags: []string{
-			"-i", "-c", "--check",
+			"-c", "--check",
 		},
 	})
 

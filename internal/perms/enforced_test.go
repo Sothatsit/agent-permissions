@@ -249,7 +249,6 @@ func TestEnforcedEnvVarDenyCombinesWithCommandAllow(
 		},
 	}
 	result := p.Check(model.BreakdownResult{
-		Safe: true,
 		Commands: []model.Command{{
 			Args: word.FromStrings([]string{
 				"mytool", "run",

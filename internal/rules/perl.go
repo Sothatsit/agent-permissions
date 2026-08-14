@@ -28,16 +28,18 @@ var perlFlags = []model.FlagDef{
 	{Name: "-I", Arg: true},
 	{Name: "-M", Arg: true},
 	{Name: "-m", Arg: true},
-	{Name: "-0", Arg: true},
-	{Name: "-C", Arg: true},
-	{Name: "-D", Arg: true},
+	// These flags take only optional attached values. Treating the next word
+	// as their argument would hide a script or inline program from scanning.
+	{Name: "-0"},
+	{Name: "-C"},
+	{Name: "-D"},
 	// No-arg flags.
 	{Name: "-a"}, {Name: "-c"}, {Name: "-d"},
 	{Name: "-h"}, {Name: "-l"}, {Name: "-n"},
 	{Name: "-p"}, {Name: "-s"}, {Name: "-S"},
 	{Name: "-t"}, {Name: "-T"}, {Name: "-u"},
 	{Name: "-v"}, {Name: "-V"}, {Name: "-w"},
-	{Name: "-W"}, {Name: "-x"}, {Name: "-X"},
+	{Name: "-W"}, {Name: "-x", Prefix: true}, {Name: "-X"},
 }
 
 var perlParser = model.NewFullParser(
@@ -55,6 +57,9 @@ var breakdownPerl = breakdownInterpreter(
 			"--version", "--help", "-v", "-h",
 		},
 		codeFlags: []string{"-e", "-E"},
+		unverifiedFlags: []string{
+			"-F", "-M", "-m", "-S", "-d", "-x",
+		},
 	})
 
 func perlInterpolationContents(code string) []string {

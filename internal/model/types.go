@@ -172,21 +172,36 @@ type BreakdownResult struct {
 	Commands     []Command
 	CodeSnippets []CodeSnippet
 	Assigns      []string // env var names
-	// Safe is true when the input was fully analyzed and contains no
-	// executable commands (e.g. [[ test ]] or (( arithmetic ))).
-	// Distinguishes
-	// "safe, nothing to check" from "no commands, fall through".
-	Safe bool
+	// safe distinguishes fully handled input with no executable command or
+	// snippet from a result that found nothing and must fall through. Checked
+	// environment assignments may remain.
+	safe bool
+}
+
+// SafeBreakdown returns a verified result with no executable work.
+func SafeBreakdown() BreakdownResult {
+	return BreakdownResult{safe: true}
+}
+
+// IsSafe reports whether the complete result was verified with nothing to
+// check. Exported work fields cannot create a contradictory safe result.
+func (br BreakdownResult) IsSafe() bool {
+	return br.safe &&
+		len(br.Commands) == 0 &&
+		len(br.CodeSnippets) == 0
 }
 
 // Merge combines another BreakdownResult into this one.
 func (br *BreakdownResult) Merge(other BreakdownResult) {
+	safe := br.IsSafe() || other.IsSafe()
 	br.Commands = append(
 		br.Commands, other.Commands...)
 	br.CodeSnippets = append(
 		br.CodeSnippets, other.CodeSnippets...)
 	br.Assigns = append(br.Assigns, other.Assigns...)
-	br.Safe = br.Safe || other.Safe
+	br.safe = safe &&
+		len(br.Commands) == 0 &&
+		len(br.CodeSnippets) == 0
 }
 
 // State holds the mutable state during a breakdown pass. This is the

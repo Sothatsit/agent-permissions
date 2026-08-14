@@ -8,33 +8,38 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-// evaluateCommandRules checks a command against a rules map. Returns nil when
-// no rules exist or no rule matched and there is no default (fall through to
-// permissions layer).
+// evaluateCommandRules applies the rules for a command identity. A nil result
+// falls through to pattern policy.
 func evaluateCommandRules(
 	rules map[string]*model.CommandRules,
-	name string,
+	command commandIdentity,
 	args []*syntax.Word,
 ) *model.Action {
-	cr := rules[name]
+	cr := rules[command.name]
 	if cr == nil {
 		return nil
 	}
 
-	input := model.ParseResult{Name: name, Raw: args}
+	input := model.ParseResult{Name: command.name, Raw: args}
 	model.PopulatePossibleFlags(&input)
 
-	result := evaluateRules(cr.Rules, input, name, nil)
-	if result != nil {
-		return result
-	}
-	if cr.Default != nil {
+	result := evaluateRules(
+		cr.Rules, input, command.name, nil)
+	if result == nil && cr.Default != nil {
 		// The command-level Default is the fail-closed denial gated by
 		// the command's Unverified rule.
-		return formatAction(cr.Default, name, cr.Unverified)
+		result = formatAction(
+			cr.Default, command.name, cr.Unverified)
 	}
 
-	return nil
+	// A rule Allow classifies a known command. It cannot vouch for an
+	// arbitrary binary that only borrows that command's basename.
+	if result != nil && result.Decision == model.Allow &&
+		command.kind == untrustedCommandPath {
+		return nil
+	}
+
+	return result
 }
 
 // evaluateRules walks a rule tree. govDef is the rule governing the current

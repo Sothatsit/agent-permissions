@@ -77,11 +77,12 @@ A wrapper can scope this analysis without changing the surrounding shell.
 For example, `env -C dir python3 file.py` resolves `file.py` beneath `dir`,
 then restores the outer working directory for the next shell command.
 
-For interpreter invocations (`python`, `perl`, `ruby`, `node`),
-Breakdown also extracts the code itself, either inline
-(`python -c '...'`) or by reading the referenced script file
-(`python script.py`), and emits a code snippet alongside the
-regular extracted commands.
+For interpreter invocations (`python`, `perl`, `ruby`, `node`), Breakdown also
+extracts the code itself, either inline (`python -c '...'`) or by reading the
+referenced script file (`python script.py`), and emits a code snippet alongside
+the regular extracted commands. Repeated inline programs and modes that add
+another source, such as module, preload, or interactive input, fail closed
+through the interpreter's `*.unverified` rule.
 
 ### 2. Rules: per-command logic
 
