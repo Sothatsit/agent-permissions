@@ -43,7 +43,7 @@ func Registry() (
 		Rules: []model.Rule{
 			model.Flag("-e", "--edit").
 				WithRuleDef(gitInteractive).Deny(
-				"interactive"),
+				"opens an interactive editor"),
 			model.Flag("--upload-pack",
 				"--receive-pack",
 				"--open-files-in-pager",
@@ -209,7 +209,7 @@ func Registry() (
 		Rules: []model.Rule{
 			model.Flag("-ok", "-okdir").
 				WithRuleDef(findInteractive).Deny(
-				"interactive"),
+				"prompts for confirmation"),
 		},
 	}
 

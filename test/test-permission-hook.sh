@@ -3836,6 +3836,12 @@ out=$(_run_hook 'git log -e --grep=foo')
 assert_contains "deny: git log -e over-denied" \
     "$(_decision "$out")" "deny"
 
+# A value jammed onto a short option is over-denied for the letters it
+# holds, so the reason names the token the flag was found in.
+out=$(_run_hook 'git log -Slogged -- x.md')
+assert_contains "deny: -e found inside a pickaxe value" \
+    "$(_reason "$out")" "git -e in -Slogged"
+
 # git add without -e is still allowed.
 out=$(_run_hook 'git add file.txt')
 assert_contains "allow: git add without -e" \

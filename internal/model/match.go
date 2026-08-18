@@ -63,18 +63,29 @@ func (m *FlagMatcher) shortFlagMatches(
 		if !strings.Contains(pf.Name, stripped) {
 			continue
 		}
+
+		// Naming the token says why a flag nobody typed was matched:
+		// -e reported "in -Slogged" is the l of a pickaxe value, not
+		// an editor. Which short options take a jammed-in value is
+		// per-subcommand knowledge this parser does not keep, so the
+		// over-match stands and the message carries the evidence.
+		which := name
+		if pf.Name != name {
+			which = name + " in " + pf.Name
+		}
+
 		if m.ValueCouldContain == "" &&
 			m.ValueMayHavePrefix == "" {
-			return true, name
+			return true, which
 		}
 		// Check embedded value in token text (short flags can have
 		// values jammed in, e.g. -Iexec=foo).
 		if m.textMayMatch(pf.Name) {
-			return true, name
+			return true, which
 		}
 		// Check next-arg value Word.
 		if m.valueMatchesWord(pf.Value) {
-			return true, name
+			return true, which
 		}
 	}
 
