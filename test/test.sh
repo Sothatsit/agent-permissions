@@ -21,7 +21,10 @@ _run_go_tests() {
     echo "================================"
     echo "$title"
     echo "================================"
-    output=$(go test -C "$REPO_DIR" -v -count=1 ./... 2>&1)
+    # Match build.sh, which builds without cgo. Leaving it on makes the
+    # tests unbuildable wherever the platform's cgo is broken, as on
+    # CentOS 7, where every package fails on an undefined uid_t.
+    output=$(CGO_ENABLED=0 go test -C "$REPO_DIR" -v -count=1 ./... 2>&1)
     rc=$?
     go_passed=$(echo "$output" | grep -c '^--- PASS:' || true)
     go_failed=$(echo "$output" | grep -c '^--- FAIL:' || true)
