@@ -168,9 +168,15 @@ func breakdownInterpreter(
 		if !word.Static(scriptWord) {
 			return model.BreakdownOutcome{}, &model.RuleError{
 				Def: cfg.unverified,
-				Reason: "script path contains " +
-					"expansion — cannot determine " +
-					"which file to scan",
+				Reason: fmt.Sprintf(
+					"script path contains "+
+						"expansion — cannot "+
+						"determine which file "+
+						"to scan. Use a literal "+
+						"path, or write the "+
+						"code in a quoted "+
+						"heredoc (%s - <<'EOF' "+
+						"... EOF)", input.Name),
 			}
 		}
 

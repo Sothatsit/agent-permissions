@@ -102,6 +102,13 @@ Run all tests:
   end-to-end on a real task. Passing tests and producing the expected
   output is necessary but not sufficient; real usage reveals problems
   that synthetic tests miss.
+* **You cannot dogfood a hook change in-session.** The session's
+  PreToolUse hook runs the released ai-tools binary, not
+  `bin/agent-permissions`, so behaviour you just changed does not reach
+  your own commands until a new ai-tools release ships. Never repoint
+  the hook at a local build to get around that. An agent that can
+  rebuild its own permission hook can grant itself anything. Verify
+  with `check` and the test suite instead.
 * **Think about process.** After finishing a piece of work, consider
   whether the experience revealed friction or gaps in the dev workflow
   or AGENTS.md. Suggest improvements rather than waiting to be asked.
