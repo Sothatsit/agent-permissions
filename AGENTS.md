@@ -231,9 +231,10 @@ all must agree to allow.
   it, and it reaches inner work only when the outcome sets
   `BreakdownWork.ForwardStdin`. Set that flag on a command that hands
   its own input to the command it runs (exec wrappers, `eval`,
-  `bash -c`), never on one that consumes it (`xargs`). A rule that
-  rebuilds its inner work from a wrapped breakdown must carry the flag
-  across, as `env` does.
+  `bash -c`), never on one that consumes it (`xargs`) or replaces it
+  (`bash` reading its script from stdin). A rule that rebuilds its
+  inner work from a wrapped breakdown must carry the flag across, as
+  `env` does.
 * **File scripts ask, inline code denies.** Code on stdin counts as
   inline: whoever wrote the command wrote the heredoc. When
   `python3 script.py` trips a dangerous-pattern check, the decision is

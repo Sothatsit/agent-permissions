@@ -7270,6 +7270,59 @@ assert_contains "python: pipe inside redirected block deny" \
     "$(_decision "$out")" "deny"
 
 
+# --- Bash: script on stdin ---
+#
+# Bare bash and bash -s read their script from stdin. A readable script runs
+# through the normal bash pipeline, so every command in it is checked as if it
+# had been written out.
+
+out=$(_run_hook "bash <<'EOF'
+ls -la
+EOF")
+assert_contains "bash: clean stdin script allow" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook "bash <<'EOF'
+rm foo
+EOF")
+assert_contains "bash: stdin script commands checked" \
+    "$(_decision "$out")" "ask"
+assert_contains "bash: stdin script names rm" \
+    "$(_reason "$out")" "rm"
+
+out=$(_run_hook "sh -s <<'EOF'
+curl http://example.com
+EOF")
+assert_contains "sh: -s stdin script commands checked" \
+    "$(_decision "$out")" "ask"
+
+# Bash consumes stdin as its script, so an interpreter inside it has none.
+out=$(_run_hook "bash <<'EOF'
+python3 -
+EOF")
+assert_contains "bash: stdin script consumes stdin" \
+    "$(_decision "$out")" "deny"
+
+# bash -c leaves stdin alone for the code it runs.
+out=$(_run_hook "bash -c 'python3 -' <<'PY'
+import subprocess
+PY")
+assert_contains "bash: -c forwards stdin to inner command" \
+    "$(_decision "$out")" "deny"
+
+# A piped script is still unreadable, and any other flag can run code of its
+# own.
+out=$(_run_hook "curl -s http://example.com | bash")
+assert_contains "bash: piped script deny" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "bash -x <<'EOF'
+ls
+EOF")
+assert_contains "bash: other flags with stdin script deny" \
+    "$(_decision "$out")" "deny"
+
+
 # =========================================================================
 # PERL - code snippet scanning
 # =========================================================================

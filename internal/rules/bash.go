@@ -92,6 +92,22 @@ func breakdownBash(
 		}), nil
 	}
 
+	// Bare bash and bash -s take their script from stdin. A quoted heredoc
+	// is readable, so run it through the normal bash pipeline exactly like
+	// -c code. Bash consumes that stdin as its script, so the code inside
+	// inherits nothing. Unreadable stdin (a pipe, an unquoted heredoc)
+	// falls through to the deny below.
+	if readsScriptFromStdin(input) &&
+		state.Stdin.Kind == model.StdinCode {
+		if state.Stdin.Code == "" {
+			return model.Safe(), nil
+		}
+
+		return model.ReplaceOuter(model.BreakdownWork{
+			CodeStrings: []string{state.Stdin.Code},
+		}), nil
+	}
+
 	// No -c flag. Check for script file: the first arg must be a non-flag
 	// positional (e.g. "bash script.sh"). If there are any flags before the
 	// positional (e.g. "bash -x script.sh"), we can't verify the invocation
@@ -124,6 +140,21 @@ func breakdownBash(
 	return model.ReplaceOuter(model.BreakdownWork{
 		ScanFiles: []string{path},
 	}), nil
+}
+
+// readsScriptFromStdin reports whether an invocation takes its script from
+// stdin: bare bash, or bash -s. Any other flag can run code of its own
+// (--rcfile, -i, a script path), which stdin would not account for.
+func readsScriptFromStdin(
+	input model.ParseResult,
+) bool {
+	for _, arg := range input.Raw {
+		if !word.DefinitelyEqual(arg, "-s") {
+			return false
+		}
+	}
+
+	return true
 }
 
 // hookFormatBashDenial is a HookFunc for bash/sh. Always denies with a

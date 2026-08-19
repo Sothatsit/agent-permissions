@@ -148,6 +148,28 @@ func TestStdinForwarding(t *testing.T) {
 	}
 }
 
+// bash reading its script from stdin runs shell code, so it goes through the
+// bash pipeline rather than being scanned as a snippet.
+func TestBashStdinScriptExtractsCommands(t *testing.T) {
+	br, err := wbd(t,
+		"bash <<'EOF'\ngit status\nEOF\n")
+	if err != nil {
+		t.Fatalf("breakdown: %v", err)
+	}
+	if !hasCmd(br, "git") {
+		t.Error("git not extracted from bash stdin script")
+	}
+}
+
+// bash consumes the stdin it reads its script from, so an interpreter inside
+// that script has none.
+func TestBashStdinScriptConsumesStdin(t *testing.T) {
+	cmd := "bash <<'EOF'\npython3 -\nEOF\n"
+	if _, err := wbd(t, cmd); err == nil {
+		t.Errorf("%q: no error, want a denial", cmd)
+	}
+}
+
 func TestSuppliedStdinKinds(t *testing.T) {
 	if (model.Stdin{}).Supplied() {
 		t.Error("inherited stdin reported as supplied")

@@ -89,7 +89,9 @@ Stdin is tracked like the working directory. A redirect on a statement supplies
 its command's input, an exec-style wrapper passes its input to the command it
 runs, and a pipe hides it. So `timeout 5 python3 - <<'PY'` scans the heredoc,
 while `cat prog.py | python3 -` fails closed, as does an unquoted `<<PY` whose
-body the shell expands before the interpreter sees it.
+body the shell expands before the interpreter sees it. Bare `bash` and `bash
+-s` read a script from stdin, and that script runs through the same pipeline as
+`bash -c` code.
 
 ### 2. Rules: per-command logic
 
