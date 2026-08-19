@@ -14,27 +14,21 @@ import (
 	"github.com/sothatsit/agent-permissions/internal/word"
 )
 
-// MatchMode describes how a pattern handles arguments beyond its fixed
-// elements.
+// MatchMode is how a pattern handles arguments beyond its fixed elements.
 type MatchMode int
 
 const (
-	// MatchExact requires exactly the fixed elements, no extra args.
-	// Pattern "git status".
+	// MatchExact requires exactly the fixed elements ("git status").
 	MatchExact MatchMode = iota
-	// MatchTrailing requires 1+ args after the fixed elements.
-	// Pattern "git *".
+	// MatchTrailing requires 1+ args after them ("git *").
 	MatchTrailing
-	// MatchPrefix allows 0+ args after the fixed elements. Pattern "git:*"
-	// (Claude Code syntax).
+	// MatchPrefix allows 0+ args after them ("git:*").
 	MatchPrefix
 )
 
-// Pattern is a parsed permission pattern from a command entry. Reason is the
-// optional explanation surfaced in hook output
-// ("<pattern> - <reason>  (from <source>)"). Empty when loaded from a Claude
-// Code settings.json (its array shape has no slot for a reason) or when the
-// preset/config entry omitted one.
+// Pattern is a parsed permission pattern. Reason is surfaced in hook output,
+// and is empty for a Claude Code settings.json, whose array shape has no slot
+// for one.
 type Pattern struct {
 	Elements []string  // fixed parts to match
 	Raw      string    // original pattern text
@@ -47,11 +41,9 @@ func (p Pattern) clone() Pattern {
 	return p
 }
 
-// EnvVarPattern matches an assigned environment variable by name. Syntax: exact
-// name (`BASH_ENV`) or a name with a trailing `*` for prefix match (`LD_*`
-// covers LD_PRELOAD, LD_LIBRARY_PATH, etc.). No value matching. The schema
-// concerns itself only with which variables can be assigned, not what they're
-// assigned to.
+// EnvVarPattern matches an assigned variable by exact name (BASH_ENV) or by
+// prefix with a trailing * (LD_*). The schema concerns itself only with which
+// variables can be assigned, not what they are assigned to.
 type EnvVarPattern struct {
 	Raw    string // original entry, e.g. "LD_*"
 	Match  string // entry minus trailing "*"
@@ -60,8 +52,7 @@ type EnvVarPattern struct {
 }
 
 // TierEntries holds one tier's entries split by tool axis. Each axis resolves
-// independently (a Commands match in a higher source does not lock out EnvVars
-// from being consulted in lower sources, and vice versa).
+// independently.
 type TierEntries struct {
 	Commands []Pattern
 	EnvVars  []EnvVarPattern
@@ -79,20 +70,16 @@ func (t TierEntries) clone() TierEntries {
 	}
 }
 
-// SourcePerms holds one config source's entries, classified by tier and tool
-// axis. Normal sources resolve in priority order, with
-// Deny > Ask > Allow > SoftAsk inside one source. Enforced sources aggregate
-// every match using decision strength: Deny > Ask > SoftAsk > Allow.
+// SourcePerms holds one config source's entries. Normal sources resolve in
+// priority order with Deny > Ask > Allow > SoftAsk inside one source. Enforced
+// sources aggregate every match by decision strength.
 type SourcePerms struct {
-	// Name is shown in `check` output and reasons. Examples include
-	// "preset:git", "~/.agents/permissions.json", etc.
+	// Name is shown in `check` output and reasons ("preset:git").
 	Name string
 
-	// AcceptsReasons is true when the source's schema can carry per-pattern
-	// reasons. False for Claude Code settings.json, whose flat-array shape
-	// has no slot for reasons. The `validate` subcommand uses this to avoid
-	// flagging structurally-empty reasons as "missing" - only sources that
-	// *could* have reasons get the empty-reason warning.
+	// AcceptsReasons is false for Claude Code settings.json, whose
+	// flat-array shape has no slot for reasons, so `validate` does not
+	// flag structurally-empty reasons as missing.
 	AcceptsReasons bool
 
 	Allow   TierEntries
@@ -109,58 +96,46 @@ func (s SourcePerms) clone() SourcePerms {
 	return s
 }
 
-// Permissions holds parsed permission rules across every config source
-// consulted by the hook. Sources are normal first-match config, ordered highest
-// priority first. EnforcedSources are organisation policy: every matching entry
-// participates and the strongest decision is combined with normal resolution.
+// Permissions holds parsed rules across every config source. Sources are normal
+// first-match config, highest priority first. EnforcedSources are organisation
+// policy: every matching entry participates and the strongest decision combines
+// with normal resolution.
 type Permissions struct {
 	Sources         []SourcePerms
 	EnforcedSources []SourcePerms
 
-	// Warnings collects malformed entries rejected at load time. Surfaced
-	// by the `check` and `validate` subcommands so users can find typos
-	// that silently degrade their policy. The hot path ignores these.
+	// Warnings collects malformed entries rejected at load time, for
+	// `check` and `validate` to surface. The hot path ignores them.
 	Warnings []ConfigWarning
 
-	// Resolve installs these maps in one filter pass. rules is the same
-	// command registry used by Resolved.Breakdown.
+	// Resolve installs these maps in one filter pass.
 	rules        map[string]*model.CommandRules
 	snippetRules map[string]*model.SnippetLang
 
-	// PathDirs is the set of directories on the hook process's PATH, used
-	// to decide whether an absolute-path command can be matched by its
-	// basename in Allow/Ask/SoftAsk. `/usr/bin/git` with `/usr/bin` in PATH
-	// means the shell would have resolved `git` to the same binary, so the
-	// basename match is safe. An out-of-PATH absolute path requires an
-	// explicit absolute-path pattern. Populated by the loader from
-	// os.Getenv("PATH"); injectable in tests.
+	// PathDirs is the hook process's PATH, which decides whether an
+	// absolute-path command can match a bare-name Allow: /usr/bin/git
+	// with /usr/bin on PATH is the binary the shell would have found
+	// for `git`. An out-of-PATH absolute path needs its own pattern.
 	PathDirs map[string]struct{}
 
-	// Harness provides the harness-specific surfaces (text strings today,
-	// more later) so output can vary by agent harness without the
-	// resolution code branching. Loader sets a default; tests can inject.
+	// Harness carries the harness-specific output text, so resolution
+	// never branches on which agent harness is running.
 	Harness harness.Harness
 }
 
-// ConfigWarning is a single rejected entry from a permission source. Source
-// identifies where it came from ("preset:git", "~/.agents/permissions.json",
-// etc.), Entry is the rejected raw text, and Reason explains why parsePattern
-// refused it.
 type ConfigWarning struct {
 	Source string
 	Entry  string
 	Reason string
 }
 
-// Result is the outcome of checking all commands.
 type Result struct {
 	Decision model.Decision
 	Reason   string
 }
 
-// DenyResult builds a deny Result with the grouped "Deny:" format for a single
-// reason. Used by callers that produce denials outside of Check (e.g. breakdown
-// errors).
+// DenyResult builds the grouped "Deny:" format for callers that deny outside
+// Check, such as breakdown errors.
 func DenyResult(reason string) Result {
 	return Result{
 		Decision: model.Deny,
@@ -173,48 +148,35 @@ func DenyResult(reason string) Result {
 type checkSource int
 
 const (
-	// sourceRules means the rules layer decided.
 	sourceRules checkSource = iota
-	// sourcePattern means a permission pattern matched.
 	sourcePattern
-	// sourceNone means no rule or pattern matched.
 	sourceNone
 )
 
-// commandCheck is the raw result of evaluating a single command. It carries
-// enough information for the caller to format the grouped output without
-// checkOne needing to know about presentation.
-//
-// Output is rendered as "<subject>[ - <description>] (from <sourceName>)". The
-// two-field split lets pattern layer and rules layer share a renderer:
-//
-//   - Pattern layer: subject is the pattern (pat.Raw), description is the
-//     user-supplied reason from the preset/config map (may be empty).
-//   - Rules layer: subject and description come from splitting the rule's
-//     "<subject>: <description>" prose on the first ": ".
-//   - Env-var match: subject is the var name (or the pattern's Raw if a prefix
-//     match), description is the pattern's reason.
+// commandCheck is one command's evaluation, carrying enough for the caller to
+// format grouped output. That renders as "<subject>[ - <description>] (from
+// <sourceName>)", and the two-field split lets every layer share one renderer:
+// a pattern puts pat.Raw and the config reason in them, a rule splits its
+// "<subject>: <description>" prose on the first ": ", and an env-var match uses
+// the variable name and the pattern's reason.
 type commandCheck struct {
 	decision    model.Decision
 	source      checkSource
 	subject     string
 	description string
-	// sourceName identifies which SourcePerms produced a sourcePattern
-	// decision. Used to attribute matches to their source (e.g.
-	// "preset:git") in the reason text shown to users.
+	// sourceName attributes a sourcePattern decision to the SourcePerms
+	// that produced it ("preset:git").
 	sourceName string
-	// ruleDef is the rule definition behind a sourceRules decision. It
-	// drives the "(from rule:<id>)" attribution so the displayed ID is the
-	// one the user puts in their Rules config to disable it. Nil for
-	// structural rule decisions with no governing rule.
+	// ruleDef drives the "(from rule:<id>)" attribution, so the displayed
+	// ID is the one the user disables. Nil for structural rule decisions
+	// with no governing rule.
 	ruleDef *model.RuleDef
 	// args holds the command's string arguments. Set only for sourceNone
 	// (unknown commands) so the caller can compute a suggestion pattern.
 	args []string
 	// matches holds every reason at the winning tier when enforced policy
-	// and normal resolution produce equally strong decisions. Empty for the
-	// common single-match case. Each child is a complete, non-aggregate
-	// check.
+	// and normal resolution tie. Empty in the common single-match case, and
+	// each child is a complete check.
 	matches []commandCheck
 }
 
@@ -239,12 +201,16 @@ func (c commandCheck) withSubject(subject string) commandCheck {
 	return c
 }
 
-// labelCollector is a deduplicated ordered list of strings. Used in Check to
-// collect deny labels, ask labels, unknown suggestions, and script paths
-// without duplicates.
+// labelCollector is a deduplicated ordered list of strings.
 type labelCollector struct {
 	items []string
 	seen  map[string]bool
+}
+
+func (c *labelCollector) addAll(items []string) {
+	for _, item := range items {
+		c.add(item)
+	}
 }
 
 func (c *labelCollector) add(item string) {
@@ -257,15 +223,72 @@ func (c *labelCollector) add(item string) {
 	}
 }
 
-// parsePattern converts a raw pattern string ("git status", "git log *",
-// "git commit:*", "*") into a Pattern. Returns false for degenerate inputs
-// (empty, empty fixed elements, etc.) so callers can silently skip them.
+// decisionTally folds every axis's decision together by tier precedence, and
+// collects the labels each tier will display. Holding the precedence rule in
+// one place keeps the command, env-var, and snippet axes from drifting apart.
+type decisionTally struct {
+	decision               model.Decision
+	denies, asks, softAsks labelCollector
+}
+
+// add folds in one decision with the labels it should display, and reports
+// whether it survived tier precedence. A caller does its axis-specific
+// bookkeeping only when it did.
+func (t *decisionTally) add(
+	decision model.Decision, labels ...string,
+) bool {
+	switch decision {
+	case model.Deny:
+		t.decision = model.Deny
+		t.denies.addAll(labels)
+	case model.Ask:
+		if t.decision == model.Deny {
+			return false
+		}
+
+		t.decision = model.Ask
+		t.asks.addAll(labels)
+	case model.SoftAsk:
+		if t.decision == model.Deny {
+			return false
+		}
+		if t.decision != model.Ask {
+			t.decision = model.SoftAsk
+		}
+
+		t.softAsks.addAll(labels)
+	case model.Undecided:
+		if t.decision == model.Deny {
+			return false
+		}
+		if t.decision != model.Ask &&
+			t.decision != model.SoftAsk {
+			t.decision = model.Undecided
+		}
+	}
+
+	return true
+}
+
+// checkLabels renders every reason behind one check.
+func checkLabels(
+	check commandCheck, cmd model.Command,
+) []string {
+	reasons := check.reasons()
+	labels := make([]string, 0, len(reasons))
+	for _, reason := range reasons {
+		labels = append(labels, formatCheck(reason, cmd))
+	}
+
+	return labels
+}
+
+// parsePattern rejects degenerate inputs so callers can skip them silently.
 func parsePattern(raw string) (Pattern, error) {
 	elements := strings.Fields(raw)
-	// Empty raw - the legacy behaviour of treating these as match-all was a
-	// footgun. Match-all is still available via bare `Bash` or `Bash(*)`,
-	// both of which normalise to raw="*" in extractBashPattern and yield
-	// elements=["*"].
+	// An empty pattern matches nothing. Match-all needs a bare `Bash`
+	// or `Bash(*)`, which extractBashPattern normalises to raw="*"
+	// and elements=["*"].
 	if len(elements) == 0 {
 		return Pattern{}, fmt.Errorf("empty pattern")
 	}
@@ -282,9 +305,8 @@ func parsePattern(raw string) (Pattern, error) {
 		mode = MatchPrefix
 	}
 
-	// Reject patterns with an empty fixed element. E.g. `:*` collapses to
-	// [""] with MatchPrefix, which would never sensibly match anything and
-	// suggests a malformed entry.
+	// An empty fixed element, as `:*` collapsing to [""], could never
+	// sensibly match and suggests a malformed entry.
 	for _, e := range elements {
 		if e == "" {
 			return Pattern{}, fmt.Errorf(
@@ -299,17 +321,15 @@ func parsePattern(raw string) (Pattern, error) {
 	}, nil
 }
 
-// envVarPatternRE constrains entries to a POSIX-shape env var name with an
-// optional trailing `*`. The hook will never see an assignment whose name
-// doesn't match this shape (bash itself rejects them at parse time), so
-// rejecting anything looser keeps validate honest about what's load-bearing.
+// envVarPatternRE constrains entries to a POSIX-shape name with an optional
+// trailing `*`. Bash rejects anything looser at parse time, so the hook will
+// never see one, and rejecting them keeps validate honest about what is
+// load-bearing.
 var envVarPatternRE = regexp.MustCompile(
 	`^[A-Za-z_][A-Za-z0-9_]*\*?$`)
 
-// parseEnvVarPattern converts a raw entry into an EnvVarPattern. `LD_*` becomes
-// a prefix match against `LD_`; `BASH_ENV` matches that exact name. Empty
-// patterns and patterns with characters that can never appear in an env var
-// name are rejected.
+// parseEnvVarPattern rejects an empty pattern, and any character that can never
+// appear in an env var name.
 func parseEnvVarPattern(
 	raw, reason string,
 ) (EnvVarPattern, error) {
@@ -339,7 +359,6 @@ func parseEnvVarPattern(
 	}, nil
 }
 
-// MatchEnvVar reports whether the assigned variable name matches this pattern.
 func (p EnvVarPattern) MatchEnvVar(name string) bool {
 	if p.Prefix {
 		return strings.HasPrefix(name, p.Match)
@@ -360,75 +379,37 @@ func extractBashPattern(entry string) (string, bool) {
 	return entry[5 : len(entry)-1], true
 }
 
-// Env-var policy used to live in two hard-coded maps here (dangerousEnvVars,
-// suspiciousEnvVars). Both were moved into the escape-hatches preset's
-// Deny.EnvVars and SoftAsk.EnvVars maps so the same source-priority and
-// override semantics that govern commands now govern environment variables.
-
-// Check evaluates all extracted commands against the permissions and dangerous
-// pattern checks.
+// Check evaluates every extracted command, env var, and snippet.
 func (p *Permissions) Check(
 	result model.BreakdownResult,
 ) Result {
-	aggregate := model.Allow
+	tally := decisionTally{decision: model.Allow}
 	var undecidedReason string
-
-	// Collectors for grouped formatting (deduplicated). Each axis
-	// (commands, env vars, snippets) feeds the same four label lists; the
-	// resolution is independent per axis but the final decision aggregates
-	// across them via tier precedence.
-	var denies, asks, softAsks labelCollector
 	var unknowns, scripts labelCollector
 
-	// Env-var axis. Each assigned variable name is resolved independently
-	// against EnvVars patterns in the source stack, exactly like commands.
-	// Decisions feed the same aggregate so deny/ask/soft-ask from env vars
-	// participate in tier precedence with command and snippet decisions.
+	// Each assigned name resolves through the source stack exactly like a
+	// command. The Allow path leaves the matched name out of the
+	// commandCheck, because Allow.EnvVars overrides do not surface, so plug
+	// it in for the tiers that do.
 	for _, name := range result.Assigns {
 		check := p.checkOneEnvVar(name).withSubject(name)
-		// The Allow path doesn't bake the matched name into the
-		// commandCheck (Allow.EnvVars overrides don't surface in
-		// output), so plug the assigned name in for Deny/Ask/SoftAsk
-		// rendering.
-		switch check.decision {
-		case model.Deny:
-			aggregate = model.Deny
-			for _, reason := range check.reasons() {
-				denies.add(formatCheck(
-					reason, model.Command{}))
-			}
-		case model.Ask:
-			if aggregate == model.Deny {
-				continue
-			}
-
-			aggregate = model.Ask
-			for _, reason := range check.reasons() {
-				asks.add(formatCheck(
-					reason, model.Command{}))
-			}
-		case model.SoftAsk:
-			if aggregate == model.Deny {
-				continue
-			}
-			if aggregate != model.Ask {
-				aggregate = model.SoftAsk
-			}
-
-			for _, reason := range check.reasons() {
-				softAsks.add(formatCheck(
-					reason, model.Command{}))
-			}
+		// A variable no pattern mentions is not an opinion, unlike an
+		// unknown command. Treating it as one would make every
+		// FOO=bar cmd undecided.
+		if check.decision == model.Undecided {
+			continue
 		}
+
+		tally.add(check.decision,
+			checkLabels(check, model.Command{})...)
 	}
 
 	cmds := result.Commands
 	snippets := result.CodeSnippets
-	// Skip the no-commands early return when env vars already produced any
-	// decision - fall through to emit the labels. Without env vars to
-	// evaluate (or with all of them allowed), bare safe input still allows.
+	// Env vars that already produced a decision must reach the labels, so
+	// they skip the no-commands early return. Bare safe input still allows.
 	if len(cmds) == 0 && len(snippets) == 0 &&
-		aggregate == model.Allow {
+		tally.decision == model.Allow {
 		if result.IsSafe() {
 			return Result{Decision: model.Allow}
 		}
@@ -438,49 +419,18 @@ func (p *Permissions) Check(
 
 	for _, cmd := range cmds {
 		check := p.checkOne(cmd)
+		if !tally.add(check.decision,
+			checkLabels(check, cmd)...) {
+			continue
+		}
 
 		switch check.decision {
 		case model.Deny:
-			aggregate = model.Deny
-			for _, reason := range check.reasons() {
-				denies.add(formatCheck(reason, cmd))
-			}
-
 			if cmd.SourcePath != "" {
 				scripts.add(word.DirectPath(
 					cmd.RootScript))
 			}
-		case model.Ask:
-			// Deny takes priority - skip collection when already
-			// denied.
-			if aggregate == model.Deny {
-				continue
-			}
-
-			aggregate = model.Ask
-			for _, reason := range check.reasons() {
-				asks.add(formatCheck(reason, cmd))
-			}
-		case model.SoftAsk:
-			if aggregate == model.Deny {
-				continue
-			}
-			if aggregate != model.Ask {
-				aggregate = model.SoftAsk
-			}
-
-			for _, reason := range check.reasons() {
-				softAsks.add(formatCheck(reason, cmd))
-			}
 		case model.Undecided:
-			if aggregate == model.Deny {
-				continue
-			}
-			if aggregate != model.Ask &&
-				aggregate != model.SoftAsk {
-				aggregate = model.Undecided
-			}
-
 			if len(check.args) > 0 {
 				unknowns.add(p.buildPermissionSuggestion(
 					check.args,
@@ -488,48 +438,23 @@ func (p *Permissions) Check(
 			} else {
 				undecidedReason = check.subject
 			}
-		case model.Allow:
-			// Lowest priority, keep going.
 		}
 	}
 
-	// Process code snippets (e.g. Python source). Snippets only produce
-	// Deny, Ask, SoftAsk, or Allow.
+	// A snippet's reason is pre-composed, so it is its own label. Snippets
+	// never land on Undecided.
 	for i := range snippets {
 		snippetResult := p.checkSnippet(&snippets[i])
-		switch snippetResult.decision {
-		case model.Deny:
-			aggregate = model.Deny
-			denies.add(snippetResult.subject)
-		case model.Ask:
-			if aggregate == model.Deny {
-				continue
-			}
-
-			aggregate = model.Ask
-			asks.add(snippetResult.subject)
-		case model.SoftAsk:
-			if aggregate == model.Deny {
-				continue
-			}
-			if aggregate != model.Ask {
-				aggregate = model.SoftAsk
-			}
-
-			softAsks.add(
-				snippetResult.subject)
-		case model.Allow:
-			// Clean snippet or user override.
-		}
+		tally.add(snippetResult.decision,
+			snippetResult.subject)
 	}
 
-	// Undecided with collected unknowns means unknown commands were seen.
-	// Promote to SoftAsk so the hook can apply mode-dependent behavior (ask
-	// in normal, fall through in auto). Pure undecided (no unknowns) is a
-	// true "no opinion" - the hook always falls through.
-	if aggregate == model.Undecided {
+	// Unknowns with no other opinion become SoftAsk, so the hook can
+	// ask in normal mode and fall through in auto. Pure undecided is
+	// a true "no opinion" and always falls through.
+	if tally.decision == model.Undecided {
 		if len(unknowns.items) > 0 {
-			aggregate = model.SoftAsk
+			tally.decision = model.SoftAsk
 		} else {
 			return Result{
 				Decision: model.Undecided,
@@ -545,10 +470,9 @@ func (p *Permissions) Check(
 
 	unknownHeader := h.UnknownCommandHeader()
 
-	// When deny is present, only show denies.
-	if aggregate == model.Deny {
+	if tally.decision == model.Deny {
 		reason := formatResult(
-			nil, nil, nil, denies.items, unknownHeader)
+			nil, nil, nil, tally.denies.items, unknownHeader)
 		if len(scripts.items) > 0 {
 			reason += "\n\n" +
 				sourceGuidance(scripts.items)
@@ -561,15 +485,14 @@ func (p *Permissions) Check(
 	}
 
 	return Result{
-		Decision: aggregate,
+		Decision: tally.decision,
 		Reason: formatResult(
-			asks.items, softAsks.items,
+			tally.asks.items, tally.softAsks.items,
 			unknowns.items, nil, unknownHeader),
 	}
 }
 
-// sourceGuidance builds the footer guidance for denies that came from sourced
-// files.
+// sourceGuidance is the footer for denies from sourced files.
 func sourceGuidance(scriptPaths []string) string {
 	if len(scriptPaths) == 1 {
 		return fmt.Sprintf(
@@ -588,16 +511,11 @@ func sourceGuidance(scriptPaths []string) string {
 		strings.Join(scriptPaths, ", "))
 }
 
-// formatCheck produces the display label for a matched check
-// (Deny/Ask/SoftAsk). Pattern-layer matches show the pattern as-is with `:*`
-// form preserved, so the label can be pasted into an Allow list when
-// applicable. Rule-layer matches surface the rule's subject and description
-// with a dash separator, distinguishing them visually from patterns; the source
-// is the rule's ID from its RuleDef (e.g. "rule:git.branch-writes"), so it is
-// the exact ID the user puts in their Rules config to disable it. Empty
-// descriptions drop the dash and surface only the subject. This is common for
-// Claude Code settings.json (no reason slot) and presets where a reason wasn't
-// worth writing.
+// formatCheck builds a matched check's display label. A pattern shows as-is,
+// keeping its `:*` form so it can be pasted into an Allow list. A rule shows
+// subject and description split by a dash, attributed to its RuleDef ID so the
+// user has the exact ID to disable. An empty description drops the dash, which
+// is common for settings.json and for presets without a reason.
 func formatCheck(
 	check commandCheck, cmd model.Command,
 ) string {
@@ -625,12 +543,10 @@ func formatCheck(
 	return label
 }
 
-// splitRuleReason splits a rule-layer reason on the first ": " separator. Rule
-// reasons follow the convention "<subject>: <description>" (e.g.
-// "git branch: write flag -d") so the subject can drive the source attribution
-// and the description appears after a dash. Returns (reason, "") when there's
-// no separator - the whole string is a complete thought and renders as the
-// subject alone.
+// splitRuleReason splits a rule reason on the first ": ". Rule reasons follow
+// "<subject>: <description>", so the subject can drive attribution and the
+// description follow a dash. Without a separator the whole string is the
+// subject.
 func splitRuleReason(
 	reason string,
 ) (subject, description string) {
@@ -642,18 +558,15 @@ func splitRuleReason(
 	return reason[:i], reason[i+2:]
 }
 
-// checkSnippet evaluates a code snippet against snippet rules. First checks the
-// SourceScript against user permissions - an explicit allow/ask/deny overrides
-// scanning. Otherwise runs snippet rules for the language and returns the
-// strongest finding.
+// checkSnippet prefers an explicit permission on SourceScript, and otherwise
+// returns the strongest finding from the language's snippet rules.
 func (p *Permissions) checkSnippet(
 	snippet *model.CodeSnippet,
 ) commandCheck {
-	// Check SourceScript against permissions. For file-based code, the
-	// pattern decision wins. For inline -c/-e code, only pattern Deny/Ask
-	// win: pattern Allow does NOT suppress snippet scanning, because
-	// agent-generated inline code is never user-reviewed, so
-	// dangerous-pattern matching is a hard floor even under broad allows.
+	// For file-based code the pattern decision wins outright. For inline
+	// -c/-e code only Deny and Ask win: an Allow does not suppress
+	// scanning, because agent-generated code is never user-reviewed, so
+	// pattern matching is a hard floor even under broad allows.
 	if len(snippet.SourceScript) > 0 {
 		cmd := model.Command{
 			Args: snippet.SourceScript,
@@ -668,7 +581,6 @@ func (p *Permissions) checkSnippet(
 		}
 	}
 
-	// Run snippet rules for this language.
 	lang := p.snippetRules[snippet.Language]
 	if lang == nil || len(lang.Rules) == 0 {
 		return commandCheck{decision: model.Allow}
@@ -711,9 +623,9 @@ func (p *Permissions) checkSnippet(
 		return commandCheck{decision: model.Allow}
 	}
 
-	// Build the reason with source context. All of a language's snippet
-	// rules share one RuleDef, so attribute the finding to it - the
-	// displayed ID is the one the user disables in their Rules config.
+	// All of a language's snippet rules share one RuleDef, so the
+	// finding is attributed to it and the displayed ID is the one the
+	// user disables.
 	source := "inline code"
 	if snippet.SourceFile != "" {
 		source = snippet.SourceFile
@@ -742,11 +654,9 @@ func (p *Permissions) checkSnippet(
 		decision: decision,
 		source:   sourceRules,
 		ruleDef:  lang.Def,
-		// Snippet reasons are pre-composed
-		// "<source>: <findings>  (from rule:<id>)" strings; they
-		// bypass formatCheck and get dumped to the user verbatim, so
-		// the attribution is baked in above. Park the composed string
-		// in subject; description stays empty.
+		// Snippet reasons are pre-composed and bypass formatCheck, so
+		// the attribution is already baked in. Park the composed string
+		// in subject and leave description empty.
 		subject: reason,
 	}
 }
@@ -759,8 +669,10 @@ const (
 	untrustedCommandPath
 )
 
-// Restrictive policy recognizes basenameArgs for every explicit path. Only a
-// path in the captured PATH can use that basename to gain an Allow.
+// commandIdentity is how patterns address one command. A path-invoked command
+// also carries basenameArgs, its argv with the bare name in place, so deny and
+// ask patterns reach it either way. Only a path found in the captured PATH may
+// use that bare name to gain an Allow.
 type commandIdentity struct {
 	kind         commandIdentityKind
 	name         string
@@ -809,8 +721,7 @@ func (p *Permissions) checkOne(
 
 	identity := p.identifyCommand(cmd)
 
-	// 1. Rules layer - operates on Words directly, no string conversion
-	// needed.
+	// 1. Rules layer, working on Words with no string conversion.
 	if p.rules != nil {
 		if action := evaluateCommandRules(
 			p.rules, identity, cmd.Args[1:],
@@ -827,10 +738,9 @@ func (p *Permissions) checkOne(
 		}
 	}
 
-	// 2. Pattern matching. Normal sources retain their first-source
-	// semantics. Enforced sources form a minimum policy: every matching
-	// entry participates, and their strongest decision combines with the
-	// normal result.
+	// 2. Pattern matching. Normal sources keep first-source semantics.
+	// Enforced sources form a minimum policy: every match participates, and
+	// their strongest decision combines with the normal result.
 	var pathResolved []string
 	if identity.kind == trustedCommandPath {
 		pathResolved = identity.basenameArgs
@@ -847,9 +757,8 @@ func (p *Permissions) checkOne(
 		return check
 	}
 
-	// 3. Function call override - checked after all sources because an
-	// explicit deny anywhere should still win over the function-call escape
-	// hatch.
+	// 3. Function-call override, after all sources, because an explicit
+	// deny should outlive the function-call escape hatch.
 	if cmd.CouldBeFuncCall {
 		return commandCheck{
 			decision: model.Allow,
@@ -866,8 +775,7 @@ func (p *Permissions) checkOne(
 }
 
 // matchCommandSources applies normal first-source resolution. Within a source,
-// an explicit Allow opts out of SoftAsk, preserving the existing user-config
-// contract.
+// an explicit Allow opts out of SoftAsk.
 func matchCommandSources(
 	sources []SourcePerms,
 	argTexts, stripped, pathResolved []string,
@@ -906,8 +814,7 @@ func matchCommandSources(
 }
 
 // matchEnforcedCommandSources treats every enforced entry as an independent
-// minimum constraint. Source and directory order cannot let a weaker match hide
-// a stronger one.
+// minimum, so no ordering can hide a stronger match behind a weaker one.
 func matchEnforcedCommandSources(
 	sources []SourcePerms,
 	argTexts, stripped, pathResolved []string,
@@ -947,17 +854,15 @@ func matchEnforcedCommandSources(
 	return aggregateChecks(matches)
 }
 
-// combineDecision folds the enforced plane's verdict into the normal one.
-// Keeping the stronger tier is what makes enforced policy a minimum the user
-// cannot weaken.
+// combineDecision folds the enforced verdict into the normal one,
+// keeping the stronger tier so enforced policy is a minimum the
+// user cannot weaken.
 //
-// SoftAsk is the one exception. It means
-// "nudge unless the user has already allowed this", so an explicit Allow is
-// the answer to it, not something it outranks - enforcing a SoftAsk over an
-// Allow would make the tier stricter than an Ask, which no user config can
-// silence either. The reverse does not hold: an enforced Allow still cannot
-// talk a normal-lane SoftAsk down, because the enforced plane only ever
-// strengthens.
+// SoftAsk is the exception. It means "nudge unless the user has
+// already allowed this", so an explicit Allow answers it rather
+// than losing to it. The reverse does not hold: an enforced Allow
+// cannot talk a normal SoftAsk down, because the enforced plane
+// only strengthens.
 func combineDecision(
 	normal, enforced model.Decision,
 ) model.Decision {
@@ -1016,8 +921,6 @@ func aggregateChecks(matches []commandCheck) commandCheck {
 	}
 }
 
-// matchFirst returns the first pattern in patterns that matches args, or
-// (Pattern{}, false) if none match.
 func matchFirst(
 	patterns []Pattern, args []string,
 ) (Pattern, bool) {
@@ -1030,11 +933,9 @@ func matchFirst(
 	return Pattern{}, false
 }
 
-// matchTier tries patterns against the raw args, then against the
-// basename-stripped form. On a match it builds the commandCheck for the given
-// tier. For Allow tier the reason is left empty because Allow doesn't surface
-// in output. The source is still recorded so attribution works downstream if a
-// caller introspects.
+// matchTier tries the raw args, then the basename-stripped form. The Allow tier
+// gets an empty reason because Allow never surfaces, but the source is still
+// recorded for attribution.
 func matchTier(
 	src SourcePerms,
 	patterns []Pattern,
@@ -1057,9 +958,8 @@ func matchTier(
 	return commandCheck{}, false
 }
 
-// matchTierAll returns every matching pattern in one enforced tier. A pattern
-// that matches both the raw and basename-stripped forms contributes one reason,
-// preferring the raw form just like matchTier.
+// matchTierAll returns every match in one enforced tier. A pattern matching
+// both forms contributes one reason, preferring the raw form as matchTier does.
 func matchTierAll(
 	src SourcePerms,
 	patterns []Pattern,
@@ -1086,10 +986,8 @@ func matchTierAll(
 	return matches
 }
 
-// commandCheckFromPattern builds the commandCheck for a pattern-layer match.
-// Subject is the matched pattern; description is the preset/config-supplied
-// reason (may be empty). The via suffix is appended to the subject only when
-// the match came from the basename-stripped retry, telling the user the
+// commandCheckFromPattern builds a pattern-layer match. The via suffix joins
+// the subject only for a basename-stripped retry, telling the user a
 // path-prefixed invocation hit a bare-name pattern.
 func commandCheckFromPattern(
 	src SourcePerms,
@@ -1187,9 +1085,8 @@ func matchEnforcedEnvVarSources(
 	return aggregateChecks(matches)
 }
 
-// envVarCheck builds the commandCheck for an env-var pattern match. Subject is
-// the matched pattern's Raw (e.g. "BASH_ENV" or "LD_*"); description is the
-// preset/config-supplied reason.
+// envVarCheck builds an env-var match. Subject is the matched pattern's Raw
+// ("BASH_ENV", "LD_*").
 func envVarCheck(
 	src SourcePerms,
 	pat EnvVarPattern,
@@ -1204,8 +1101,6 @@ func envVarCheck(
 	}
 }
 
-// matchEnvVarFirst returns the first pattern that matches the given name, or
-// (zero, false) if none match.
 func matchEnvVarFirst(
 	patterns []EnvVarPattern, name string,
 ) (EnvVarPattern, bool) {
@@ -1301,10 +1196,8 @@ func globMatch(pattern, text string) bool {
 	return true
 }
 
-// --- Smart pattern suggestion ---
-
-// buildPermissionSuggestion builds the "Bash(cmd:*)" entry shown for unknown
-// commands, with optional source path annotation.
+// buildPermissionSuggestion builds the "Bash(cmd:*)" entry shown for an unknown
+// command.
 func (p *Permissions) buildPermissionSuggestion(
 	args []string, sourcePath string,
 ) string {
@@ -1316,11 +1209,9 @@ func (p *Permissions) buildPermissionSuggestion(
 	return s
 }
 
-// buildPermissionPattern produces the shortest useful :* pattern for a command
-// that has no matching rule or pattern. It checks existing patterns and the
-// rules registry to find the shortest prefix that isn't already "known", so
-// git apply -> git apply:* (not git:*) when git has existing rules but apply
-// does not.
+// buildPermissionPattern finds the shortest :* pattern that is not already
+// known to the patterns or the rules registry, so git apply suggests git
+// apply:* rather than git:* when git has rules but apply does not.
 func (p *Permissions) buildPermissionPattern(
 	args []string,
 ) string {
@@ -1335,25 +1226,21 @@ func (p *Permissions) buildPermissionPattern(
 	return strings.Join(prefix, " ") + ":*"
 }
 
-// compoundFlags maps commands to flags that consume the next arg as part of the
-// command identity. For suggestion purposes, "python3 -m module" should suggest
-// "python3 -m module:*", not "python3:*".
+// compoundFlags are flags whose next arg is part of the command identity, so
+// python3 -m module suggests python3 -m module:*.
 var compoundFlags = map[string]map[string]bool{
 	"python":  {"-m": true},
 	"python3": {"-m": true},
 	"java":    {"-jar": true},
 }
 
-// commandPrefix extracts at most 2 non-flag, subcommand-like elements from the
-// start of args. Flags (-...) and path-like args (/, .) stop the prefix. For
-// known compound flag-arg patterns (e.g. python3 -m module), the flag and its
-// argument are included in the prefix.
+// commandPrefix takes at most 2 subcommand-like elements from the start of
+// args, stopping at a flag or a path. A compound flag brings its argument
+// along.
 func commandPrefix(args []string) []string {
 	var prefix []string
 	for i, arg := range args {
 		if i > 0 && !looksLikeSubcommand(arg) {
-			// Check for compound flag-arg patterns before giving
-			// up.
 			if len(prefix) == 1 && i+1 < len(args) {
 				if flags, ok :=
 					compoundFlags[prefix[0]]; ok {
@@ -1378,9 +1265,8 @@ func commandPrefix(args []string) []string {
 	return prefix
 }
 
-// looksLikeSubcommand returns true for words that look like CLI subcommands
-// (e.g. "apply", "run") and false for flags, paths, filenames, and key=value
-// pairs.
+// looksLikeSubcommand is true for words like "apply" or "run", and false for
+// flags, paths, filenames, and key=value pairs.
 func looksLikeSubcommand(s string) bool {
 	if s == "" || s[0] == '-' {
 		return false

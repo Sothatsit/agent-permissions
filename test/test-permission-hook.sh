@@ -3944,6 +3944,13 @@ assert_contains "bare PATH= names the var" \
 
 # --- Env var edge cases ---
 
+# An assignment no pattern mentions is not an opinion, unlike an unknown
+# command. Counting it as one would make every VAR=x cmd fall through to the
+# harness instead of allowing.
+out=$(_run_hook 'MYVAR=1 ls')
+assert_contains "env: unmatched assignment keeps allow" \
+    "$(_decision "$out")" "allow"
+
 # export of dangerous var in compound command.
 out=$(_run_hook "export BASH_ENV=/tmp/evil.sh && git status")
 assert_contains "deny: export BASH_ENV denied" "$(_decision "$out")" "deny"
