@@ -223,47 +223,53 @@ func (c *labelCollector) add(item string) {
 	}
 }
 
-// decisionTally folds every axis's decision together by tier precedence, and
-// collects the labels each tier will display. Holding the precedence rule in
-// one place keeps the command, env-var, and snippet axes from drifting apart.
-type decisionTally struct {
+// decisionAggregate is the decision a whole command lands on, plus the reasons
+// behind it. Every axis reports into it and the strongest tier wins, so holding
+// the precedence rule here keeps the command, env-var, and snippet axes from
+// drifting apart.
+//
+// The order is Deny > Ask > SoftAsk > Undecided > Allow. Undecided outranks
+// Allow because an unknown command must not be silently allowed, which is the
+// one place this differs from combineDecision's enforced-versus-normal fold.
+type decisionAggregate struct {
 	decision               model.Decision
 	denies, asks, softAsks labelCollector
 }
 
-// add folds in one decision with the labels it should display, and reports
-// whether it survived tier precedence. A caller does its axis-specific
-// bookkeeping only when it did.
-func (t *decisionTally) add(
+// add reports one axis's decision with the labels it should display, and
+// returns whether it survived tier precedence. A caller does its own
+// bookkeeping, such as an unknown command's suggested pattern, only when it
+// did.
+func (a *decisionAggregate) add(
 	decision model.Decision, labels ...string,
 ) bool {
 	switch decision {
 	case model.Deny:
-		t.decision = model.Deny
-		t.denies.addAll(labels)
+		a.decision = model.Deny
+		a.denies.addAll(labels)
 	case model.Ask:
-		if t.decision == model.Deny {
+		if a.decision == model.Deny {
 			return false
 		}
 
-		t.decision = model.Ask
-		t.asks.addAll(labels)
+		a.decision = model.Ask
+		a.asks.addAll(labels)
 	case model.SoftAsk:
-		if t.decision == model.Deny {
+		if a.decision == model.Deny {
 			return false
 		}
-		if t.decision != model.Ask {
-			t.decision = model.SoftAsk
+		if a.decision != model.Ask {
+			a.decision = model.SoftAsk
 		}
 
-		t.softAsks.addAll(labels)
+		a.softAsks.addAll(labels)
 	case model.Undecided:
-		if t.decision == model.Deny {
+		if a.decision == model.Deny {
 			return false
 		}
-		if t.decision != model.Ask &&
-			t.decision != model.SoftAsk {
-			t.decision = model.Undecided
+		if a.decision != model.Ask &&
+			a.decision != model.SoftAsk {
+			a.decision = model.Undecided
 		}
 	}
 
@@ -383,7 +389,7 @@ func extractBashPattern(entry string) (string, bool) {
 func (p *Permissions) Check(
 	result model.BreakdownResult,
 ) Result {
-	tally := decisionTally{decision: model.Allow}
+	aggregate := decisionAggregate{decision: model.Allow}
 	var undecidedReason string
 	var unknowns, scripts labelCollector
 
@@ -400,7 +406,7 @@ func (p *Permissions) Check(
 			continue
 		}
 
-		tally.add(check.decision,
+		aggregate.add(check.decision,
 			checkLabels(check, model.Command{})...)
 	}
 
@@ -409,7 +415,7 @@ func (p *Permissions) Check(
 	// Env vars that already produced a decision must reach the labels, so
 	// they skip the no-commands early return. Bare safe input still allows.
 	if len(cmds) == 0 && len(snippets) == 0 &&
-		tally.decision == model.Allow {
+		aggregate.decision == model.Allow {
 		if result.IsSafe() {
 			return Result{Decision: model.Allow}
 		}
@@ -419,7 +425,7 @@ func (p *Permissions) Check(
 
 	for _, cmd := range cmds {
 		check := p.checkOne(cmd)
-		if !tally.add(check.decision,
+		if !aggregate.add(check.decision,
 			checkLabels(check, cmd)...) {
 			continue
 		}
@@ -445,16 +451,16 @@ func (p *Permissions) Check(
 	// never land on Undecided.
 	for i := range snippets {
 		snippetResult := p.checkSnippet(&snippets[i])
-		tally.add(snippetResult.decision,
+		aggregate.add(snippetResult.decision,
 			snippetResult.subject)
 	}
 
 	// Unknowns with no other opinion become SoftAsk, so the hook can
 	// ask in normal mode and fall through in auto. Pure undecided is
 	// a true "no opinion" and always falls through.
-	if tally.decision == model.Undecided {
+	if aggregate.decision == model.Undecided {
 		if len(unknowns.items) > 0 {
-			tally.decision = model.SoftAsk
+			aggregate.decision = model.SoftAsk
 		} else {
 			return Result{
 				Decision: model.Undecided,
@@ -470,9 +476,9 @@ func (p *Permissions) Check(
 
 	unknownHeader := h.UnknownCommandHeader()
 
-	if tally.decision == model.Deny {
+	if aggregate.decision == model.Deny {
 		reason := formatResult(
-			nil, nil, nil, tally.denies.items, unknownHeader)
+			nil, nil, nil, aggregate.denies.items, unknownHeader)
 		if len(scripts.items) > 0 {
 			reason += "\n\n" +
 				sourceGuidance(scripts.items)
@@ -485,9 +491,9 @@ func (p *Permissions) Check(
 	}
 
 	return Result{
-		Decision: tally.decision,
+		Decision: aggregate.decision,
 		Reason: formatResult(
-			tally.asks.items, tally.softAsks.items,
+			aggregate.asks.items, aggregate.softAsks.items,
 			unknowns.items, nil, unknownHeader),
 	}
 }
