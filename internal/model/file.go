@@ -9,12 +9,9 @@ import (
 	"syscall"
 )
 
-// MaxScriptSizeBytes is the maximum size of a script file that will be read for
-// scanning (1 MB). Applies to all languages (bash, Python, etc.).
 const MaxScriptSizeBytes = 1024 * 1024
 
-// ReadScript reads a script file relative to cwd, enforcing the size limit.
-// Returns the file contents.
+// ReadScript reads a script file relative to cwd, up to the size limit.
 func ReadScript(
 	path string, cwd string,
 ) ([]byte, error) {

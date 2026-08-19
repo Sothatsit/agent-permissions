@@ -5,7 +5,7 @@ import (
 	"github.com/sothatsit/agent-permissions/internal/word"
 )
 
-var xargsParser, _xargsBaseBreakdown = wrapperBreakdown(
+var xargsParser, xargsWrapperBreakdown = wrapperBreakdown(
 	wrapperDef{
 		flags: []model.FlagDef{
 			{Name: "--process-slot-var", Arg: true},
@@ -21,10 +21,9 @@ var xargsParser, _xargsBaseBreakdown = wrapperBreakdown(
 			{Name: "--open-tty"},
 			{Name: "--version"},
 			{Name: "--verbose"},
-			// --replace is -I's long form but takes an optional
-			// =value (bare --replace defaults to {}). Declaring it
-			// without Arg means bare --replace won't eat the next
-			// arg; --replace=STR is handled by the =value split.
+			// --replace is -I's long form but takes an optional =value, so
+			// declaring it without Arg stops bare --replace eating the next
+			// arg. --replace=STR comes through the =value split.
 			{Name: "--replace"},
 			{Name: "--null"},
 			{Name: "--help"},
@@ -68,7 +67,7 @@ func breakdownXargs(
 	input model.ParseResult,
 	state *model.State,
 ) (model.BreakdownOutcome, error) {
-	outcome, err := _xargsBaseBreakdown(input, state)
+	outcome, err := xargsWrapperBreakdown(input, state)
 	if err != nil {
 		return model.BreakdownOutcome{}, err
 	}
@@ -78,15 +77,13 @@ func breakdownXargs(
 		return outcome, nil
 	}
 
-	// The remaining checks (ambiguous/empty -I, command from stdin) are the
-	// xargs.unverified rule. When it's disabled, skip them and return the
-	// already-extracted inner command for normal checking.
+	// The checks below are the xargs.unverified rule. Disabled, they are
+	// skipped and the extracted inner command is checked normally.
 	if !state.RuleConfig.For(xargsUnverified).Enabled {
 		return outcome, nil
 	}
 
-	// Find the -I/--replace replacement string. Deny if specified more than
-	// once - ambiguous.
+	// Specified more than once, the replacement string is ambiguous.
 	var replStr string
 	replCount := 0
 	for _, f := range input.Flags {
@@ -108,9 +105,8 @@ func breakdownXargs(
 		}
 	}
 	if replStr == "" {
-		// Explicit empty replacement string (e.g. -I "") is nonsensical
-		// and could mask intent. No -I flag at all also lands here
-		// (replCount == 0).
+		// An explicit empty replacement string could mask intent. No
+		// -I flag at all also lands here.
 		if replCount > 0 {
 			return model.BreakdownOutcome{}, &model.RuleError{
 				Def: xargsUnverified,
@@ -122,8 +118,8 @@ func breakdownXargs(
 		return outcome, nil
 	}
 
-	// If the replacement string appears in the command name, the command to
-	// execute comes from stdin.
+	// A replacement string in the command name means stdin supplies the
+	// command.
 	cmd := work.Commands[0]
 	if len(cmd) > 0 &&
 		word.MayContain(cmd[0], replStr) {

@@ -6,9 +6,8 @@ import (
 	"github.com/sothatsit/agent-permissions/internal/rules"
 )
 
-// runRulesCommand dispatches the `rules` subcommand group. `list` is the only
-// subcommand. It prints the static rule catalog so users can discover the IDs
-// to put in a `Rules` config.
+// runRulesCommand dispatches the `rules` subcommand group, where `list` is the
+// only subcommand.
 func runRulesCommand(args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf(
@@ -26,11 +25,8 @@ func runRulesCommand(args []string) error {
 	}
 }
 
-// listRules prints every built-in rule as "<id> - <description>", one per line,
-// in declaration order. It is a static catalog with no config resolution or
-// enabled/disabled state, so the output is the same regardless of cwd or
-// config. Use the ID in a `Rules` entry in .agents/permissions.json to enable
-// or disable a rule.
+// listRules prints every built-in rule as "<id> - <description>" in declaration
+// order. It resolves no config, so the output does not depend on cwd.
 func listRules(args []string) error {
 	if len(args) != 0 {
 		return fmt.Errorf("usage: rules list")

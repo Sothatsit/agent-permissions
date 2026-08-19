@@ -2,8 +2,7 @@ package rules
 
 import "github.com/sothatsit/agent-permissions/internal/model"
 
-// time: skip formatting/output flags, extract inner command. Bash's `time`
-// keyword is already transparent in the AST (stmt.Time) - this handles the
+// Bash's `time` keyword is already transparent in the AST, so this handles the
 // external /usr/bin/time.
 var timeParser, breakdownTime = wrapperBreakdown(
 	wrapperDef{

@@ -10,8 +10,7 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-// ghApiParser classifies gh api flags. Unknown flags cause a parse error
-// (deny).
+// ghApiParser denies on an unknown flag.
 var ghApiParser = model.NewFullParser(
 	[]model.FlagDef{
 		{Name: "--raw-field", Arg: true},
@@ -42,7 +41,6 @@ var ghApiParser = model.NewFullParser(
 	"unrecognised flag",
 )
 
-// gh api flags that set the HTTP method.
 var ghApiMethodFlags = map[string]bool{
 	"-X": true, "--method": true,
 }
@@ -54,8 +52,6 @@ var ghApiBodyFlags = map[string]bool{
 	"--input": true,
 }
 
-// classifyGhApi analyzes gh api arguments to determine if the request is
-// read-only.
 func classifyGhApi(
 	input model.ParseResult,
 ) (model.Decision, string) {

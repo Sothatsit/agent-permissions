@@ -10,12 +10,9 @@ import (
 	"github.com/sothatsit/agent-permissions/presets"
 )
 
-// runPresetsCommand dispatches the `presets` subcommand group. `list` is the
-// only subcommand today; users opt presets in or out by hand-editing
-// `enabled-presets` / `disabled-presets` in ~/.agents/permissions.json. The
-// previous `enable` / `disable` subcommands were removed because
-// "all enabled by default" made `enable` a
-// no-op-with-a-misleading-success-message in the common case.
+// runPresetsCommand dispatches the `presets` subcommand group, where `list` is
+// the only subcommand. Users opt presets in or out by editing `enabled-presets`
+// / `disabled-presets` in ~/.agents/permissions.json.
 func runPresetsCommand(args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf(

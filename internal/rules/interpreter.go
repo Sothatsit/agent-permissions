@@ -9,45 +9,31 @@ import (
 	"github.com/sothatsit/agent-permissions/internal/word"
 )
 
-// interpreterConfig describes an interpreter's flag classification for the
-// shared breakdown function.
+// interpreterConfig classifies one interpreter's flags for the shared
+// breakdown.
 type interpreterConfig struct {
-	// lang is the snippet language constant (e.g. model.LangPython).
 	lang string
-	// name is the interpreter name for error messages (e.g. "python",
-	// "perl").
+	// name is the interpreter's name in error messages.
 	name string
-	// unverified governs this interpreter's "cannot verify" denials (opaque
-	// inline code, opaque or unreadable script path). The breakdown returns
-	// them as a RuleError carrying this def, so they attribute to the rule
-	// and runBreakdown suppresses them when the rule is disabled.
+	// unverified governs this interpreter's "cannot verify" denials.
+	// The breakdown returns them as a RuleError carrying this def, so
+	// they attribute to the rule and suppress when it is disabled.
 	unverified *model.RuleDef
-	// infoFlags cause an immediate fallthrough to permissions (e.g.
-	// --version, --help).
+	// infoFlags fall straight through to permissions (--version).
 	infoFlags []string
 	// codeFlags extract inline code as a snippet (e.g. -c, -e, --eval).
 	codeFlags []string
-	// unverifiedFlags can add code or change which source the interpreter
-	// runs. The shared adapter rejects them until it knows how to scan every
-	// executable input.
+	// unverifiedFlags can add code or change which source runs, so
+	// the adapter rejects them until it can scan every input.
 	unverifiedFlags []string
 	// unverifiedPositionals select a source mode instead of naming a script
 	// file. The adapter always rejects the shared stdin marker `-` as well.
 	unverifiedPositionals []string
-	// fallthroughFlags cause a fallthrough without extracting code, such as
-	// an interpreter's syntax-check mode.
+	// fallthroughFlags fall through without extracting code, such as
+	// a syntax-check mode.
 	fallthroughFlags []string
 }
 
-// breakdownInterpreter returns a BreakdownFunc that handles interpreter
-// commands generically:
-//
-//   - Info flags -> fall through to permissions.
-//   - Fallthrough flags -> fall through.
-//   - One code flag -> extract inline code as a CodeSnippet.
-//   - Unverified or repeated code flags -> return a governed error.
-//   - Positional -> read script file as a CodeSnippet.
-//   - Bare invocation -> fall through.
 func breakdownInterpreter(
 	cfg interpreterConfig,
 ) model.BreakdownFunc {
@@ -55,8 +41,9 @@ func breakdownInterpreter(
 		input model.ParseResult,
 		state *model.State,
 	) (model.BreakdownOutcome, error) {
-		// Collect flags in a single pass. Code flags take priority because
-		// python3 --version -c "code" must scan the code rather than skip it.
+		// Collect flags in a single pass. Code flags take priority
+		// because python3 --version -c "code" must scan the code rather
+		// than skip it.
 		var codeFlag *model.ParsedFlag
 		sawInfo := false
 		sawFallthrough := false
@@ -96,10 +83,10 @@ func breakdownInterpreter(
 			}
 		}
 
-		// Fallthrough flags represent modes such as syntax checking that do
-		// not execute the supplied source. Info flags (--version) skip only
-		// when there are no positionals. If a script is present, scan it in
-		// case the interpreter continues after printing the information.
+		// Fallthrough flags are modes such as syntax checking that do
+		// not execute the source. Info flags skip only when there are
+		// no positionals, because an interpreter may keep going after
+		// printing.
 		if codeFlag == nil {
 			if sawFallthrough {
 				return model.FallThrough(), nil
@@ -110,7 +97,6 @@ func breakdownInterpreter(
 			}
 		}
 
-		// Inline code extraction.
 		if codeFlag != nil {
 			if codeFlag.Value == nil {
 				return model.BreakdownOutcome{}, &model.RuleError{
@@ -136,10 +122,8 @@ func breakdownInterpreter(
 				cfg, word.Text(codeFlag.Value)), nil
 		}
 
-		// No positionals - bare invocation or flags-only. Anything
-		// supplied on stdin is the program to run; with nothing
-		// supplied this is an interactive session, so fall through to
-		// permissions.
+		// No positionals: anything supplied on stdin is the program,
+		// and with nothing supplied this is an interactive session.
 		if len(input.Positionals) == 0 {
 			if state.Stdin.Supplied() {
 				return stdinProgram(
@@ -149,7 +133,6 @@ func breakdownInterpreter(
 			return model.FallThrough(), nil
 		}
 
-		// First positional is the script file.
 		scriptWord := input.Positionals[0]
 		if word.DefinitelyEqual(scriptWord, "-") {
 			return stdinProgram(cfg, input.Name, state)
@@ -217,8 +200,7 @@ func stdinProgram(
 	}
 }
 
-// inlineCode wraps code written into the command itself. An empty program
-// runs nothing.
+// inlineCode wraps code written into the command itself.
 func inlineCode(
 	cfg interpreterConfig, code string,
 ) model.BreakdownOutcome {

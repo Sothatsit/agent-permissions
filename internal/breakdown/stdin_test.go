@@ -7,16 +7,13 @@ import (
 )
 
 // The text an interpreter reads from stdin has to reach the scanner exactly as
-// the shell would deliver it. These tests cover the delivery rules that a
-// permission decision cannot show, because two different bodies can score the
-// same against the pattern scanner while only one matches what runs.
+// the shell would deliver it, which no permission decision can show.
 
-// stdinCode returns the code of the only snippet a command extracted.
 func stdinCode(
 	t *testing.T, cmd string,
 ) string {
 	t.Helper()
-	br, err := wbd(t, cmd)
+	br, err := breakdownWithAllRules(t, cmd)
 	if err != nil {
 		t.Fatalf("breakdown %q: %v", cmd, err)
 	}
@@ -46,8 +43,6 @@ func TestDashHeredocStripsLeadingTabs(t *testing.T) {
 	}
 }
 
-// An interpreter reading stdin is not a REPL, so the body is the program even
-// without the `-` argument.
 func TestBareInterpreterScansHeredoc(t *testing.T) {
 	code := stdinCode(t,
 		"python3 <<'PY'\nprint(1)\nPY\n")
@@ -60,7 +55,7 @@ func TestBareInterpreterScansHeredoc(t *testing.T) {
 // Inline stdin code carries no source file, which is what makes a dangerous
 // pattern in it a deny rather than an ask.
 func TestHeredocCodeHasNoSourceFile(t *testing.T) {
-	br, err := wbd(t,
+	br, err := breakdownWithAllRules(t,
 		"python3 - <<'PY'\nprint(1)\nPY\n")
 	if err != nil {
 		t.Fatalf("breakdown: %v", err)
@@ -82,7 +77,7 @@ func TestUnreadableStdinDenies(t *testing.T) {
 	}
 	for name, cmd := range cases {
 		t.Run(name, func(t *testing.T) {
-			if _, err := wbd(t, cmd); err == nil {
+			if _, err := breakdownWithAllRules(t, cmd); err == nil {
 				t.Errorf("%q: no error, want a denial",
 					cmd)
 			}
@@ -91,11 +86,11 @@ func TestUnreadableStdinDenies(t *testing.T) {
 }
 
 // A redirect on a compound command reaches the commands inside it, but the
-// right side of a pipe reads the left side's output instead. Letting the
-// heredoc stand in there would scan a program the interpreter never runs.
+// right side of a pipe reads the left side's output. Letting the heredoc stand
+// in there would scan a program the interpreter never runs.
 func TestPipeInsideRedirectedBlockDenies(t *testing.T) {
 	cmd := "{ cat prog.py | python3 -; } <<'PY'\nprint(1)\nPY\n"
-	if _, err := wbd(t, cmd); err == nil {
+	if _, err := breakdownWithAllRules(t, cmd); err == nil {
 		t.Errorf("%q: no error, want a denial", cmd)
 	}
 }
@@ -109,16 +104,13 @@ func TestRedirectedBlockFeedsInterpreter(t *testing.T) {
 	}
 }
 
-// A statement's stdin belongs to that statement alone.
 func TestHeredocDoesNotReachNextStatement(t *testing.T) {
 	cmd := "python3 - <<'PY'\nprint(1)\nPY\npython3 -"
-	if _, err := wbd(t, cmd); err == nil {
+	if _, err := breakdownWithAllRules(t, cmd); err == nil {
 		t.Errorf("%q: no error, want a denial", cmd)
 	}
 }
 
-// Exec-style wrappers hand their stdin to the command they run. Commands that
-// consume it themselves do not.
 func TestStdinForwarding(t *testing.T) {
 	heredoc := " <<'PY'\nprint(1)\nPY\n"
 	forwarded := []string{
@@ -141,17 +133,15 @@ func TestStdinForwarding(t *testing.T) {
 
 	// xargs reads stdin for its argument list and gives the child
 	// /dev/null.
-	if _, err := wbd(
+	if _, err := breakdownWithAllRules(
 		t, "xargs python3 -"+heredoc,
 	); err == nil {
 		t.Error("xargs: no error, want a denial")
 	}
 }
 
-// bash reading its script from stdin runs shell code, so it goes through the
-// bash pipeline rather than being scanned as a snippet.
 func TestBashStdinScriptExtractsCommands(t *testing.T) {
-	br, err := wbd(t,
+	br, err := breakdownWithAllRules(t,
 		"bash <<'EOF'\ngit status\nEOF\n")
 	if err != nil {
 		t.Fatalf("breakdown: %v", err)
@@ -161,11 +151,10 @@ func TestBashStdinScriptExtractsCommands(t *testing.T) {
 	}
 }
 
-// bash consumes the stdin it reads its script from, so an interpreter inside
-// that script has none.
+// bash consumes the stdin it reads its script from.
 func TestBashStdinScriptConsumesStdin(t *testing.T) {
 	cmd := "bash <<'EOF'\npython3 -\nEOF\n"
-	if _, err := wbd(t, cmd); err == nil {
+	if _, err := breakdownWithAllRules(t, cmd); err == nil {
 		t.Errorf("%q: no error, want a denial", cmd)
 	}
 }

@@ -23,7 +23,6 @@ var printer = syntax.NewPrinter()
 
 // --- Construction ---
 
-// Lit creates a Word containing a single Lit part.
 func Lit(s string) *syntax.Word {
 	return &syntax.Word{
 		Parts: []syntax.WordPart{
@@ -32,7 +31,6 @@ func Lit(s string) *syntax.Word {
 	}
 }
 
-// FromStrings creates Words from strings, each containing a single Lit part.
 func FromStrings(ss []string) []*syntax.Word {
 	words := make([]*syntax.Word, len(ss))
 	for i, s := range ss {
@@ -44,18 +42,16 @@ func FromStrings(ss []string) []*syntax.Word {
 
 // --- Text resolution ---
 
-// Text resolves a Word to text after literal quote and backslash removal.
-// Opaque content (ParamExp, CmdSubst) keeps its source representation. The
-// shell may still change the value through pathname, tilde, brace, or locale
-// expansion. Use this only at boundaries that need a string. For comparisons
-// and matching, prefer the strict or conservative operations below.
+// Text resolves a Word to text after literal quote and backslash removal,
+// keeping the source representation of opaque content. The shell may still
+// change the value through pathname, tilde, brace, or locale expansion, so use
+// this only at boundaries that need a string, and the operations below for
+// matching.
 func Text(w *syntax.Word) string {
 	if w == nil {
 		return ""
 	}
-	// Fast path: single Lit (the overwhelmingly common case - plain args
-	// like "ls", "-la", "foo.txt") or single non-dollar SglQuoted
-	// ('hello').
+	// Fast path for the overwhelmingly common single-part word.
 	if len(w.Parts) == 1 {
 		if lit, ok := w.Parts[0].(*syntax.Lit); ok {
 			return UnescapeBackslashes(lit.Value)
@@ -73,7 +69,6 @@ func Text(w *syntax.Word) string {
 	return b.String()
 }
 
-// Texts resolves a slice of Words to strings.
 func Texts(words []*syntax.Word) []string {
 	texts := make([]string, len(words))
 	for i, w := range words {
@@ -91,8 +86,8 @@ func writePartText(
 		b.WriteString(UnescapeBackslashes(p.Value))
 	case *syntax.SglQuoted:
 		if p.Dollar {
-			// ANSI-C quoting - can't resolve escape sequences; use
-			// printer for source form.
+			// ANSI-C escape sequences cannot be resolved, so print
+			// the source form.
 			printer.Print(b, p)
 		} else {
 			b.WriteString(p.Value)
@@ -102,8 +97,6 @@ func writePartText(
 			writePartText(b, inner)
 		}
 	default:
-		// ParamExp, CmdSubst, etc. - use printer for source
-		// representation.
 		printer.Print(b, part)
 	}
 }
@@ -170,8 +163,7 @@ func partStatic(part syntax.WordPart) bool {
 	}
 }
 
-// OpaqueReason returns a human-readable reason why a Word is not static, or ""
-// if the Word is static.
+// OpaqueReason says why a Word is not static, or "" if it is.
 func OpaqueReason(w *syntax.Word) string {
 	if w == nil {
 		return ""
@@ -213,11 +205,10 @@ func partOpaqueReason(part syntax.WordPart) string {
 	}
 }
 
-// ExpansionReason returns a human-readable reason if the Word contains variable
-// expansion or ANSI-C quoting. This content's runtime value differs from the
-// source representation returned by Text. Returns "" when the Word has no
-// expansion. CmdSubst is NOT flagged: its source form ($(...)) is preserved by
-// Text and faithfully re-parsed by breakdownAt.
+// ExpansionReason reports variable expansion or ANSI-C quoting, whose runtime
+// value differs from the source representation Text returns. CmdSubst is not
+// flagged: Text preserves its $(...) source form, which breakdownAt re-parses
+// faithfully.
 func ExpansionReason(w *syntax.Word) string {
 	if w == nil {
 		return ""
@@ -268,9 +259,8 @@ const (
 	Yes                // definitely matches
 )
 
-// Equal checks whether the Word's text equals s. Walks parts directly without
-// allocation. For mixed words (static prefix + opaque suffix), returns No when
-// the static prefix rules out a match.
+// Equal walks parts without allocating. A mixed word answers No when its static
+// prefix rules out a match.
 func Equal(w *syntax.Word, s string) Match {
 	if w == nil {
 		if s == "" {
@@ -279,7 +269,6 @@ func Equal(w *syntax.Word, s string) Match {
 
 		return No
 	}
-	// Fast path: single Lit (overwhelmingly common).
 	if len(w.Parts) == 1 {
 		if lit, ok := w.Parts[0].(*syntax.Lit); ok {
 			if litEqual(lit.Value, s) {
@@ -310,7 +299,6 @@ func HasPrefix(w *syntax.Word, s string) Match {
 	if w == nil {
 		return No
 	}
-	// Fast path: single Lit.
 	if len(w.Parts) == 1 {
 		if lit, ok := w.Parts[0].(*syntax.Lit); ok {
 			if litHasPrefix(lit.Value, s) {
@@ -332,11 +320,9 @@ func HasPrefix(w *syntax.Word, s string) Match {
 	return No // word shorter than s
 }
 
-// Contains checks whether the Word's text contains s. Single-part fast path
-// avoids allocation. For multi-part words, checks each static part individually
-// - finding s in any part returns Yes even if the word has opaque parts
-// elsewhere. Falls back to Text() only for cross-part boundary matches in
-// fully-static words.
+// Contains checks each static part on its own, so s found in any part is Yes
+// even when other parts are opaque. Only a cross-part match in a fully-static
+// word falls back to Text.
 func Contains(w *syntax.Word, s string) Match {
 	if w == nil {
 		if s == "" {
@@ -348,7 +334,6 @@ func Contains(w *syntax.Word, s string) Match {
 	if s == "" {
 		return Yes
 	}
-	// Fast path: single Lit.
 	if len(w.Parts) == 1 {
 		if lit, ok := w.Parts[0].(*syntax.Lit); ok {
 			if litContains(lit.Value, s) {
@@ -359,8 +344,8 @@ func Contains(w *syntax.Word, s string) Match {
 		}
 	}
 
-	// Check each part individually. If any static part contains s, return
-	// Yes - s is definitely present regardless of opaque parts elsewhere.
+	// s inside a static part is definitely present, whatever the opaque
+	// parts hold.
 	hasOpaque := false
 	for _, part := range w.Parts {
 		found, opaque := partContains(part, s)
@@ -375,9 +360,9 @@ func Contains(w *syntax.Word, s string) Match {
 	if hasOpaque {
 		return Maybe
 	}
-	// All static, no single part matched. Check cross-boundary matches via
-	// Text(). This is the only path that allocates, and it's rare
-	// (multi-part fully-static words where the match spans parts).
+	// All static and no single part matched, so the only match left
+	// spans parts. This is the one path that allocates, and it is
+	// rare.
 	if strings.Contains(Text(w), s) {
 		return Yes
 	}
@@ -434,8 +419,8 @@ func matchPart(
 	}
 }
 
-// litMatch compares unescaped litVal against s[si:]. Returns new si on success,
-// -1 on mismatch (including when the word is longer than s).
+// litMatch returns the new si, or -1 on mismatch, including a word longer than
+// s.
 func litMatch(litVal string, s string, si int) int {
 	for li := 0; li < len(litVal); li++ {
 		ch := litVal[li]
@@ -453,8 +438,7 @@ func litMatch(litVal string, s string, si int) int {
 	return si
 }
 
-// plainMatch compares val against s[si:] byte-for-byte (no escape handling).
-// Used for SglQuoted values.
+// plainMatch compares SglQuoted values byte-for-byte, with no escape handling.
 func plainMatch(val string, s string, si int) int {
 	end := si + len(val)
 	if end > len(s) {
@@ -467,8 +451,7 @@ func plainMatch(val string, s string, si int) int {
 	return end
 }
 
-// litEqual compares unescaped litVal against s for exact equality. No
-// allocation when no backslashes.
+// litEqual does not allocate when there are no backslashes.
 func litEqual(litVal, s string) bool {
 	if !strings.Contains(litVal, `\`) {
 		return litVal == s
@@ -479,10 +462,8 @@ func litEqual(litVal, s string) bool {
 
 // --- Match internals: HasPrefix ---
 
-// matchPartsPrefix walks parts comparing against s[si:] for prefix matching.
-// Returns early with (len(s), Yes) as soon as s is fully consumed. Returns
-// (newSi, Yes) when parts are exhausted, (_, No) on mismatch, (_, Maybe) on
-// opaque content.
+// matchPartsPrefix returns Yes as soon as s is consumed or the parts are
+// exhausted, No on mismatch, and Maybe on opaque content.
 func matchPartsPrefix(
 	parts []syntax.WordPart, s string, si int,
 ) (int, Match) {
@@ -531,8 +512,7 @@ func matchPartPrefix(
 	}
 }
 
-// litMatchPrefix compares unescaped litVal against s[si:], succeeding early
-// when si reaches len(s). Returns new si, or -1 on character mismatch.
+// litMatchPrefix returns the new si, or -1 on mismatch.
 func litMatchPrefix(
 	litVal string, s string, si int,
 ) int {
@@ -556,8 +536,7 @@ func litMatchPrefix(
 	return si
 }
 
-// plainMatchPrefix compares val against s[si:], succeeding early when si
-// reaches len(s).
+// plainMatchPrefix succeeds early when si reaches len(s).
 func plainMatchPrefix(
 	val string, s string, si int,
 ) int {
@@ -575,8 +554,7 @@ func plainMatchPrefix(
 	return si
 }
 
-// litHasPrefix checks whether unescaped litVal starts with s. No allocation
-// when no backslashes.
+// litHasPrefix does not allocate when there are no backslashes.
 func litHasPrefix(litVal, s string) bool {
 	if !strings.Contains(litVal, `\`) {
 		return strings.HasPrefix(litVal, s)
@@ -620,8 +598,7 @@ func partContains(
 	}
 }
 
-// litContains checks whether unescaped litVal contains s. No allocation when no
-// backslashes.
+// litContains does not allocate when there are no backslashes.
 func litContains(litVal, s string) bool {
 	if !strings.Contains(litVal, `\`) {
 		return strings.Contains(litVal, s)
@@ -633,26 +610,24 @@ func litContains(litVal, s string) bool {
 
 // --- Strict convenience ---
 //
-// These return true only when the Match is Yes (the word definitely matches).
-// Use for structural parsing where correctness requires knowing the exact
-// value.
+// These return true only when the word definitely matches. Use
+// them for structural parsing that needs the exact value.
 
-// DefinitelyEqual returns true if the Word's text definitely equals s. Requires
-// all parts to be static.
+// DefinitelyEqual requires every part to be static.
 func DefinitelyEqual(w *syntax.Word, s string) bool {
 	return Equal(w, s) == Yes
 }
 
-// DefinitelyHasPrefix returns true if the Word's text definitely starts with s.
-// Can succeed for mixed words when the static prefix is long enough.
+// DefinitelyHasPrefix can succeed on a mixed word whose static prefix is long
+// enough.
 func DefinitelyHasPrefix(
 	w *syntax.Word, s string,
 ) bool {
 	return HasPrefix(w, s) == Yes
 }
 
-// DefinitelyContains returns true if the Word's text definitely contains s. Can
-// succeed for mixed words when s is found within a static part.
+// DefinitelyContains can succeed on a mixed word when s is inside a static
+// part.
 func DefinitelyContains(
 	w *syntax.Word, s string,
 ) bool {
@@ -661,35 +636,30 @@ func DefinitelyContains(
 
 // --- Conservative convenience ---
 //
-// These return true when the Match is Yes or Maybe. Use for deny/ask rules
-// where false positives are safe but false negatives are not.
+// These return true when the word matches or might match. Use
+// them for deny and ask rules, where a false positive is safe but
+// a false negative is not.
 
-// MayEqual returns true if the Word could equal s.
 func MayEqual(w *syntax.Word, s string) bool {
 	return Equal(w, s) != No
 }
 
-// MayContain returns true if the Word could contain s.
 func MayContain(w *syntax.Word, s string) bool {
 	return Contains(w, s) != No
 }
 
-// MayHavePrefix returns true if the Word could start with s.
 func MayHavePrefix(w *syntax.Word, s string) bool {
 	return HasPrefix(w, s) != No
 }
 
 // --- Splitting ---
 
-// SplitEq splits a --flag=value Word at the first = in the first Lit part,
-// respecting backslash escapes. A \= in the raw Lit is a literal = in the
-// resolved text and is a valid split point. Returns the flag name text and a
-// synthetic Word for the value. The value Word preserves the original structure
-// - if the value contains ParamExp or CmdSubst, they appear intact (e.g.
-// --flag=$VALUE produces name="--flag" and a value Word containing the
-// ParamExp).
-//
-// Returns ("", nil) if no = found or the first part is not a Lit.
+// SplitEq splits a --flag=value Word at the first = in its first
+// Lit part, where a \= counts as a literal = and a valid split
+// point. The value Word keeps the original structure, so
+// --flag=$VALUE yields name="--flag" and a value Word holding the
+// ParamExp. Returns ("", nil) with no =, or when the first part is
+// not a Lit.
 func SplitEq(
 	w *syntax.Word,
 ) (string, *syntax.Word) {
@@ -702,9 +672,8 @@ func SplitEq(
 		return "", nil
 	}
 
-	// Find the first = in the resolved text. An escaped \= produces a
-	// literal = and is a valid split point - nameEnd is the raw position of
-	// the \, valueStart is the position after the =.
+	// An escaped \= produces a literal =, so nameEnd is the raw position of
+	// the backslash and valueStart follows the =.
 	nameEnd := -1
 	valueStart := -1
 	for i := 0; i < len(lit.Value); i++ {
@@ -750,13 +719,9 @@ func SplitEq(
 	return name, &syntax.Word{Parts: valueParts}
 }
 
-// SplitPrefix splits a -nVALUE Word where the flag name occupies nameLen bytes
-// of the first Lit part. Returns the flag name text and a synthetic Word for
-// the value.
-//
-// Returns ("", nil) if the first part is not a Lit or nameLen exceeds the Lit.
-// Returns (name, nil) if nameLen exactly matches the first Lit and there are no
-// remaining parts (bare prefix flag, no value).
+// SplitPrefix splits a -nVALUE Word whose flag name occupies nameLen bytes of
+// the first Lit part. Returns ("", nil) when that part is not a Lit or nameLen
+// overruns it, and (name, nil) for a bare prefix flag with no value.
 func SplitPrefix(
 	w *syntax.Word, nameLen int,
 ) (string, *syntax.Word) {
@@ -791,9 +756,7 @@ func SplitPrefix(
 
 // --- Utilities ---
 
-// DirectPath returns a path suitable for direct execution. Prepends "./" for
-// relative paths (e.g. "script.sh" -> "./script.sh") but leaves absolute paths
-// unchanged.
+// DirectPath prepends "./" to a relative path, leaving an absolute one alone.
 func DirectPath(path string) string {
 	if filepath.IsAbs(path) {
 		return path

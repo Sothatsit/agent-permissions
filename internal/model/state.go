@@ -9,9 +9,9 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-// SetWorkingDirectory resolves a directory word against the current Cwd. It
-// clears Cwd when shell expansion prevents a reliable resolution. Callers
-// decide whether the change persists or is scoped to a wrapped command.
+// SetWorkingDirectory resolves a directory word against the current Cwd,
+// clearing Cwd when expansion prevents a reliable resolution. Callers decide
+// whether the change persists or stays scoped to a wrapped command.
 func (s *State) SetWorkingDirectory(target *syntax.Word) {
 	if !word.Static(target) {
 		s.Cwd = ""

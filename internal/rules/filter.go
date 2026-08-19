@@ -8,21 +8,19 @@ import (
 	"github.com/sothatsit/agent-permissions/internal/model"
 )
 
-// FilterByConfig makes the declarative layers honour per-rule config by
-// removing everything a disabled rule governs before evaluation. Registry()
-// returns fresh structures on every call, so these four edits do not change
-// shared state in the caller:
+// FilterByConfig makes the declarative layers honour per-rule
+// config by removing everything a disabled rule governs before
+// evaluation. Registry() returns fresh structures on every call, so
+// these edits touch no shared state:
 //
 //   - Prune a rule-tree node whose Def is disabled, taking its whole subtree.
 //   - Nil a command's fail-closed Default when Unverified is disabled.
 //   - Remove a Breakdown and its Parser when BreakdownDef is disabled.
 //   - Drop a disabled SnippetLang so that language is no longer scanned.
 //
-// Other imperative breakdown funcs receive State.RuleConfig and gate themselves
-// at runtime, or return a RuleError that runBreakdown suppresses when the rule
-// is off. After this filter the permissions layer needs no rule config of its
-// own. A pruned node never matches and a nil Default never fires. A dropped
-// language scans clean.
+// After this filter the permissions layer needs no rule config of
+// its own. Imperative breakdown funcs still gate themselves on
+// State.RuleConfig at runtime.
 func FilterByConfig(
 	registry map[string]*model.CommandRules,
 	snippets map[string]*model.SnippetLang,
@@ -49,10 +47,9 @@ func FilterByConfig(
 	}
 }
 
-// filterRules returns the subset of rules whose governing rule is enabled. A
-// node carrying a disabled Def is dropped with its whole subtree; a kept node
-// keeps recursing so a disabled rule nested under an enabled parent is still
-// pruned.
+// filterRules drops a node carrying a disabled Def with its whole subtree, and
+// keeps recursing through kept nodes so a disabled rule nested under an enabled
+// parent is still pruned.
 func filterRules(
 	in []model.Rule, rc model.RuleConfigs,
 ) []model.Rule {
@@ -71,11 +68,10 @@ func filterRules(
 }
 
 // ValidateRegistry asserts the registry's structural and attribution
-// invariants. A Parser must belong to a Breakdown, where parser errors honour
-// rule configuration. Every node that can produce a restrictive decision (deny,
-// ask, or soft-ask) must have a governing RuleDef reachable on its path, so the
+// invariants: a Parser must belong to a Breakdown, and every node that can
+// deny, ask, or soft-ask must have a governing RuleDef on its path so the
 // decision can be named and disabled. The registry is static, so a violation is
-// a coding mistake. This check is deliberately not on the hook path.
+// a coding mistake, and this check stays off the hook path.
 func ValidateRegistry(
 	registry map[string]*model.CommandRules,
 	snippets map[string]*model.SnippetLang,
@@ -94,9 +90,8 @@ func ValidateRegistry(
 			problems = append(problems, fmt.Sprintf(
 				"%s: Parser has no Breakdown", name))
 		}
-		// A command's Default is governed by its Unverified rule; a
-		// restrictive Default with no Unverified could never be
-		// disabled.
+		// A command's Default is governed by its Unverified rule, so a
+		// restrictive Default without one could never be disabled.
 		if cr.Default != nil &&
 			cr.Default.Decision >= model.SoftAsk &&
 			cr.Unverified == nil {
@@ -133,10 +128,8 @@ func ValidateRegistry(
 	return nil
 }
 
-// validateRules walks a rule subtree. hasDef is true when an ancestor (or this
-// node) carries a Def, since the evaluator inherits the nearest ancestor's def.
-// A restrictive action, a hook (which can deny), or a restrictive Default on a
-// node with no def on its path is a violation.
+// validateRules walks a subtree. hasDef covers this node or any ancestor,
+// because the evaluator inherits the nearest ancestor's def.
 func validateRules(
 	path string, rules []model.Rule, hasDef bool,
 ) []string {

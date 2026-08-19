@@ -3,12 +3,10 @@ package rules
 import "github.com/sothatsit/agent-permissions/internal/model"
 
 // Simple exec-style wrappers: skip their own flags, then exec the inner command
-// directly via execvp. They honour no env assignments - a leading NAME=val is
-// the program name to them, not an assignment - so they need no Assigns
-// handling and the generic wrapper breakdown suffices. An empty inner (e.g.
-// `ionice -p PID`, `exec > log`) is safe (nothing to run).
+// through execvp. A leading NAME=val is the program name to them, not an
+// assignment, so they need no Assigns handling. An empty inner command (ionice
+// -p PID, exec > log) is safe.
 
-// nohup COMMAND [ARG]... - runs COMMAND immune to hangups.
 var nohupParser, breakdownNohup = wrapperBreakdown(
 	wrapperDef{
 		flags: []model.FlagDef{
@@ -17,7 +15,6 @@ var nohupParser, breakdownNohup = wrapperBreakdown(
 		},
 	})
 
-// setsid [-wcf] COMMAND [ARG]... - runs COMMAND in a new session.
 var setsidParser, breakdownSetsid = wrapperBreakdown(
 	wrapperDef{
 		flags: []model.FlagDef{
@@ -32,9 +29,8 @@ var setsidParser, breakdownSetsid = wrapperBreakdown(
 		},
 	})
 
-// nice [-n N] COMMAND [ARG]... - runs COMMAND with adjusted scheduling
-// priority. Bare `nice` prints the niceness (no command). The deprecated
-// `nice -NUM cmd` form is not parsed and falls to a fail-closed deny.
+// Bare `nice` prints the niceness and runs nothing. The deprecated `nice -NUM
+// cmd` form is not parsed and falls to a fail-closed deny.
 var niceParser, breakdownNice = wrapperBreakdown(
 	wrapperDef{
 		flags: []model.FlagDef{
@@ -45,8 +41,7 @@ var niceParser, breakdownNice = wrapperBreakdown(
 		},
 	})
 
-// ionice [options] [COMMAND [ARG]...] - runs COMMAND (or, with -p/-P/-u,
-// retunes an existing process and runs nothing).
+// With -p/-P/-u, ionice retunes an existing process and runs nothing.
 var ioniceParser, breakdownIonice = wrapperBreakdown(
 	wrapperDef{
 		flags: []model.FlagDef{
@@ -68,8 +63,7 @@ var ioniceParser, breakdownIonice = wrapperBreakdown(
 		},
 	})
 
-// exec [-cl] [-a name] [COMMAND [ARG]...] - replaces the shell with COMMAND. A
-// redirect-only `exec > log` has no command and is safe.
+// A redirect-only `exec > log` has no command and is safe.
 var execParser, breakdownExec = wrapperBreakdown(
 	wrapperDef{
 		flags: []model.FlagDef{

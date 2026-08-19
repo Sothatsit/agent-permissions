@@ -272,11 +272,13 @@ all must agree to allow.
   fails the build if a restrictive node has no def on its path. New
   catalog rules must also be enabled by exactly one preset — see
   Presets.
-* **Comment every registry entry.** Each command entry in `Registry()`
-  must have a comment explaining what the breakdown and/or rules do
-  for that command — the threat model, what gets extracted, and what
+* **Comment every registry entry.** Every command entry in `Registry()`
+  must be covered by a comment explaining what the breakdown and/or
+  rules do for it — the threat model, what gets extracted, and what
   gets denied. Short inline comments are fine for simple entries; use
-  longer comments for commands with non-obvious behaviour.
+  longer comments for commands with non-obvious behaviour. One comment
+  may cover a run of entries that behave identically, as the
+  interpreters do, but never restate the command's own name.
 * **Output messages show all reasons.** Users approve or deny based on
   the reason string. Show every reason for the decision — not just the
   first — so users can make an informed choice. A compound command

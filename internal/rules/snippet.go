@@ -15,16 +15,12 @@ import (
 // langSyntax describes how a language uses quotes and comments, for comment
 // stripping before regex matching.
 type langSyntax struct {
-	// Quotes lists string literal delimiters, ordered longest-first
-	// so """ matches before ".
-	Quotes []quoteDef
-	// LineComments lists line comment prefixes (e.g. "#", "//").
-	LineComments []string
-	// BlockComments lists block comment delimiters.
+	// Quotes are ordered longest-first, so """ matches before ".
+	Quotes        []quoteDef
+	LineComments  []string
 	BlockComments []blockComment
 
-	// skipCache holds the SKIP regex alternation for string literals, built
-	// once by stringSkipPattern.
+	// skipCache is built once by stringSkipPattern.
 	skipCache    string
 	skipCacheSet bool
 }
@@ -36,7 +32,6 @@ type quoteDef struct {
 	Multiline bool   // can span newlines
 }
 
-// blockComment describes a block comment style.
 type blockComment struct {
 	Open  string
 	Close string
@@ -44,8 +39,7 @@ type blockComment struct {
 
 // --- Comment stripping ---
 
-// stripComments removes comments from code, preserving string literals. Returns
-// code with comments excised.
+// stripComments removes comments while preserving string literals.
 func (s *langSyntax) stripComments(
 	code string,
 ) string {
@@ -114,8 +108,7 @@ func skipQuote(
 	return 0
 }
 
-// skipLineComment returns the length of the line comment starting at code[i],
-// or 0 if none starts there. The trailing newline is not included.
+// skipLineComment excludes the trailing newline.
 func skipLineComment(
 	code string, i int, syntax *langSyntax,
 ) int {
@@ -166,10 +159,9 @@ func hasPrefix(s string, i int, prefix string) bool {
 		s[i:i+len(prefix)] == prefix
 }
 
-// interpolatedLiteralContents returns the contents of quoted literals chosen by
-// include. It only finds quote boundaries and escapes already understood by the
-// shared matcher. Language-specific callbacks decide which literals can
-// evaluate interpolation; their contents remain deliberately conservative.
+// interpolatedLiteralContents returns the contents of the quoted literals
+// include chooses. It only finds quote boundaries and escapes the shared
+// matcher already understands, so contents stay deliberately conservative.
 func interpolatedLiteralContents(
 	code string,
 	syntax *langSyntax,
@@ -244,8 +236,8 @@ func hasUnescapedPrefix(text, prefix string) bool {
 
 // --- Builder ---
 
-// matchBuilder wraps a check function so you can call .Deny(reason) to produce
-// a SnippetRule - same pattern as model.RuleBuilder for command rules.
+// matchBuilder wraps a check function so .Deny(reason) produces a SnippetRule,
+// mirroring model.RuleBuilder for command rules.
 type matchBuilder struct {
 	check func(code string) bool
 }
@@ -261,11 +253,10 @@ func (b matchBuilder) Deny(
 
 // --- Core matching ---
 
-// match compiles a regex that skips over string literals (SKIP/FAIL) so
-// patterns only match in code, not inside strings. Comments should already be
-// stripped by the caller. Patterns must use only non-capturing groups (?:) - a
-// capturing () would shift group numbering and silently break the SKIP/FAIL
-// detection.
+// match compiles a regex that skips string literals, so patterns only match
+// code. The caller must have stripped comments already. Patterns must use only
+// non-capturing groups: a capturing one shifts group numbering and silently
+// breaks the SKIP/FAIL detection.
 func (s *langSyntax) match(
 	pattern string,
 ) matchBuilder {
@@ -287,21 +278,20 @@ func (s *langSyntax) match(
 			if loc == nil {
 				return false
 			}
-			// Group 1 matched - pattern found outside a string
+			// Group 1 matched, so the pattern is outside a string
 			// literal.
 			if loc[2] >= 0 {
 				return true
 			}
 
-			// String was consumed; advance past it and continue
-			// scanning.
+			// A string was consumed, so advance past it.
 			code = code[loc[1]:]
 		}
 	}}
 }
 
-// stringSkipPattern returns the cached SKIP regex alternation for this
-// language's string literals. Built once on first call.
+// stringSkipPattern caches this language's string-literal SKIP alternation on
+// first call.
 func (s *langSyntax) stringSkipPattern() string {
 	if s == nil || s.skipCacheSet {
 		return s.skipCache
@@ -332,8 +322,6 @@ func (s *langSyntax) stringSkipPattern() string {
 
 // --- Shared pattern helpers ---
 
-// reAlternation builds a regex alternation from names, escaping each for use in
-// a regex.
 func reAlternation(names []string) string {
 	parts := make([]string, len(names))
 	for i, n := range names {

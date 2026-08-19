@@ -68,7 +68,6 @@ var straceParser, breakdownStrace = wrapperBreakdown(
 			{Name: "-tt"},
 			{Name: "-xx"},
 			{Name: "-yy"},
-			// Short flags with args.
 			{Name: "-e", Arg: true, Prefix: true},
 			{Name: "-o", Arg: true, Prefix: true},
 			{Name: "-p", Arg: true, Prefix: true},
@@ -83,7 +82,6 @@ var straceParser, breakdownStrace = wrapperBreakdown(
 			{Name: "-S", Arg: true, Prefix: true},
 			{Name: "-U", Arg: true, Prefix: true},
 			{Name: "-E", Arg: true},
-			// Short bool flags.
 			{Name: "-A"}, {Name: "-c"}, {Name: "-C"},
 			{Name: "-d"}, {Name: "-f"}, {Name: "-h"},
 			{Name: "-i"}, {Name: "-k"}, {Name: "-n"},

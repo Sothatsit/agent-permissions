@@ -57,7 +57,7 @@ func TestAssignmentOnlyInputIsHandled(t *testing.T) {
 		"[[ true ]]; FOO=bar",
 	} {
 		t.Run(command, func(t *testing.T) {
-			result, err := wbd(t, command)
+			result, err := breakdownWithAllRules(t, command)
 			if err != nil {
 				t.Fatalf("breakdown error: %v", err)
 			}
@@ -81,7 +81,7 @@ func TestNonExecutableInputIsHandled(t *testing.T) {
 		"flock lock -c '# comment'",
 	} {
 		t.Run(command, func(t *testing.T) {
-			result, err := wbd(t, command)
+			result, err := breakdownWithAllRules(t, command)
 			if err != nil {
 				t.Fatalf("breakdown error: %v", err)
 			}

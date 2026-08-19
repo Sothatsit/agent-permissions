@@ -7,10 +7,9 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-// breakdownFind extracts inner commands from -exec and -execdir clauses. Uses
-// KeepOuter so the outer find command still reaches the rules layer, which
-// handles dangerous flags (-ok, -okdir). The framework scans words outside each
-// inner command separately.
+// breakdownFind extracts inner commands from -exec and -execdir.
+// KeepOuter leaves the outer find for the rules layer, which handles
+// -ok and -okdir.
 func breakdownFind(
 	input model.ParseResult,
 	_ *model.State,

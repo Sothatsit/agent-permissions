@@ -31,8 +31,7 @@ func LoadPresetCatalog() (*PresetCatalog, error) {
 	return &PresetCatalog{available: all}, nil
 }
 
-// Presets returns independent copies of every available preset in policy
-// priority order.
+// Presets returns independent copies, in policy priority order.
 func (c *PresetCatalog) Presets() []*presets.Preset {
 	return clonePresets(c.available)
 }
@@ -46,7 +45,6 @@ func clonePresets(all []*presets.Preset) []*presets.Preset {
 	return out
 }
 
-// PresetState identifies why one available preset is active or inactive.
 type PresetState int
 
 const (
@@ -57,13 +55,11 @@ const (
 	PresetEnforced
 )
 
-// PolicyPreset is one available preset and its effective selection state.
 type PolicyPreset struct {
 	Preset *presets.Preset
 	State  PresetState
 }
 
-// Active reports whether this preset contributes to resolved policy.
 func (p PolicyPreset) Active() bool {
 	switch p.State {
 	case PresetEnabledByDefault,
@@ -79,15 +75,14 @@ func (p PolicyPreset) Active() bool {
 }
 
 // PresetSelection is the effective state of every available preset. With an
-// explicit selector, enforced presets precede ordinary presets while each
-// group keeps catalog order. SelectorPath is empty when no config specifies
-// preset selection.
+// explicit selector, enforced presets precede ordinary ones and each group
+// keeps catalog order. SelectorPath is empty when no config specifies
+// selection.
 type PresetSelection struct {
 	SelectorPath string
 	Presets      []PolicyPreset
 }
 
-// AgentConfigScope identifies one .agents config slot.
 type AgentConfigScope int
 
 const (
@@ -130,9 +125,8 @@ type claudeSettingsSource struct {
 	warnings    []ConfigWarning
 }
 
-// PolicySnapshot captures every policy input used by one command. Resolution
-// derives an evaluation-ready policy without reading files or environment
-// state again.
+// PolicySnapshot captures every policy input for one command, so resolution
+// reads no file or environment state again.
 type PolicySnapshot struct {
 	cwd             string
 	presets         *PresetCatalog
@@ -289,13 +283,12 @@ func LoadPolicySnapshot(configDir, cwd string) (*PolicySnapshot, error) {
 	}, nil
 }
 
-// Presets returns every preset captured by the snapshot, including disabled
-// presets needed by validation.
+// Presets includes the disabled presets that validation needs.
 func (s *PolicySnapshot) Presets() []*presets.Preset {
 	return s.presets.Presets()
 }
 
-// PresetSelection returns an independent copy of the captured preset states.
+// PresetSelection returns an independent copy.
 func (s *PolicySnapshot) PresetSelection() PresetSelection {
 	selection := PresetSelection{
 		SelectorPath: s.presetSelection.SelectorPath,

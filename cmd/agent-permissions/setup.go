@@ -13,17 +13,14 @@ import (
 	"github.com/sothatsit/agent-permissions/presets"
 )
 
-// setup writes a populated ~/.agents/permissions.json so the user has a
-// starting point to customise. The file includes empty tier arrays as
-// placeholders and leaves preset selection unspecified (which means
-// "all ordinary presets enabled" - new presets in future binary updates are
-// picked up automatically). Enforced presets sit outside user selection and
-// remain active.
+// setup writes a populated ~/.agents/permissions.json as a starting
+// point. Empty tier arrays stand in as placeholders, and preset
+// selection is left unspecified, which enables every ordinary
+// preset and picks up new ones from future binary updates.
 //
-// Refuses to overwrite an existing file unless --force is passed. Any
-// non-NotExist stat error is treated as a hard failure rather than silently
-// writing - a transient filesystem error on the parent directory could
-// otherwise clobber a real, customised file.
+// It refuses to overwrite without --force, and treats any
+// non-NotExist stat error as fatal: a transient filesystem error
+// could otherwise clobber a customised file.
 func setup(args []string) error {
 	force := false
 	for _, a := range args {
@@ -51,9 +48,8 @@ func setup(args []string) error {
 					"overwrite)", path)
 		}
 	} else if !errors.Is(err, fs.ErrNotExist) {
-		// Any error that isn't "file not found" means we can't safely
-		// decide whether overwriting is OK. Refuse rather than risk
-		// clobbering a real file behind a transient stat failure.
+		// Without a clear "file not found" we cannot say whether
+		// overwriting is safe, so refuse.
 		return fmt.Errorf(
 			"stat %s: %v", path, err)
 	}
@@ -117,10 +113,8 @@ func setup(args []string) error {
 	return nil
 }
 
-// buildSetupTemplate returns the initial JSON body with empty tier objects
-// (each holding empty Commands and EnvVars maps) as placeholders for
-// hand-editing. encoding/json sorts the keys, which gives the starter file
-// stable output.
+// buildSetupTemplate leaves empty tier objects as placeholders for
+// hand-editing. encoding/json sorts the keys, so the starter file is stable.
 func buildSetupTemplate() ([]byte, error) {
 	body := map[string]any{
 		"Allow":   buildEmptyTier(),
@@ -137,7 +131,6 @@ func buildSetupTemplate() ([]byte, error) {
 	return out, nil
 }
 
-// buildEmptyTier returns an empty tier in the loader's schema.
 func buildEmptyTier() map[string]any {
 	return map[string]any{
 		"Commands": map[string]string{},

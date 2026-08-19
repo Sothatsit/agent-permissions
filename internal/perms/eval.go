@@ -62,15 +62,13 @@ func evaluateRules(
 			continue
 		}
 
-		// The rule governing this node and its subtree.
 		ruleDef := govDef
 		if rule.Def != nil {
 			ruleDef = rule.Def
 		}
 
-		// Extend path with match context (e.g.
-		// "git" -> "git --upload-pack", or
-		// "git" -> "git remote" -> "git remote add").
+		// Extend the path with the match context, so "git" becomes
+		// "git remote" and then "git remote add".
 		childPath := path
 		if context != "" {
 			childPath = path + " " + context
@@ -109,8 +107,7 @@ func evaluateRules(
 			}
 		}
 
-		// Deny is highest priority - no subsequent rule can upgrade
-		// past it.
+		// No later rule can upgrade past a Deny.
 		if strongest != nil &&
 			strongest.Decision == model.Deny {
 			return strongest
@@ -120,8 +117,7 @@ func evaluateRules(
 	return strongest
 }
 
-// stronger returns the action with the higher-priority decision.
-// Deny > Ask > SoftAsk > Allow.
+// stronger prefers Deny > Ask > SoftAsk > Allow.
 func stronger(a, b *model.Action) *model.Action {
 	if a == nil {
 		return b
@@ -136,8 +132,8 @@ func stronger(a, b *model.Action) *model.Action {
 	return a
 }
 
-// formatAction builds a new Action with a formatted reason and the governing
-// rule definition stamped on for attribution. Never mutates the input action.
+// formatAction stamps the governing rule definition on a new Action, never
+// mutating the input.
 func formatAction(
 	action *model.Action, path string, def *model.RuleDef,
 ) *model.Action {

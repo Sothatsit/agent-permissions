@@ -14,20 +14,16 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-// install wires the agent-permissions hook into known harness config files.
-// Today it installs Claude Code's Bash PreToolUse hook in settings.json.
+// install wires the hook into known harness config files: today,
+// Claude Code's Bash PreToolUse hook in settings.json.
 //
-// This is the only command that modifies Claude Code's settings.json. It must
-// preserve settings it does not own.
-//
-//   - It skips a missing settings file rather than creating one.
-//   - It refuses symlinks and permission failures, then prints a stanza the
-//     user can paste by hand.
-//   - It refuses hook structures that do not match Claude Code's documented
-//     shape rather than overwriting data it does not understand.
-//   - It parses hook commands to distinguish this hook from wrapper scripts or
-//     incidental mentions of the binary name.
-//   - It merges into an existing Bash matcher's hooks array when one exists.
+// This is the only command that modifies settings.json, and it must
+// preserve settings it does not own. It skips a missing file rather
+// than creating one, refuses symlinks and permission failures with a
+// stanza the user can paste by hand, refuses hook structures outside
+// Claude Code's documented shape, parses hook commands so a wrapper
+// script is not mistaken for this hook, and merges into an existing
+// Bash matcher's hooks array.
 func install(args []string) error {
 	if len(args) != 0 {
 		return fmt.Errorf("usage: agent-permissions install")
@@ -42,7 +38,7 @@ func install(args []string) error {
 	); err == nil {
 		binPath = resolved
 	} else {
-		// The unresolved path can become stale if a development symlink
+		// An unresolved path goes stale when a development symlink
 		// moves.
 		fmt.Fprintf(os.Stderr,
 			"warning: could not resolve symlinks "+
@@ -126,8 +122,8 @@ func installClaudeCode(binPath string) error {
 			return buildHandPasteError(
 				path, stanza, err)
 		}
-		// Permission errors and other writable issues also fall back to
-		// the hand-paste path so the user has a clear next step.
+		// Permission and other writability errors fall back to the
+		// hand-paste path, so the user still has a next step.
 		if errors.Is(err, os.ErrPermission) {
 			return buildHandPasteError(
 				path, stanza, err)
@@ -141,7 +137,6 @@ func installClaudeCode(binPath string) error {
 	return nil
 }
 
-// mergeStatus describes whether merging changed settings.json.
 type mergeStatus int
 
 const (

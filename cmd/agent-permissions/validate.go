@@ -12,25 +12,15 @@ import (
 	"github.com/sothatsit/agent-permissions/presets"
 )
 
-// validate loads every permission source and reports these classes of issue:
+// validate loads every permission source and reports what would
+// silently degrade the policy: malformed entries, unknown rule IDs
+// or preset names, and enforced presets that a config tries to
+// disable. Those are hard errors, so CI fails on them. Empty
+// reasons and a preset name supplied by two origins are notes,
+// because both load fine by design.
 //
-//   - Malformed entries: rejected at load time and not contributing to the
-//     policy. A hard error (exit 2 via main) so CI fails on these.
-//   - Unknown rule IDs or preset names in a user .agents config: a typo (e.g.
-//     "git.branch-writs", or a misspelled preset name) that silently no-ops.
-//     Also a hard error, since the rule or preset the user meant to configure
-//     is then not actually being configured.
-//   - Attempts to put an enforced preset in disabled-presets. Selection ignores
-//     the entry, so reporting it avoids a silent failed override.
-//   - Empty-reason entries: load fine but carry no description. Surfaced as an
-//     informational note; the exit code stays 0 because empty reasons are
-//     allowed by design.
-//   - Preset names supplied by more than one origin: also a note, for the same
-//     reason. Both presets stay active, but attribution can no longer name the
-//     directory.
-//
-// All problems are collected and reported in one pass. Validate never bails on
-// the first error, and the exit code is decided only at the end.
+// Every problem is collected in one pass, and the exit code is
+// decided only at the end.
 func validate(args []string) error {
 	if len(args) != 0 {
 		return fmt.Errorf(
@@ -72,10 +62,9 @@ func validate(args []string) error {
 		fmt.Println()
 	}
 
-	// A name supplied by two origins loads fine and both stay active, so
-	// this is a note rather than a problem. It is worth reporting because
-	// attribution then names only the preset, leaving the output unable to
-	// say which directory a decision came from.
+	// Both presets stay active, so this is only a note. It is worth
+	// reporting because attribution can then name the preset but not
+	// the directory a decision came from.
 	if dupes := presets.DuplicateNames(all); len(dupes) > 0 {
 		fmt.Printf(
 			"Note: %d preset %s supplied by more than one "+
@@ -89,8 +78,6 @@ func validate(args []string) error {
 		fmt.Println()
 	}
 
-	// Collect every hard problem before deciding the exit code, so one run
-	// reports them all.
 	unknownRules := collectUnknownRules(agentConfigs)
 	unknownPresets := collectUnknownPresets(agentConfigs, all)
 	disabledEnforced := collectDisabledEnforcedPresets(
@@ -152,9 +139,8 @@ type unknownRef struct {
 	value  string
 }
 
-// printUnknownRefs prints a "Found N unknown <kind>s" block naming each typo'd
-// value and pointing at the catalog command that lists the valid names. No-op
-// when refs is empty.
+// printUnknownRefs names each typo'd value and points at the command that lists
+// the valid names.
 func printUnknownRefs(
 	refs []unknownRef, singular, plur, kind, listCmd string,
 ) {
@@ -174,10 +160,9 @@ func printUnknownRefs(
 	fmt.Println()
 }
 
-// collectUnknownRules returns rule IDs in the user .agents configs that are not
-// known catalog rules - typos that would otherwise silently no-op. External
-// presets are checked when they load; the embedded-preset invariant covers
-// shipped IDs.
+// collectUnknownRules returns rule IDs in the user .agents configs that no
+// catalog rule matches. External presets are checked as they load, and the
+// embedded-preset invariant covers shipped IDs.
 func collectUnknownRules(
 	configs []perms.AgentConfigSource,
 ) []unknownRef {
@@ -202,11 +187,8 @@ func collectUnknownRules(
 	return out
 }
 
-// collectUnknownPresets returns preset names referenced by
-// enabled-presets / disabled-presets in the user .agents configs that don't
-// match any available preset (embedded or external). A typo there silently
-// has no effect - the same failure mode collectUnknownRules guards for rule
-// IDs.
+// collectUnknownPresets returns names in enabled-presets or disabled-presets
+// that match no available preset, embedded or external.
 func collectUnknownPresets(
 	configs []perms.AgentConfigSource,
 	all []*presets.Preset,
@@ -233,9 +215,8 @@ func collectUnknownPresets(
 	return out
 }
 
-// collectDisabledEnforcedPresets returns enforced names in disabled-presets.
-// Selection deliberately ignores them, so validate reports the otherwise silent
-// failed override.
+// collectDisabledEnforcedPresets returns enforced names in disabled-presets,
+// whose failed override would otherwise be silent.
 func collectDisabledEnforcedPresets(
 	configs []perms.AgentConfigSource,
 	all []*presets.Preset,
@@ -269,9 +250,8 @@ func collectDisabledEnforcedPresets(
 	return out
 }
 
-// presetSelectionNames returns every preset name the config references via
-// enabled-presets or disabled-presets; a typo in either silently no-ops, so
-// both are validated.
+// presetSelectionNames returns every name the config references, from both
+// lists, because a typo in either silently no-ops.
 func presetSelectionNames(cfg *agentconfig.Config) []string {
 	var names []string
 	if cfg.EnabledPresets != nil {

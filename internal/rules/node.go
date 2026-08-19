@@ -16,10 +16,9 @@ var syntaxNode = &langSyntax{
 	BlockComments: []blockComment{{"/*", "*/"}},
 }
 
-// nodeFlags defines recognised Node.js interpreter flags.
 var nodeFlags = []model.FlagDef{
-	// Inspector addresses are optional and attach with `=`. A following word
-	// is the script rather than the option value.
+	// Inspector addresses are optional and attach with `=`. A following
+	// word is the script rather than the option value.
 	{Name: "--inspect-brk"},
 	{Name: "--version"}, {Name: "--require", Arg: true},
 	{Name: "--inspect"},
@@ -33,7 +32,6 @@ var nodeFlags = []model.FlagDef{
 	{Name: "-p", Arg: true},
 	{Name: "-r", Arg: true},
 	{Name: "-C", Arg: true},
-	// No-arg flags.
 	{Name: "-c"},
 	{Name: "-h"},
 	{Name: "-i"},
@@ -74,8 +72,6 @@ func nodeInterpolationContents(code string) []string {
 				hasUnescapedPrefix(content, "${")
 		})
 }
-
-// --- Snippet matching ---
 
 // nodeRequire matches Node.js require() calls and ESM from-imports:
 // require('mod'), from 'mod'.

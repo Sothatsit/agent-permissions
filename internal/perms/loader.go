@@ -29,8 +29,8 @@ type Resolved struct {
 	ruleConfig model.RuleConfigs
 }
 
-// Breakdown extracts the commands this policy must evaluate. It uses the
-// working directory and filtered registry captured during resolution.
+// Breakdown extracts the commands this policy must evaluate, using the working
+// directory and filtered registry from resolution.
 func (r *Resolved) Breakdown(
 	command string,
 ) (model.BreakdownResult, error) {
@@ -38,35 +38,20 @@ func (r *Resolved) Breakdown(
 		command, r.cwd, r.registry, r.ruleConfig)
 }
 
-// Resolve reads every config source and returns an evaluation-ready policy. Its
-// breakdown and permissions phases share one registry filtered by the resolved
-// rule config. The hook and `check` use this path so they resolve and evaluate
-// identically.
+// Resolve reads every config source and returns an evaluation-ready
+// policy. The hook and `check` both use this path, so they resolve
+// and evaluate identically.
 //
-// configDir is CLAUDE_CONFIG_DIR (defaults to ~/.claude). cwd is the project
-// directory. Either may be empty; missing files are silently skipped.
+// configDir is CLAUDE_CONFIG_DIR (defaults to ~/.claude) and cwd is
+// the project directory. Either may be empty, and missing files are
+// skipped.
 //
-// Normal-source priority, highest -> lowest (the order Permissions.Sources
-// lands in):
-//  1. <cwd>/.claude/settings.local.json
-//  2. <cwd>/.claude/settings.json
-//  3. <configDir>/settings.json (Claude Code user)
-//  4. <cwd>/.agents/permissions.local.json (explicit)
-//  5. <cwd>/.agents/permissions.json (explicit entries)
-//  6. ~/.agents/permissions.json (explicit entries)
-//  7. Ordinary external presets
-//  8. Embedded presets
-//
-// Ordinary and embedded presets are filtered by enabled-/disabled-presets from
-// the most-specific .agents config that specifies either field (local beats
-// project beats global). Enforced external presets are always active and
-// resolve separately: all matching enforced entries combine by strength, then
-// that result combines with normal policy by strength.
-//
-// permissions.local.json mirrors Claude Code's settings.local.json: a
-// project-scoped, typically gitignored personal override that sits above the
-// committed project config. There is no global local variant, again matching
-// Claude Code.
+// Ordinary and embedded presets are filtered by
+// enabled-/disabled-presets from the most-specific .agents config
+// that specifies either field. Enforced external presets are always
+// active and resolve separately: matching enforced entries combine
+// by strength, then that result combines with normal policy by
+// strength.
 func Resolve(
 	configDir, cwd string,
 ) (*Resolved, error) {
@@ -78,8 +63,7 @@ func Resolve(
 	return snapshot.Resolve(), nil
 }
 
-// Resolve builds the effective policy from the snapshot without reading any
-// source again.
+// Resolve builds the effective policy without reading any source again.
 func (snapshot *PolicySnapshot) Resolve() *Resolved {
 	globalAgent, projectAgent, localAgent :=
 		snapshot.resolutionConfigs()
@@ -96,8 +80,8 @@ func (snapshot *PolicySnapshot) Resolve() *Resolved {
 	rules.FilterByConfig(
 		registry, snippetRules, ruleConfig)
 
-	// Build sources highest -> lowest priority. ConfigWarnings for malformed
-	// entries accumulate into Permissions.Warnings.
+	// Build sources highest -> lowest priority. ConfigWarnings for
+	// malformed entries accumulate into Permissions.Warnings.
 	sources := make([]SourcePerms, 0, len(snapshot.claudeSettings))
 	var enforcedSources []SourcePerms
 	var warnings []ConfigWarning
@@ -137,13 +121,11 @@ func (snapshot *PolicySnapshot) Resolve() *Resolved {
 			rules:           registry,
 			snippetRules:    snippetRules,
 			PathDirs:        maps.Clone(snapshot.pathDirs),
-			// Resolve doesn't know which harness is the consumer.
-			// Tools that produce harness-bound output (claude-hook)
-			// replace this with the concrete harness; tools that
-			// don't (check, validate) keep the Placeholder so
-			// harness-specific strings appear as visibly marked
-			// placeholders rather than silently pretending to be
-			// one harness or another.
+			// Resolve does not know which harness consumes its
+			// output. Harness-bound tools replace this with the
+			// concrete harness, and the rest keep the Placeholder
+			// so harness-specific strings are visibly marked rather
+			// than pretending to be one harness.
 			Harness: harness.Placeholder{},
 		},
 	}
@@ -165,11 +147,10 @@ func parsePathDirs(path string) map[string]struct{} {
 	return dirs
 }
 
-// validateExternalPresets rejects semantic mistakes that structural JSON
-// decoding cannot catch. External presets carry organisation policy, so
-// dropping a bad entry or silently ignoring a rule typo would weaken that
-// policy. User config keeps the warning-only behavior so users can diagnose and
-// repair a bad entry without losing the hook.
+// validateExternalPresets rejects semantic mistakes that JSON decoding cannot
+// catch. External presets carry organisation policy, so dropping a bad entry
+// would weaken it. User config keeps warning-only behaviour, so a bad entry can
+// be diagnosed without losing the hook.
 func validateExternalPresets(
 	all []*presets.Preset,
 ) error {
@@ -454,8 +435,8 @@ func globLanguagesOverlap(a, b string) bool {
 // Rules ship default-OFF in code, so a rule absent from every source stays
 // disabled. Ordinary presets form the base, then global/project/local .agents
 // overrides apply. Enforced Enabled:true entries apply last, locking those
-// rules on. External validation rejects Enabled:false in enforced
-// presets. Claude settings.json does not participate - rule config is an
+// rules on. External validation rejects Enabled:false in enforced presets.
+// Claude settings.json does not participate - rule config is an
 // agent-permissions concept kept in the shared layers, which is what makes it
 // identical across harnesses.
 func resolveRuleConfig(

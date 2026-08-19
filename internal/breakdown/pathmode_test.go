@@ -10,9 +10,8 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-// stubBreakdown is a BreakdownFunc that strips the first arg and returns the
-// rest as an inner command (mimicking a simple wrapper). Records whether it was
-// called.
+// stubBreakdown strips the first arg and returns the rest as an inner command,
+// recording whether it was called.
 func stubBreakdown(called *bool) model.BreakdownFunc {
 	return func(
 		input model.ParseResult,
@@ -127,10 +126,8 @@ func TestPathAllowRunsBreakdownForPath(t *testing.T) {
 			"for path-invoked PathAllow")
 	}
 
-	// The outer command must be kept so it reaches the permissions
-	// layer. The stub breakdown also produces an inner command from the
-	// args, so we expect both: the inner "arg" command and the outer
-	// "/usr/bin/mycmd arg".
+	// The outer command must survive to reach permissions, and the
+	// stub also produces an inner command, so both appear.
 	found := false
 	for _, cmd := range result.Commands {
 		args := word.Texts(cmd.Args)
@@ -160,8 +157,7 @@ func TestPathAllowBareCommandReplaces(t *testing.T) {
 		t.Error("breakdown should have been called")
 	}
 
-	// Bare (no path) should still replace - only path-invoked keeps the
-	// outer command.
+	// Only a path-invoked command keeps the outer command.
 	for _, cmd := range result.Commands {
 		args := word.Texts(cmd.Args)
 		if len(args) > 0 && args[0] == "mycmd" {

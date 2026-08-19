@@ -19,7 +19,7 @@ func TestChildShellsInheritFunctionsWithoutLeakingChanges(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			result, err := wbd(t, test.command)
+			result, err := breakdownWithAllRules(t, test.command)
 			if err != nil {
 				t.Fatalf("breakdown error: %v", err)
 			}

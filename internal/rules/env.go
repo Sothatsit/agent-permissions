@@ -7,7 +7,7 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-var envParser, _envBaseBreakdown = wrapperBreakdown(
+var envParser, envWrapperBreakdown = wrapperBreakdown(
 	wrapperDef{
 		flags: []model.FlagDef{
 			{Name: "--ignore-environment"},
@@ -37,17 +37,15 @@ var envParser, _envBaseBreakdown = wrapperBreakdown(
 	})
 
 // breakdownEnv unwraps env, the one wrapper that honours a leading NAME=val: it
-// sets those variables in the inner command's environment, so each name must
-// reach the EnvVars deny axis (env LD_PRELOAD=/x cmd is a real injection) and
-// the inner command must be re-analysed. The base wrapper parses env's flags
-// and denies -S; here we split the positionals into the honoured assignments
-// and the inner command. Bash's own assignment rule applies: leading words
-// containing '=' are assignments; the first word without one is the command.
+// sets those variables for the inner command, so each name must reach the
+// EnvVars deny axis (env LD_PRELOAD=/x cmd is a real injection). Bash's own
+// rule applies to the split: leading words containing '=' are assignments, and
+// the first word without one is the command.
 func breakdownEnv(
 	input model.ParseResult,
 	state *model.State,
 ) (model.BreakdownOutcome, error) {
-	outcome, err := _envBaseBreakdown(input, state)
+	outcome, err := envWrapperBreakdown(input, state)
 	if err != nil {
 		return model.BreakdownOutcome{}, err
 	}

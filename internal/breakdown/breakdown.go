@@ -17,13 +17,10 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-// maxBreakdownDepth limits recursion when inner commands are re-parsed through
-// breakdownAt (e.g. stacked wrappers, file scanning, source chains). Prevents
-// stack overflow on adversarial input.
+// maxBreakdownDepth stops adversarial input from overflowing the
+// stack through re-parsed inner commands.
 const maxBreakdownDepth = 20
 
-// sourcePathSep is the separator used in SourcePath strings to delimit the
-// chain of files (e.g. "outer.sh > inner.sh").
 const sourcePathSep = " > "
 
 type shellExpansion int
@@ -40,13 +37,11 @@ const (
 	childInheritsFunctions
 )
 
-// breaker holds mutable state during a breakdown pass.
 type breaker struct {
 	model.State
-	// registry is the command rules, used for BreakdownFunc dispatch.
 	registry map[string]*model.CommandRules
-	// parser is reused across breakdownAt calls to avoid re-allocating for
-	// each parse.
+	// parser is reused across breakdownAt calls to save an allocation
+	// per parse.
 	parser *syntax.Parser
 }
 
@@ -88,10 +83,9 @@ func (b *breaker) isolateShellState(functions childFunctions) func() {
 	}
 }
 
-// isolateForBash saves breaker state that should not leak from a bash
-// sub-process (new process = fresh state), and returns a restore function. Cwd
-// is inherited (subprocess starts in the parent's directory) but changes inside
-// don't propagate out.
+// isolateForBash gives a bash sub-process fresh state. Cwd is inherited,
+// because the subprocess starts in the parent's directory, but changes inside
+// it do not propagate out.
 func (b *breaker) isolateForBash() func() {
 	restoreShellState := b.isolateShellState(childStartsFresh)
 	savedRootScript := b.RootScript
@@ -151,13 +145,9 @@ func (b *breaker) breakdownTrapHandler(
 	return result, nil
 }
 
-// Breakdown parses a bash command string and returns all commands that could be
-// executed. cwd is the working directory used to resolve relative paths in bash
-// script.sh and source/. commands. registry provides command rules for
-// BreakdownFunc dispatch. ruleConfig is the resolved per-rule configuration
-// that breakdown functions consult before applying imperative denials; it must
-// be populated (RuleConfigs.For panics on a nil map). Returns an error with a
-// reason if any AST node is unrecognised.
+// Breakdown returns every command a bash string could execute, resolving
+// relative script paths against cwd. ruleConfig must be populated, because
+// RuleConfigs.For panics on a nil map. An unrecognised AST node is an error.
 func Breakdown(
 	command string,
 	cwd string,
@@ -205,18 +195,13 @@ func (b *breaker) breakdownAt(
 	return result, nil
 }
 
-// sourcePathStr returns the current file path stack as a human-readable string
-// for SourcePath metadata.
 func (b *breaker) sourcePathStr() string {
 	return strings.Join(b.FilePath, sourcePathSep)
 }
 
-// suppressDisabled reports whether a breakdown error should be swallowed
-// because the rule that produced it is disabled. Rule-attributed denials carry
-// a *model.RuleError with a Def; when that rule is off, the denial is dropped
-// and the command falls through to the permissions layer. Plain errors (parse
-// failures with no governing rule, unsupported syntax) carry no Def and are
-// never suppressed - they fail closed.
+// suppressDisabled reports whether a breakdown error should be dropped because
+// the rule that produced it is disabled, letting the command fall through to
+// the permissions layer. A plain error carries no Def and always fails closed.
 func (b *breaker) suppressDisabled(err error) bool {
 	var re *model.RuleError
 	if errors.As(err, &re) && re.Def != nil {
@@ -239,7 +224,6 @@ const (
 	retainOuterCommand
 )
 
-// runBreakdown calls the BreakdownFunc for a command and processes its outcome.
 func (b *breaker) runBreakdown(
 	baseName string,
 	cmdArgs []*syntax.Word,
@@ -253,10 +237,8 @@ func (b *breaker) runBreakdown(
 		expansion: expansion,
 	}
 
-	// Parse args (without command name) using the command's parser, or
-	// populate possible flags heuristically. Parsers and breakdown
-	// functions receive args without the command name in Raw, but the
-	// command name is available via Name.
+	// Breakdown functions receive args without the command name in
+	// Raw, and read it from Name instead.
 	args := cmdArgs[1:]
 	input := model.ParseResult{
 		Name: baseName,
@@ -266,8 +248,8 @@ func (b *breaker) runBreakdown(
 		parsed, err := rules.Parser.Parse(args)
 		if err != nil {
 			// A parser failure is this command's "cannot verify"
-			// denial. Attribute it to the command's Unverified rule
-			// so it both shows the rule ID and suppresses when that
+			// denial, so attribute it to the Unverified rule: that
+			// shows the rule ID and suppresses the denial when the
 			// rule is disabled.
 			var perr error = fmt.Errorf(
 				"%s: %w", baseName, err)
@@ -292,13 +274,11 @@ func (b *breaker) runBreakdown(
 		model.PopulatePossibleFlags(&input)
 	}
 
-	// Call the BreakdownFunc.
 	outcome, err := rules.Breakdown(
 		input, &b.State)
 	if err != nil {
-		// A breakdown denial attributed to a disabled rule is dropped -
-		// the command falls through to the permissions layer instead of
-		// being denied.
+		// A denial attributed to a disabled rule is dropped, and the
+		// command falls through to the permissions layer instead.
 		if b.suppressDisabled(err) {
 			return fallThrough, nil
 		}
@@ -319,11 +299,10 @@ func (b *breaker) runBreakdown(
 
 	var result model.BreakdownResult
 
-	// A handled outcome may consume argv before normal flattening. Scan
-	// only the original words it did not pass to an inner command.
-	// Code-string breakdowns reject AST substitutions in their source, so
-	// scanning their other operands cannot count source substitutions
-	// twice.
+	// A handled outcome may consume argv before normal flattening,
+	// so scan only the words it did not pass to an inner command.
+	// Code-string breakdowns reject AST substitutions in their
+	// source, so this cannot count one twice.
 	outcomeReplacesOuter := disposition == model.OuterSafe ||
 		disposition == model.OuterReplace
 	forwarded := make(map[*syntax.Word]struct{})
@@ -358,8 +337,8 @@ func (b *breaker) runBreakdown(
 		outerDisposition = model.OuterKeep
 	}
 
-	// Record env-var assignments the wrapper applies to its inner command.
-	// Their source words were omitted from Commands and scanned above.
+	// The assigns' source words were omitted from Commands and
+	// scanned above.
 	for _, assign := range work.Assigns {
 		if assign.Name != nil {
 			result.Assigns = append(
@@ -393,9 +372,9 @@ func (b *breaker) runBreakdown(
 		b.SetWorkingDirectory(directory)
 	}
 
-	// Only a command that hands its own stdin to the work it runs lets that
-	// stdin through. Anything else has consumed, replaced, or deferred it,
-	// so the inner work starts from nothing known.
+	// Only a command that hands its own stdin to the work it runs
+	// lets that stdin through. Anything else consumed, replaced, or
+	// deferred it.
 	restoreStdin := b.saveStdin()
 	defer restoreStdin()
 	if !work.ForwardStdin {
@@ -416,7 +395,6 @@ func (b *breaker) runBreakdown(
 		result.Merge(inner)
 	}
 
-	// Re-parse code strings using the owning command's execution state.
 	for _, code := range work.CodeStrings {
 		inner, innerErr := b.breakdownCodeString(
 			baseName, code, depth)
@@ -427,8 +405,6 @@ func (b *breaker) runBreakdown(
 		result.Merge(inner)
 	}
 
-	// Transfer extracted code snippets. Set SourceScript to the full
-	// command args if the breakdown function left it unset.
 	for i := range work.CodeSnippets {
 		if work.CodeSnippets[i].SourceScript == nil {
 			work.CodeSnippets[i].SourceScript =
@@ -440,7 +416,6 @@ func (b *breaker) runBreakdown(
 		result.CodeSnippets,
 		work.CodeSnippets...)
 
-	// Scan files with automatic isolation.
 	for _, path := range work.ScanFiles {
 		restore := b.isolateForBash()
 		b.RootScript = path
@@ -470,9 +445,7 @@ func (b *breaker) runBreakdown(
 	}, nil
 }
 
-// scanFile reads a script file relative to cwd, parses it, and returns all
-// extracted commands. Handles the visited set, depth limit, file size limit,
-// and symlink resolution.
+// scanFile parses a script file and returns the commands it extracts.
 func (b *breaker) scanFile(
 	path string, depth int,
 ) (model.BreakdownResult, error) {
@@ -501,7 +474,6 @@ func (b *breaker) scanFile(
 
 	b.Visited[realPath] = true
 
-	// Push file path for SourcePath tracking.
 	b.FilePath = append(b.FilePath, path)
 	defer func() {
 		b.FilePath = b.FilePath[:len(b.FilePath)-1]
@@ -515,10 +487,9 @@ func (b *breaker) scanFile(
 	return result, nil
 }
 
-// collectAssigns walks the AST and returns env var names from assignments that
-// prefix a command (e.g. VAR=val cmd) and from export/local/declare statements
-// (e.g. export VAR=val). The latter matter because they persist in compound
-// commands (e.g. export BASH_ENV=/evil && cmd).
+// collectAssigns returns env var names from assignments prefixing a command and
+// from export/local/declare, which matter because they persist across a
+// compound command (export BASH_ENV=/evil && cmd).
 func collectAssigns(f *syntax.File) []string {
 	var names []string
 	syntax.Walk(f, func(node syntax.Node) bool {
@@ -619,9 +590,10 @@ func (b *breaker) processCommand(
 	case *syntax.BinaryCmd:
 		return b.processBinaryCmd(c, depth)
 	case *syntax.Subshell:
-		// A subshell inherits functions, but its cwd and function changes do
-		// not propagate out. It always executes, so keep its body outside
-		// conditional scope and retain cwd tracking within it.
+		// A subshell inherits functions, but its cwd and function
+		// changes do not propagate out. It always executes, so keep its
+		// body outside conditional scope and retain cwd tracking within
+		// it.
 		restore := b.isolateShellState(childInheritsFunctions)
 		r, err := b.processStmts(c.Stmts, depth)
 		restore()
@@ -713,8 +685,7 @@ func (b *breaker) processCallExprWithExpansion(
 ) (model.BreakdownResult, error) {
 	var result model.BreakdownResult
 
-	// Collect findings from assignment substitutions (e.g. FOO=$(evil) cmd
-	// -> extract "evil" for checking).
+	// Assignment values can hide substitutions (FOO=$(evil) cmd).
 	for _, assign := range ce.Assigns {
 		if expansion == expansionScanned {
 			continue
@@ -734,7 +705,6 @@ func (b *breaker) processCallExprWithExpansion(
 		return result, nil
 	}
 
-	// Resolve command name from the first word.
 	cmdName, err := resolveCommandName(ce.Args[0])
 	if err != nil {
 		return model.BreakdownResult{}, err
@@ -752,16 +722,8 @@ func (b *breaker) processCallExprWithExpansion(
 		result.Merge(inner)
 	}
 
-	// --- BreakdownFunc dispatch ---
-	//
-	// If the registry has a BreakdownFunc for this command, call it to
-	// extract inner commands, choose the outer command's disposition, or
-	// mutate breakdown state.
-	//
-	// Path-invoked commands (./cmd, /usr/bin/cmd) are controlled by
-	// PathMode: Deny rejects them (a local binary could ignore its
-	// arguments), Skip bypasses the breakdown and falls through to
-	// flattening, Allow runs the breakdown normally.
+	// BreakdownFunc dispatch. PathMode decides what a path-invoked
+	// command (./cmd, /usr/bin/cmd) gets here.
 	if b.registry != nil {
 		rules := b.registry[baseName]
 		if rules != nil && rules.Breakdown != nil {
@@ -800,15 +762,14 @@ func (b *breaker) processCallExprWithExpansion(
 					run.outer == model.OuterReplace {
 					return result, nil
 				}
-				// The outcome kept the outer command, so
-				// continue with normal flattening.
+				// The outcome kept the outer command, so fall
+				// into normal flattening.
 			}
 		}
 	}
 
-	// Extract command substitutions from args (e.g. $(evil) inside an
-	// argument needs its own check). Store the original Words on the
-	// Command - text resolution happens lazily in the perms layer.
+	// An argument's own substitutions need their own check. Text
+	// resolution stays lazy, in the perms layer.
 	for i, word := range ce.Args {
 		if expansion == expansionScanned {
 			break
@@ -827,14 +788,13 @@ func (b *breaker) processCallExprWithExpansion(
 
 	cmd := model.Command{Args: ce.Args}
 
-	// Mark function calls so permissions can override Fallback (but not
-	// deny/ask) for known functions.
+	// Permissions may override Fallback for a known function, but
+	// never deny or ask.
 	if b.Funcs[baseName] && !hasPath {
 		if b.SawUnsetF {
-			// The function was defined but unset -f was seen - we
-			// can't verify which functions still exist at runtime.
-			// Deny so the agent can fix the script or use
-			// ./script.sh.
+			// unset -f leaves us unable to verify which functions
+			// still exist at runtime. Deny so the agent can fix the
+			// script or run ./script.sh.
 			return model.BreakdownResult{}, fmt.Errorf(
 				"cannot verify call to %s — unset -f "+
 					"was used and function may no "+
@@ -847,7 +807,6 @@ func (b *breaker) processCallExprWithExpansion(
 		cmd.CouldBeFuncCall = true
 	}
 
-	// Attach file context for commands from scanned files.
 	if len(b.FilePath) > 0 {
 		cmd.SourcePath = b.sourcePathStr()
 		cmd.RootScript = b.RootScript
@@ -957,9 +916,8 @@ func appendArithmeticWordPart(
 		}
 	default:
 		// Runtime values can affect arithmetic, but tracking their
-		// contents needs shell data flow. A neutral operand preserves
-		// explicit syntax in the surrounding source without guessing
-		// the runtime value.
+		// contents needs shell data flow. A neutral operand keeps the
+		// explicit syntax without guessing the value.
 		text.WriteByte('0')
 	}
 
@@ -1007,9 +965,9 @@ func (b *breaker) processBinaryCmd(
 ) (model.BreakdownResult, error) {
 	switch bc.Op {
 	case syntax.Pipe, syntax.PipeAll:
-		// Both sides inherit functions and run in child processes, so their
-		// cwd and function changes do not propagate. Both sides always run,
-		// so keep them outside conditional scope.
+		// Both sides inherit functions and run in child processes, so
+		// their cwd and function changes do not propagate. Both sides
+		// always run, so keep them outside conditional scope.
 		restore := b.isolateShellState(childInheritsFunctions)
 		left, err := b.processStmt(bc.X, depth)
 		restore()
@@ -1019,10 +977,9 @@ func (b *breaker) processBinaryCmd(
 
 		restore = b.isolateShellState(childInheritsFunctions)
 		restoreStdin := b.saveStdin()
-		// The right side reads the left side's output. Nothing the
-		// enclosing context redirected reaches it, and the output
-		// itself is not knowable, so an interpreter there has no
-		// readable program.
+		// The right side reads the left side's output, which is not
+		// knowable, and nothing the enclosing context redirected
+		// reaches it.
 		b.Stdin = model.Stdin{Kind: model.StdinUnreadable}
 		right, err := b.processStmt(bc.Y, depth)
 		restoreStdin()
@@ -1084,9 +1041,8 @@ func (b *breaker) processBinaryCmd(
 func (b *breaker) processIfClause(
 	ic *syntax.IfClause, depth int,
 ) (model.BreakdownResult, error) {
-	// Walk all branches: condition, then, elif chains, else. IfClause.Else
-	// is another IfClause (elif) or has empty Cond (else). Recurse until
-	// nil.
+	// IfClause.Else is another IfClause for elif, or has an empty
+	// Cond for else, so recurse until nil.
 	var result model.BreakdownResult
 	for node := ic; node != nil; node = node.Else {
 		// Conditions are unconditional (always evaluated).
@@ -1097,7 +1053,6 @@ func (b *breaker) processIfClause(
 
 		result.Merge(r)
 
-		// Bodies are conditional.
 		b.ConditionalDepth++
 		r, err = b.processStmts(node.Then, depth)
 		b.ConditionalDepth--
@@ -1141,7 +1096,6 @@ func (b *breaker) processForClause(
 	}
 
 	var result model.BreakdownResult
-	// Check iteration words for command substitutions.
 	if wi, ok := fc.Loop.(*syntax.WordIter); ok {
 		for _, w := range wi.Items {
 			inner, err := b.extractSubsFromWord(w)
@@ -1178,7 +1132,6 @@ func (b *breaker) processCaseClause(
 	cc *syntax.CaseClause, depth int,
 ) (model.BreakdownResult, error) {
 	var result model.BreakdownResult
-	// Check the case word for command substitutions.
 	if cc.Word != nil {
 		inner, err := b.extractSubsFromWord(cc.Word)
 		if err != nil {
@@ -1188,8 +1141,7 @@ func (b *breaker) processCaseClause(
 		result.Merge(inner)
 	}
 
-	// Check all arms - both patterns and bodies. Each arm is conditional
-	// (only the matching arm executes).
+	// Only the matching arm executes, so every arm is conditional.
 	for _, item := range cc.Items {
 		for _, pattern := range item.Patterns {
 			inner, err := b.extractSubsFromWord(pattern)
@@ -1286,8 +1238,8 @@ func (b *breaker) extractSubsFromNode(
 			// across AST parts.
 			return false
 		case *syntax.CmdSubst:
-			// Command substitutions run in a subshell. Changes to
-			// cwd don't propagate out.
+			// Command substitutions run in a subshell, so cwd
+			// changes do not propagate out.
 			restore := b.isolateShellState(childInheritsFunctions)
 			inner, err := b.processStmts(c.Stmts, 0)
 			restore()
@@ -1299,8 +1251,8 @@ func (b *breaker) extractSubsFromNode(
 			result.Merge(inner)
 			return false
 		case *syntax.ProcSubst:
-			// Process substitutions run in a subshell. Changes to
-			// cwd don't propagate out.
+			// Process substitutions run in a subshell, so cwd
+			// changes do not propagate out.
 			restore := b.isolateShellState(childInheritsFunctions)
 			inner, err := b.processStmts(c.Stmts, 0)
 			restore()
@@ -1632,9 +1584,8 @@ func (b *breaker) processAssign(
 	return result, nil
 }
 
-// resolveStdin returns the stdin a statement's redirects supply, keeping
-// the ambient stdin when none of them touch fd 0. The last one wins, as it
-// does in the shell.
+// resolveStdin returns the stdin a statement's redirects supply, keeping the
+// ambient stdin when none touch fd 0. The last one wins, as in the shell.
 func resolveStdin(
 	redirs []*syntax.Redirect, ambient model.Stdin,
 ) model.Stdin {
@@ -1651,8 +1602,7 @@ func resolveStdin(
 }
 
 // redirectsStdin reports whether a redirect supplies fd 0. An input redirect
-// names no descriptor when it targets stdin, and the output operators always
-// target another one.
+// names no descriptor when it targets stdin.
 func redirectsStdin(redir *syntax.Redirect) bool {
 	switch redir.Op {
 	case syntax.RdrIn, syntax.Hdoc, syntax.DashHdoc,
@@ -1664,7 +1614,6 @@ func redirectsStdin(redir *syntax.Redirect) bool {
 	return redir.N == nil || redir.N.Value == "0"
 }
 
-// readStdinRedirect resolves one stdin redirect to the content it supplies.
 func readStdinRedirect(
 	redir *syntax.Redirect,
 ) model.Stdin {
@@ -1700,10 +1649,9 @@ func readStdinRedirect(
 	return model.Stdin{Kind: model.StdinUnreadable}
 }
 
-// readHeredoc resolves a heredoc body. Only a quoted delimiter (<<'EOF')
-// gives text the shell passes through untouched. An unquoted delimiter
-// expands parameters and eats backslashes, so the body written in the
-// command is not the body the command receives.
+// readHeredoc resolves a heredoc body. Only a quoted delimiter passes the body
+// through untouched: an unquoted one expands parameters and eats backslashes
+// first.
 func readHeredoc(
 	redir *syntax.Redirect,
 ) model.Stdin {
@@ -1736,8 +1684,8 @@ func readHeredoc(
 		Kind: model.StdinCode, Code: body}
 }
 
-// hasQuotedPart reports whether any part of a heredoc delimiter is quoted,
-// which is what tells the shell to pass the body through literally.
+// hasQuotedPart reports whether a heredoc delimiter is quoted, which is what
+// makes the shell pass the body through literally.
 func hasQuotedPart(delim *syntax.Word) bool {
 	if delim == nil {
 		return false
@@ -1813,9 +1761,8 @@ func checkNetworkRedirect(w *syntax.Word) error {
 	return nil
 }
 
-// resolveCommandName extracts the command name from the first word of a
-// CallExpr. Returns an error if the command name contains substitutions or
-// parameter expansions (unknowable).
+// resolveCommandName fails when the name contains a substitution or parameter
+// expansion, which is unknowable.
 func resolveCommandName(w *syntax.Word) (string, error) {
 	var name strings.Builder
 
@@ -1884,8 +1831,6 @@ func resolveCommandName(w *syntax.Word) (string, error) {
 	return result, nil
 }
 
-// extractSubsFromWord walks a Word for command substitutions and returns every
-// finding from their nested breakdowns.
 func (b *breaker) extractSubsFromWord(
 	w *syntax.Word,
 ) (model.BreakdownResult, error) {

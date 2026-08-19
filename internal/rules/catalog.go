@@ -2,21 +2,20 @@ package rules
 
 import "github.com/sothatsit/agent-permissions/internal/model"
 
-// The rule directory. Every user-disableable rule is declared here exactly once
-// via defineRule, which records it in ruleCatalog and returns the
-// *model.RuleDef that the registry references (WithRuleDef / Unverified / a
-// wrapper's denyRule / a SnippetLang's Def). Because a rule can only obtain an
-// ID by referencing one of these defs, the directory is the single source of
-// truth: there is no separate ID list to drift from, and a typo is a compile
-// error. Descriptions name the threat the rule mitigates, not the mechanism -
-// they are what a user reads to decide whether to disable it.
+// The rule directory. Every user-disableable rule is declared here
+// exactly once through defineRule, which records it and returns the
+// *model.RuleDef the registry references. A rule can only obtain an
+// ID by referencing one of these defs, so there is no separate ID
+// list to drift from and a typo is a compile error. Descriptions
+// name the threat rather than the mechanism, because a user reads
+// them to decide whether to disable the rule.
 
-// ruleCatalog is the ordered list of every rule, in declaration order below.
-// defineRule appends to it at package-init time.
+// ruleCatalog is filled by defineRule at package-init time, in declaration
+// order.
 var ruleCatalog []*model.RuleDef
 
-// defineRule records a rule in the directory and returns its def. Declaration
-// order here is the order `rules list` and the catalog tests see.
+// defineRule records a rule and returns its def. Declaration order here is the
+// order `rules list` and the catalog tests see.
 func defineRule(id, description string) *model.RuleDef {
 	d := &model.RuleDef{ID: id, Description: description}
 	ruleCatalog = append(ruleCatalog, d)
@@ -101,16 +100,11 @@ var (
 		"setarch sets the personality before running")
 )
 
-// AllRules returns the rule directory: every user-disableable rule, in
-// declaration order. The preset-ownership invariant tests check the shipped
-// rules against it; a future `rules list` subcommand will display it to users.
+// AllRules returns every user-disableable rule, in declaration order.
 func AllRules() []*model.RuleDef {
 	return ruleCatalog
 }
 
-// IsRuleID reports whether id is a known rule ID. The preset-ownership test
-// uses it; a future `validate` check will use it to flag typos in config and
-// preset Rules sections.
 func IsRuleID(id string) bool {
 	for _, r := range ruleCatalog {
 		if r.ID == id {
@@ -121,10 +115,9 @@ func IsRuleID(id string) bool {
 	return false
 }
 
-// AllEnabled returns a RuleConfigs with every catalog rule enabled. For tests
-// and callers that want the full ruleset without resolving presets - stated
-// explicitly, never via a nil map (which panics). Production resolves the
-// default presets instead.
+// AllEnabled enables every catalog rule, for tests and callers that want the
+// full ruleset without resolving presets. Stated explicitly, never as a nil
+// map, which panics.
 func AllEnabled() model.RuleConfigs {
 	out := make(model.RuleConfigs, len(ruleCatalog))
 	for _, r := range ruleCatalog {

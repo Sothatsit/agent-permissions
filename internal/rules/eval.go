@@ -18,8 +18,6 @@ func breakdownEval(
 		return model.Safe(), nil
 	}
 
-	// Every arg must be static - eval with a variable could execute
-	// anything.
 	for _, w := range input.Raw {
 		if !word.Static(w) {
 			return model.BreakdownOutcome{}, &model.RuleError{
@@ -34,7 +32,6 @@ func breakdownEval(
 		}
 	}
 
-	// All args are static - join and re-parse as a single code string.
 	var b strings.Builder
 	for i, w := range input.Raw {
 		if i > 0 {

@@ -11,7 +11,6 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-// FlagDef describes a named flag and how it is parsed.
 type FlagDef struct {
 	Name     string
 	Arg      bool // consumes next arg as value
@@ -19,21 +18,18 @@ type FlagDef struct {
 	Terminal bool // remaining args become positionals
 }
 
-// FlagPlacement describes where a command accepts flags relative to its
+// FlagPlacement is where a command accepts flags relative to its
 // positional arguments.
 type FlagPlacement int
 
 const (
-	// InterspersedFlags allows flags after positional arguments until an
-	// explicit "--".
+	// InterspersedFlags allows flags after positionals until "--".
 	InterspersedFlags FlagPlacement = iota
-	// LeadingFlagsOnly makes the first positional argument end flag
-	// parsing.
+	// LeadingFlagsOnly ends flag parsing at the first positional.
 	LeadingFlagsOnly
 )
 
-// FullParser classifies flags by their FlagDef. Unknown flags cause a parse
-// error. Use NewFullParser to create.
+// FullParser classifies flags by their FlagDef, and fails on an unknown flag.
 type FullParser struct {
 	flags      []FlagDef
 	flagMap    map[string]FlagDef
@@ -41,8 +37,6 @@ type FullParser struct {
 	unknownMsg string
 }
 
-// NewFullParser creates a FullParser from a flag list and the command's
-// flag-placement grammar.
 func NewFullParser(
 	flags []FlagDef,
 	placement FlagPlacement,
@@ -91,8 +85,6 @@ func (p *FullParser) Parse(
 			endOfFlags = true
 			continue
 		}
-		// Positional: after --, bare "-", or anything not starting with
-		// "-".
 		if endOfFlags ||
 			word.DefinitelyEqual(args[i], "-") ||
 			!word.DefinitelyHasPrefix(
@@ -106,7 +98,6 @@ func (p *FullParser) Parse(
 			continue
 		}
 
-		// Flag with =: split via SplitEq.
 		name, valueWord := word.SplitEq(args[i])
 		if valueWord != nil {
 			if _, ok := p.flagMap[name]; !ok {
@@ -123,11 +114,8 @@ func (p *FullParser) Parse(
 			continue
 		}
 
-		// Non-equals flag - resolve text for map lookup and prefix
-		// matching.
 		text := word.Text(args[i])
 
-		// Exact match.
 		if def, ok := p.flagMap[text]; ok {
 			if def.Arg {
 				if i+1 >= len(args) {
@@ -169,8 +157,8 @@ func (p *FullParser) Parse(
 			continue
 		}
 
-		// Combined short flags: split -uBs into -u + -B + -s. Only for
-		// static words. Opaque content can't be reliably split.
+		// Splitting a cluster needs static text, because opaque
+		// content cannot be split reliably.
 		if word.Static(args[i]) &&
 			len(text) > 2 &&
 			text[0] == '-' && text[1] != '-' {
@@ -193,9 +181,8 @@ func (p *FullParser) Parse(
 					last.Value = args[i]
 				}
 
-				// A terminal flag in a cluster absorbs
-				// remaining args, same as when parsed
-				// standalone.
+				// A terminal flag in a cluster absorbs the
+				// remaining args, as it would standalone.
 				lastName := result.Flags[len(
 					result.Flags)-1].Name
 				if def, ok :=
@@ -215,10 +202,9 @@ func (p *FullParser) Parse(
 	return result, nil
 }
 
-// splitCluster splits combined short flags (e.g. -uBs) into individual flags
-// using greedy left-to-right matching. The constructor stores flags
-// longest-first so -OO matches before -O. When an Arg or Prefix flag appears
-// mid-cluster, the remaining characters become its value.
+// splitCluster splits combined short flags greedily, left to right. The
+// constructor stores flags longest-first so -OO matches before -O. An Arg or
+// Prefix flag mid-cluster takes the remaining characters as its value.
 func (p *FullParser) splitCluster(
 	text string,
 ) ([]ParsedFlag, bool, bool) {
@@ -239,8 +225,6 @@ func (p *FullParser) splitCluster(
 			}
 
 			pos += len(body)
-			// Arg/Prefix flag with remaining chars: rest becomes
-			// its value.
 			if (sf.Arg || sf.Prefix) &&
 				pos < len(text) {
 				flags = append(flags,
@@ -254,8 +238,6 @@ func (p *FullParser) splitCluster(
 
 			flags = append(flags,
 				ParsedFlag{Name: sf.Name})
-			// Arg flag at end of cluster: caller must consume next
-			// arg.
 			if sf.Arg {
 				return flags, true, true
 			}
@@ -272,8 +254,7 @@ func (p *FullParser) splitCluster(
 	return flags, false, true
 }
 
-// matchPrefix checks if arg starts with a known Prefix flag. Returns the flag
-// name, a value Word, and whether a match was found.
+// matchPrefix reports whether arg starts with a known Prefix flag.
 func (p *FullParser) matchPrefix(
 	w *syntax.Word,
 ) (string, *syntax.Word, bool) {

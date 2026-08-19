@@ -213,13 +213,10 @@ func Registry() (
 		},
 	}
 
-	// --- Interpreters ---
-	//
-	// Each interpreter reads one script file or inline program and produces a
-	// code snippet for scanning. Unsupported extra code sources return the
-	// interpreter's governed unverified error. Info and bare invocations fall
-	// through to the permissions layer. Snippet rules for each language are
-	// defined below alongside the command registration.
+	// Interpreters. Each reads one script file or inline program and
+	// produces a code snippet for scanning. Unsupported extra code
+	// sources return the interpreter's governed unverified error, and
+	// info or bare invocations fall through to permissions.
 
 	// python/python3 - PathAllow so path-invoked interpreters (e.g.
 	// /path/to/venv/bin/python3) still extract code for scanning but fall
@@ -234,7 +231,6 @@ func Registry() (
 	r["python3"] = pythonRules
 	r["python"] = pythonRules
 
-	// perl
 	r["perl"] = &model.CommandRules{
 		Parser:     perlParser,
 		Breakdown:  breakdownPerl,
@@ -242,7 +238,6 @@ func Registry() (
 		Unverified: perlUnverified,
 	}
 
-	// ruby
 	r["ruby"] = &model.CommandRules{
 		Parser:     rubyParser,
 		Breakdown:  breakdownRuby,
@@ -250,7 +245,6 @@ func Registry() (
 		Unverified: rubyUnverified,
 	}
 
-	// node
 	r["node"] = &model.CommandRules{
 		Parser:     nodeParser,
 		Breakdown:  breakdownNode,
@@ -324,12 +318,11 @@ func Registry() (
 		Unverified:      xargsUnverified,
 	}
 
-	// --- Exec wrappers ---
-	// Run an inner command after consuming their own args. Like
-	// timeout/strace, the inner command is re-analysed. They exec directly
-	// (execvp), so a leading NAME=val is the program name, not an
-	// assignment - except env, which honours assignments and feeds them to
-	// the EnvVars axis.
+	// Exec wrappers run an inner command after consuming their own args,
+	// and the inner command is re-analysed. They exec directly, so a
+	// leading NAME=val is the program name rather than an assignment,
+	// except in env, which honours assignments and feeds them to the
+	// EnvVars axis.
 
 	// env: parse env's flags, split leading NAME=val into honoured
 	// assignments (-> EnvVars deny axis + value cmd-subs), extract the
@@ -453,17 +446,9 @@ func Registry() (
 		Breakdown: breakdownUnset,
 	}
 
-	// =========================================================
-	// Snippet rules - dangerous patterns in code snippets.
-	//
-	// Keyed by language, not command. A language may be produced by
-	// multiple commands (python3 and python both emit LangPython snippets).
-	// Patterns and rules are defined in each language file (python.go,
-	// etc.); this just wires them into the map. All of a language's snippet
-	// rules detect the same threat - running shell commands from inside the
-	// script - so they share one def (on the SnippetLang) and are enabled
-	// or disabled together.
-	// =========================================================
+	// Snippet rules, keyed by language rather than command, because
+	// python3 and python both emit LangPython snippets. Each language
+	// file defines its own patterns; this only wires them in.
 
 	s := map[string]*model.SnippetLang{
 		model.LangSed: snippetLang(

@@ -28,29 +28,18 @@ func verifyBashSource(
 	}
 }
 
-// breakdownBash handles bash/sh inner command extraction.
-//
-// For --version/--help: returns Safe (read-only, nothing to check).
-// For -n (syntax check): returns Safe (doesn't execute).
-// For -c "string": extracts and returns the code string as a command to
-// re-parse.
-// For script.sh positional: returns the file path for scanning.
-// For bare bash or unrecognised flags: falls through to the rules layer, which
-// denies bare bash.
 func breakdownBash(
 	input model.ParseResult,
 	state *model.State,
 ) (model.BreakdownOutcome, error) {
-	// --version and --help print info and exit without executing anything.
-	// Allow when they're the sole argument.
+	// --version and --help print and exit without executing.
 	if len(input.Raw) == 1 &&
 		(word.DefinitelyEqual(input.Raw[0], "--version") ||
 			word.DefinitelyEqual(input.Raw[0], "--help")) {
 		return model.Safe(), nil
 	}
 
-	// -n only checks syntax without executing anything. Allow when it's the
-	// sole flag.
+	// -n only checks syntax.
 	if len(input.PossibleFlags) == 1 &&
 		input.PossibleFlags[0].Name == "-n" {
 		return model.Safe(), nil
@@ -63,9 +52,8 @@ func breakdownBash(
 			continue
 		}
 
-		// Found -c. Only extract when -c is the sole flag - other flags
-		// (--rcfile, --init-file, -i, etc.) can source arbitrary code
-		// before the -c body runs.
+		// Other flags (--rcfile, --init-file, -i) can source arbitrary
+		// code before the -c body runs.
 		for _, other := range input.PossibleFlags {
 			if other.Name != "-c" {
 				return model.FallThrough(), nil
@@ -92,11 +80,9 @@ func breakdownBash(
 		}), nil
 	}
 
-	// Bare bash and bash -s take their script from stdin. A quoted heredoc
-	// is readable, so run it through the normal bash pipeline exactly like
-	// -c code. Bash consumes that stdin as its script, so the code inside
-	// inherits nothing. Unreadable stdin (a pipe, an unquoted heredoc)
-	// falls through to the deny below.
+	// Bare bash and bash -s take their script from stdin. A readable
+	// one runs through the normal bash pipeline like -c code. Bash
+	// consumes that stdin, so the code inside inherits nothing.
 	if readsScriptFromStdin(input) &&
 		state.Stdin.Kind == model.StdinCode {
 		if state.Stdin.Code == "" {
@@ -108,10 +94,9 @@ func breakdownBash(
 		}), nil
 	}
 
-	// No -c flag. Check for script file: the first arg must be a non-flag
-	// positional (e.g. "bash script.sh"). If there are any flags before the
-	// positional (e.g. "bash -x script.sh"), we can't verify the invocation
-	// - fall through to the rules layer deny.
+	// Without -c, the first arg must be a non-flag positional. A flag
+	// before it (bash -x script.sh) leaves the invocation unverifiable, so
+	// fall through to the rules-layer deny.
 	if len(input.Raw) == 0 {
 		return model.FallThrough(), nil
 	}
@@ -142,9 +127,8 @@ func breakdownBash(
 	}), nil
 }
 
-// readsScriptFromStdin reports whether an invocation takes its script from
-// stdin: bare bash, or bash -s. Any other flag can run code of its own
-// (--rcfile, -i, a script path), which stdin would not account for.
+// readsScriptFromStdin covers bare bash and bash -s. Any other flag can run
+// code of its own, which stdin would not account for.
 func readsScriptFromStdin(
 	input model.ParseResult,
 ) bool {
@@ -157,8 +141,7 @@ func readsScriptFromStdin(
 	return true
 }
 
-// hookFormatBashDenial is a HookFunc for bash/sh. Always denies with a
-// formatted reason.
+// hookFormatBashDenial is the bash/sh denial message.
 func hookFormatBashDenial(
 	input model.ParseResult,
 ) (model.Decision, string) {

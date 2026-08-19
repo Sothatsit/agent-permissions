@@ -8,10 +8,9 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-// FlagMatcher matches a flag by name, optionally checking its value. Value
-// conditions use "could" semantics: if the value is opaque (contains ParamExp,
-// CmdSubst, etc.), the condition conservatively matches (over-match). This is
-// safe for deny/ask rules.
+// FlagMatcher matches a flag by name, optionally checking its value. An opaque
+// value matches conservatively, which over-matches and is safe for deny and ask
+// rules.
 type FlagMatcher struct {
 	Names              []string
 	ValueCouldContain  string
@@ -33,9 +32,6 @@ func (m *FlagMatcher) Match(
 			return true, input, pf.Name
 		}
 
-		// Short flag: check if any rule name (stripped of -) appears in
-		// the token text. This over-matches for clustered flags, which
-		// is acceptable for deny/ask rules.
 		matched, which := m.shortFlagMatches(pf)
 		if !matched {
 			continue
@@ -47,9 +43,8 @@ func (m *FlagMatcher) Match(
 	return false, ParseResult{}, ""
 }
 
-// shortFlagMatches checks a short-flag PossibleFlag against the matcher's
-// names. For value conditions, checks both the token text (may contain embedded
-// value) and the value Word (next arg).
+// shortFlagMatches checks a short flag against the matcher's names, testing
+// value conditions against both the token text and the next argument.
 func (m *FlagMatcher) shortFlagMatches(
 	pf ParsedFlag,
 ) (bool, string) {
@@ -65,8 +60,8 @@ func (m *FlagMatcher) shortFlagMatches(
 		}
 
 		// Naming the token says why a flag nobody typed was matched:
-		// -e reported "in -Slogged" is the l of a pickaxe value, not
-		// an editor. Which short options take a jammed-in value is
+		// -e reported "in -Slogged" is the l of a pickaxe value, not an
+		// editor. Which short options take a jammed-in value is
 		// per-subcommand knowledge this parser does not keep, so the
 		// over-match stands and the message carries the evidence.
 		which := name
@@ -78,12 +73,9 @@ func (m *FlagMatcher) shortFlagMatches(
 			m.ValueMayHavePrefix == "" {
 			return true, which
 		}
-		// Check embedded value in token text (short flags can have
-		// values jammed in, e.g. -Iexec=foo).
 		if m.textMayMatch(pf.Name) {
 			return true, which
 		}
-		// Check next-arg value Word.
 		if m.valueMatchesWord(pf.Value) {
 			return true, which
 		}
@@ -102,8 +94,6 @@ func (m *FlagMatcher) nameMatches(name string) bool {
 	return false
 }
 
-// valueMatchesFlag checks a flag's value using conservative word operations
-// (over-match on opaque).
 func (m *FlagMatcher) valueMatchesFlag(
 	f ParsedFlag,
 ) bool {
@@ -115,7 +105,6 @@ func (m *FlagMatcher) valueMatchesFlag(
 	return m.valueMatchesWord(f.Value)
 }
 
-// valueMatchesWord checks a Word value. Over-matches if the Word is opaque.
 func (m *FlagMatcher) valueMatchesWord(
 	w *syntax.Word,
 ) bool {
@@ -134,9 +123,8 @@ func (m *FlagMatcher) valueMatchesWord(
 	return true
 }
 
-// textMayMatch checks value conditions against a plain string. Used for
-// short-flag embedded values where the value is part of the token text, not a
-// separate Word.
+// textMayMatch tests value conditions against a short flag's embedded value,
+// which lives in the token text rather than a separate Word.
 func (m *FlagMatcher) textMayMatch(text string) bool {
 	if m.ValueCouldContain != "" &&
 		!strings.Contains(text, m.ValueCouldContain) {
@@ -150,7 +138,7 @@ func (m *FlagMatcher) textMayMatch(text string) bool {
 	return true
 }
 
-// SubcmdMatcher matches the first positional argument as a subcommand name.
+// SubcmdMatcher matches the first positional argument.
 type SubcmdMatcher struct {
 	Names []string
 }
@@ -158,7 +146,6 @@ type SubcmdMatcher struct {
 func (m *SubcmdMatcher) Match(
 	input ParseResult,
 ) (bool, ParseResult, string) {
-	// Match the first raw argument if it does not look like a flag.
 	if len(input.Raw) == 0 {
 		return false, ParseResult{}, ""
 	}
@@ -181,7 +168,6 @@ func (m *SubcmdMatcher) Match(
 	return false, ParseResult{}, ""
 }
 
-// AlwaysMatcher always matches, passing through the input unchanged.
 type AlwaysMatcher struct{}
 
 func (*AlwaysMatcher) Match(

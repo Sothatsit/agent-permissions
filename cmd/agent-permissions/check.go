@@ -9,9 +9,8 @@ import (
 	"github.com/sothatsit/agent-permissions/internal/word"
 )
 
-// check simulates the hook on a given bash command and prints the decision plus
-// the resolution chain that produced it. Useful for "why is this prompting?"
-// debugging.
+// check simulates the hook on a bash command and prints the decision with the
+// resolution chain that produced it, for "why is this prompting?" debugging.
 func check(args []string) error {
 	if len(args) != 1 {
 		return fmt.Errorf(
