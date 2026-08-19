@@ -78,11 +78,18 @@ For example, `env -C dir python3 file.py` resolves `file.py` beneath `dir`,
 then restores the outer working directory for the next shell command.
 
 For interpreter invocations (`python`, `perl`, `ruby`, `node`), Breakdown also
-extracts the code itself, either inline (`python -c '...'`) or by reading the
+extracts the code itself, either inline (`python -c '...'`), from a quoted
+heredoc or here-string on stdin (`python3 - <<'PY' ... PY`), or by reading the
 referenced script file (`python script.py`), and emits a code snippet alongside
 the regular extracted commands. Repeated inline programs and modes that add
 another source, such as module, preload, or interactive input, fail closed
 through the interpreter's `*.unverified` rule.
+
+Stdin is tracked like the working directory. A redirect on a statement supplies
+its command's input, an exec-style wrapper passes its input to the command it
+runs, and a pipe hides it. So `timeout 5 python3 - <<'PY'` scans the heredoc,
+while `cat prog.py | python3 -` fails closed, as does an unquoted `<<PY` whose
+body the shell expands before the interpreter sees it.
 
 ### 2. Rules: per-command logic
 

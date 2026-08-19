@@ -46,6 +46,7 @@ func breakdownEval(
 
 	code := b.String()
 	return model.ReplaceOuter(model.BreakdownWork{
-		CodeStrings: []string{code},
+		CodeStrings:  []string{code},
+		ForwardStdin: true,
 	}), nil
 }

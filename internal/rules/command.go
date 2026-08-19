@@ -78,8 +78,10 @@ func breakdownCommand(
 		}
 	}
 
-	// Remaining args are the inner command.
+	// Remaining args are the inner command, run on this shell's
+	// descriptors.
 	return model.ReplaceOuter(model.BreakdownWork{
-		Commands: [][]*syntax.Word{input.Raw[idx:]},
+		Commands:     [][]*syntax.Word{input.Raw[idx:]},
+		ForwardStdin: true,
 	}), nil
 }

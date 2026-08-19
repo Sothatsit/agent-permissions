@@ -224,16 +224,28 @@ all must agree to allow.
 
 ### Guidelines
 
-* **File scripts ask, inline code denies.** When `python3 script.py`
-  trips a dangerous-pattern check, the decision is ask — the script
-  may be the user's own code, so they need the chance to see what was
-  flagged and add a permission override. When `python3 -c '...'` trips
-  the same check, the decision is deny — inline code is
-  agent-generated, so the agent can fix it. `bash script.sh` doesn't
-  need this distinction because users can always run their scripts
-  directly. When adding handling for new commands, ensure users always
-  have a way to allow their files to be run without ask prompts,
-  regardless of what the security filtering flags.
+* **Stdin is ambient state, like the working directory.** `State.Stdin`
+  carries what the breakdown could read of a command's input: a quoted
+  heredoc or here-string is code, `< path` is a file, and a pipe or an
+  unquoted heredoc is unreadable. A statement's own redirect overrides
+  it, and it reaches inner work only when the outcome sets
+  `BreakdownWork.ForwardStdin`. Set that flag on a command that hands
+  its own input to the command it runs (exec wrappers, `eval`,
+  `bash -c`), never on one that consumes it (`xargs`). A rule that
+  rebuilds its inner work from a wrapped breakdown must carry the flag
+  across, as `env` does.
+* **File scripts ask, inline code denies.** Code on stdin counts as
+  inline: whoever wrote the command wrote the heredoc. When
+  `python3 script.py` trips a dangerous-pattern check, the decision is
+  ask — the script may be the user's own code, so they need the chance
+  to see what was flagged and add a permission override. When
+  `python3 -c '...'` trips the same check, the decision is deny —
+  inline code is agent-generated, so the agent can fix it.
+  `bash script.sh` doesn't need this distinction because users can
+  always run their scripts directly. When adding handling for new
+  commands, ensure users always have a way to allow their files to be
+  run without ask prompts, regardless of what the security filtering
+  flags.
 * **Fail closed.** If you can't verify what a command will do, deny —
   not ask. We can't verify safety, so we don't let it through.
 * **Breakdown errors = denials.** When the breakdown can't handle a

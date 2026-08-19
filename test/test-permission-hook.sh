@@ -7162,6 +7162,113 @@ out=$(_run_hook "python -m pip install requests")
 assert_contains "python: python -m pip install deny" \
     "$(_decision "$out")" "deny"
 
+# --- Interpreters: programs on stdin ---
+#
+# A quoted heredoc, a here-string, and an input file are the stdin forms whose
+# contents are readable from the command alone. Code delivered that way is
+# written by whoever wrote the command, so it is scanned like inline -c code:
+# a dangerous pattern denies rather than asks. Everything else stdin can carry
+# fails closed.
+
+out=$(_run_hook "python3 - <<'PY'
+print(42)
+PY")
+assert_contains "python: clean heredoc allow" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook "python3 - <<'PY'
+import subprocess
+PY")
+assert_contains "python: dangerous heredoc deny" \
+    "$(_decision "$out")" "deny"
+assert_contains "python: dangerous heredoc names subprocess" \
+    "$(_reason "$out")" "subprocess"
+
+# Without `-`, an interpreter given stdin still runs what it reads. Scanning
+# only the `-` spelling would leave the same program unchecked.
+out=$(_run_hook "python3 <<'PY'
+import subprocess
+PY")
+assert_contains "python: bare interpreter heredoc deny" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "python3 - <<< 'import subprocess'")
+assert_contains "python: dangerous here-string deny" \
+    "$(_decision "$out")" "deny"
+
+# An unquoted delimiter expands the body, so what runs is not what the command
+# shows.
+out=$(_run_hook "python3 - <<PY
+print(42)
+PY")
+assert_contains "python: unquoted heredoc deny" \
+    "$(_decision "$out")" "deny"
+assert_contains "python: unquoted heredoc suggests quoting" \
+    "$(_reason "$out")" "quoted heredoc"
+
+out=$(_run_hook "cat prog.py | python3 -")
+assert_contains "python: piped program deny" \
+    "$(_decision "$out")" "deny"
+
+# An interpreter with nothing on stdin is an interactive session, not a
+# program, so it keeps falling through to the permission layer.
+out=$(_run_hook "python3")
+assert_not_contains "python: bare interpreter not denied" \
+    "$(_decision "$out")" "deny"
+
+# An input file is the user's own script, so it keeps file semantics: ask,
+# with a way to allow it.
+mkdir -p "$_bp_tmpdir/project"
+printf 'import subprocess\n' > "$_bp_tmpdir/project/danger.py"
+out=$(_run_hook "python3 - < $_bp_tmpdir/project/danger.py")
+assert_contains "python: dangerous stdin file asks" \
+    "$(_decision "$out")" "ask"
+
+printf 'print(42)\n' > "$_bp_tmpdir/project/clean.py"
+out=$(_run_hook "python3 - < $_bp_tmpdir/project/clean.py")
+assert_contains "python: clean stdin file allow" \
+    "$(_decision "$out")" "allow"
+
+# Other interpreters share the adapter, so they share the behaviour.
+out=$(_run_hook "perl - <<'PL'
+system(\"ls\");
+PL")
+assert_contains "perl: dangerous heredoc deny" \
+    "$(_decision "$out")" "deny"
+
+
+# --- Interpreters: stdin across wrappers ---
+#
+# Exec-style wrappers run the inner command on their own descriptors, so a
+# heredoc on the wrapper is the inner command's program. Wrappers that consume
+# stdin themselves hand the child nothing.
+
+out=$(_run_hook "timeout 5 python3 - <<'PY'
+import subprocess
+PY")
+assert_contains "python: heredoc through timeout scanned" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook "timeout 5 python3 - <<'PY'
+print(42)
+PY")
+assert_contains "python: clean heredoc through timeout allow" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook "xargs python3 - <<'PY'
+print(42)
+PY")
+assert_contains "python: heredoc through xargs deny" \
+    "$(_decision "$out")" "deny"
+
+# The right side of a pipe reads the left side's output, whatever the
+# enclosing statement redirected.
+out=$(_run_hook "{ cat prog.py | python3 -; } <<'PY'
+print(42)
+PY")
+assert_contains "python: pipe inside redirected block deny" \
+    "$(_decision "$out")" "deny"
+
 
 # =========================================================================
 # PERL - code snippet scanning

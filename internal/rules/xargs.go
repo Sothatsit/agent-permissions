@@ -55,6 +55,10 @@ var xargsParser, _xargsBaseBreakdown = wrapperBreakdown(
 				"— opens /dev/tty",
 		},
 		denyRule: xargsInteractive,
+		// xargs reads its argument list from stdin and gives each child
+		// /dev/null instead, so a heredoc on xargs never reaches the
+		// inner command. (-o hands the child a tty, and is denied.)
+		consumesStdin: true,
 	})
 
 // breakdownXargs wraps the generic wrapper breakdown with a check for -I

@@ -95,6 +95,7 @@ func breakdownEnv(
 	out := model.BreakdownWork{
 		Assigns:          assigns,
 		WorkingDirectory: work.WorkingDirectory,
+		ForwardStdin:     work.ForwardStdin,
 	}
 	if rest := words[i:]; len(rest) > 0 {
 		out.Commands = [][]*syntax.Word{rest}

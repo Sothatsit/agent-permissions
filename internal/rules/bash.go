@@ -84,8 +84,11 @@ func breakdownBash(
 			return model.Safe(), nil
 		}
 
+		// bash -c leaves stdin alone, so the code it runs reads
+		// whatever bash was given.
 		return model.ReplaceOuter(model.BreakdownWork{
-			CodeStrings: []string{code},
+			CodeStrings:  []string{code},
+			ForwardStdin: true,
 		}), nil
 	}
 

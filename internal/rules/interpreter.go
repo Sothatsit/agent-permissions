@@ -132,35 +132,27 @@ func breakdownInterpreter(
 				}
 			}
 
-			code := word.Text(codeFlag.Value)
-			if code == "" {
-				return model.Safe(), nil
-			}
-
-			return model.ReplaceOuter(model.BreakdownWork{
-				CodeSnippets: []model.CodeSnippet{{
-					Language: cfg.lang,
-					Code:     code,
-				}},
-			}), nil
+			return inlineCode(
+				cfg, word.Text(codeFlag.Value)), nil
 		}
 
-		// No positionals - bare invocation or flags-only. Fall through
-		// to permissions.
+		// No positionals - bare invocation or flags-only. Anything
+		// supplied on stdin is the program to run; with nothing
+		// supplied this is an interactive session, so fall through to
+		// permissions.
 		if len(input.Positionals) == 0 {
+			if state.Stdin.Supplied() {
+				return stdinProgram(
+					cfg, input.Name, state)
+			}
+
 			return model.FallThrough(), nil
 		}
 
 		// First positional is the script file.
 		scriptWord := input.Positionals[0]
 		if word.DefinitelyEqual(scriptWord, "-") {
-			return model.BreakdownOutcome{}, &model.RuleError{
-				Def: cfg.unverified,
-				Reason: fmt.Sprintf(
-					"%s reads program source from stdin — "+
-						"cannot verify the invocation",
-					cfg.name),
-			}
+			return stdinProgram(cfg, input.Name, state)
 		}
 		for _, mode := range cfg.unverifiedPositionals {
 			if word.DefinitelyEqual(scriptWord, mode) {
@@ -187,33 +179,87 @@ func breakdownInterpreter(
 			return model.FallThrough(), nil
 		}
 
-		if state.Cwd == "" && !filepath.IsAbs(path) {
-			return model.BreakdownOutcome{}, &model.RuleError{
-				Def: cfg.unverified,
-				Reason: fmt.Sprintf(
-					"%s: cannot verify file — "+
-						"working directory may have"+
-						" changed. Use an absolute"+
-						" path", path),
-			}
-		}
-
-		data, err := model.ReadScript(
-			path, state.Cwd)
-		if err != nil {
-			return model.BreakdownOutcome{}, &model.RuleError{
-				Def: cfg.unverified,
-				Reason: fmt.Sprintf(
-					"%s: %v", path, err),
-			}
-		}
-
-		return model.ReplaceOuter(model.BreakdownWork{
-			CodeSnippets: []model.CodeSnippet{{
-				Language:   cfg.lang,
-				Code:       string(data),
-				SourceFile: path,
-			}},
-		}), nil
+		return scriptFile(cfg, path, state)
 	}
+}
+
+// stdinProgram extracts the program an interpreter reads from stdin. Code
+// arrives written into the command itself, so it is scanned like -c code; a
+// file keeps file semantics so users can still allow their own scripts.
+func stdinProgram(
+	cfg interpreterConfig,
+	name string,
+	state *model.State,
+) (model.BreakdownOutcome, error) {
+	switch state.Stdin.Kind {
+	case model.StdinCode:
+		return inlineCode(
+			cfg, state.Stdin.Code), nil
+	case model.StdinFile:
+		return scriptFile(
+			cfg, state.Stdin.File, state)
+	}
+
+	return model.BreakdownOutcome{}, &model.RuleError{
+		Def: cfg.unverified,
+		Reason: fmt.Sprintf(
+			"%s reads its program from stdin, which this hook "+
+				"cannot read. Write the code in a quoted "+
+				"heredoc (%s - <<'EOF' ... EOF) so it can "+
+				"be scanned",
+			cfg.name, name),
+	}
+}
+
+// inlineCode wraps code written into the command itself. An empty program
+// runs nothing.
+func inlineCode(
+	cfg interpreterConfig, code string,
+) model.BreakdownOutcome {
+	if code == "" {
+		return model.Safe()
+	}
+
+	return model.ReplaceOuter(model.BreakdownWork{
+		CodeSnippets: []model.CodeSnippet{{
+			Language: cfg.lang,
+			Code:     code,
+		}},
+	})
+}
+
+// scriptFile reads a script the interpreter runs, recording the path so the
+// snippet layer can ask rather than deny on a match.
+func scriptFile(
+	cfg interpreterConfig,
+	path string,
+	state *model.State,
+) (model.BreakdownOutcome, error) {
+	if state.Cwd == "" && !filepath.IsAbs(path) {
+		return model.BreakdownOutcome{}, &model.RuleError{
+			Def: cfg.unverified,
+			Reason: fmt.Sprintf(
+				"%s: cannot verify file — "+
+					"working directory may have"+
+					" changed. Use an absolute"+
+					" path", path),
+		}
+	}
+
+	data, err := model.ReadScript(path, state.Cwd)
+	if err != nil {
+		return model.BreakdownOutcome{}, &model.RuleError{
+			Def: cfg.unverified,
+			Reason: fmt.Sprintf(
+				"%s: %v", path, err),
+		}
+	}
+
+	return model.ReplaceOuter(model.BreakdownWork{
+		CodeSnippets: []model.CodeSnippet{{
+			Language:   cfg.lang,
+			Code:       string(data),
+			SourceFile: path,
+		}},
+	}), nil
 }

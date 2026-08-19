@@ -71,11 +71,13 @@ func breakdownFlock(
 		}
 
 		return model.ReplaceOuter(model.BreakdownWork{
-			CodeStrings: []string{code},
+			CodeStrings:  []string{code},
+			ForwardStdin: true,
 		}), nil
 	}
 
 	return model.ReplaceOuter(model.BreakdownWork{
-		Commands: [][]*syntax.Word{rest},
+		Commands:     [][]*syntax.Word{rest},
+		ForwardStdin: true,
 	}), nil
 }

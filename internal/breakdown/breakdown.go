@@ -50,6 +50,13 @@ type breaker struct {
 	parser *syntax.Parser
 }
 
+func (b *breaker) saveStdin() func() {
+	savedStdin := b.Stdin
+	return func() {
+		b.Stdin = savedStdin
+	}
+}
+
 func (b *breaker) saveCwd() func() {
 	savedCwd := b.Cwd
 	savedCwdChanged := b.CwdChanged
@@ -386,6 +393,15 @@ func (b *breaker) runBreakdown(
 		b.SetWorkingDirectory(directory)
 	}
 
+	// Only a command that hands its own stdin to the work it runs lets that
+	// stdin through. Anything else has consumed, replaced, or deferred it,
+	// so the inner work starts from nothing known.
+	restoreStdin := b.saveStdin()
+	defer restoreStdin()
+	if !work.ForwardStdin {
+		b.Stdin = model.Stdin{}
+	}
+
 	// Process inner commands directly through the AST walker. A retained
 	// outer command owns their expansions; a replacing wrapper passes that
 	// ownership to the inner command.
@@ -576,6 +592,13 @@ func (b *breaker) processStmt(
 
 		result.Merge(inner)
 	}
+
+	// A redirect on this statement supplies its command's stdin, in
+	// place of whatever the enclosing context supplied. Restored on the
+	// way out so it does not reach the next statement.
+	restoreStdin := b.saveStdin()
+	defer restoreStdin()
+	b.Stdin = resolveStdin(stmt.Redirs, b.Stdin)
 
 	main, err := b.processCommand(stmt.Cmd, depth)
 	if err != nil {
@@ -995,7 +1018,14 @@ func (b *breaker) processBinaryCmd(
 		}
 
 		restore = b.isolateShellState(childInheritsFunctions)
+		restoreStdin := b.saveStdin()
+		// The right side reads the left side's output. Nothing the
+		// enclosing context redirected reaches it, and the output
+		// itself is not knowable, so an interpreter there has no
+		// readable program.
+		b.Stdin = model.Stdin{Kind: model.StdinUnreadable}
 		right, err := b.processStmt(bc.Y, depth)
+		restoreStdin()
 		restore()
 		if err != nil {
 			return model.BreakdownResult{}, err
@@ -1600,6 +1630,138 @@ func (b *breaker) processAssign(
 	}
 
 	return result, nil
+}
+
+// resolveStdin returns the stdin a statement's redirects supply, keeping
+// the ambient stdin when none of them touch fd 0. The last one wins, as it
+// does in the shell.
+func resolveStdin(
+	redirs []*syntax.Redirect, ambient model.Stdin,
+) model.Stdin {
+	stdin := ambient
+	for _, redir := range redirs {
+		if !redirectsStdin(redir) {
+			continue
+		}
+
+		stdin = readStdinRedirect(redir)
+	}
+
+	return stdin
+}
+
+// redirectsStdin reports whether a redirect supplies fd 0. An input redirect
+// names no descriptor when it targets stdin, and the output operators always
+// target another one.
+func redirectsStdin(redir *syntax.Redirect) bool {
+	switch redir.Op {
+	case syntax.RdrIn, syntax.Hdoc, syntax.DashHdoc,
+		syntax.WordHdoc, syntax.RdrInOut, syntax.DplIn:
+	default:
+		return false
+	}
+
+	return redir.N == nil || redir.N.Value == "0"
+}
+
+// readStdinRedirect resolves one stdin redirect to the content it supplies.
+func readStdinRedirect(
+	redir *syntax.Redirect,
+) model.Stdin {
+	switch redir.Op {
+	case syntax.Hdoc, syntax.DashHdoc:
+		return readHeredoc(redir)
+	case syntax.WordHdoc:
+		// A here-string goes through normal word expansion, so the word
+		// primitives resolve exactly what the command receives.
+		if !word.Static(redir.Word) {
+			return model.Stdin{
+				Kind: model.StdinUnreadable}
+		}
+
+		return model.Stdin{
+			Kind: model.StdinCode,
+			Code: word.Text(redir.Word) + "\n",
+		}
+	case syntax.RdrIn:
+		if !word.Static(redir.Word) {
+			return model.Stdin{
+				Kind: model.StdinUnreadable}
+		}
+
+		return model.Stdin{
+			Kind: model.StdinFile,
+			File: word.Text(redir.Word),
+		}
+	}
+
+	// <> opens a file for writing as well as reading, and <& duplicates a
+	// descriptor whose contents are outside this command.
+	return model.Stdin{Kind: model.StdinUnreadable}
+}
+
+// readHeredoc resolves a heredoc body. Only a quoted delimiter (<<'EOF')
+// gives text the shell passes through untouched. An unquoted delimiter
+// expands parameters and eats backslashes, so the body written in the
+// command is not the body the command receives.
+func readHeredoc(
+	redir *syntax.Redirect,
+) model.Stdin {
+	unreadable := model.Stdin{
+		Kind: model.StdinUnreadable}
+	if redir.Hdoc == nil ||
+		!hasQuotedPart(redir.Word) {
+		return unreadable
+	}
+
+	// A quoted delimiter always yields one literal part. word.Text is the
+	// wrong reader for it: unescaping backslashes would rewrite the program
+	// the command runs, dropping the backslash from code like
+	// re.sub(r"\n", "", text).
+	if len(redir.Hdoc.Parts) != 1 {
+		return unreadable
+	}
+
+	lit, ok := redir.Hdoc.Parts[0].(*syntax.Lit)
+	if !ok {
+		return unreadable
+	}
+
+	body := lit.Value
+	if redir.Op == syntax.DashHdoc {
+		body = stripLeadingTabs(body)
+	}
+
+	return model.Stdin{
+		Kind: model.StdinCode, Code: body}
+}
+
+// hasQuotedPart reports whether any part of a heredoc delimiter is quoted,
+// which is what tells the shell to pass the body through literally.
+func hasQuotedPart(delim *syntax.Word) bool {
+	if delim == nil {
+		return false
+	}
+
+	for _, part := range delim.Parts {
+		switch part.(type) {
+		case *syntax.SglQuoted, *syntax.DblQuoted:
+			return true
+		}
+	}
+
+	return false
+}
+
+// stripLeadingTabs removes the indentation a <<- heredoc strips before the
+// command sees it.
+func stripLeadingTabs(body string) string {
+	lines := strings.Split(body, "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimLeft(line, "\t")
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 func (b *breaker) processRedirect(

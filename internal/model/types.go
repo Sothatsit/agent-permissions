@@ -204,6 +204,42 @@ func (br *BreakdownResult) Merge(other BreakdownResult) {
 		len(br.CodeSnippets) == 0
 }
 
+// StdinKind says what a command's standard input holds.
+type StdinKind uint8
+
+const (
+	// StdinInherited means nothing was attached to stdin, so it is
+	// whatever descriptor the agent's shell was handed. An interpreter
+	// with inherited stdin waits for a terminal rather than running a
+	// script.
+	StdinInherited StdinKind = iota
+	// StdinUnreadable means something supplies stdin but its content
+	// cannot be read from the command alone: a pipe, an unquoted heredoc,
+	// a duplicated descriptor, or a path built by expansion.
+	StdinUnreadable
+	// StdinCode means Code holds the exact text the command reads.
+	StdinCode
+	// StdinFile means File names the file the command reads.
+	StdinFile
+)
+
+// Stdin is what the breakdown could learn about a command's standard input.
+// Commands that read a program from stdin need it to choose between scanning
+// that program and failing closed.
+type Stdin struct {
+	Kind StdinKind
+	// Code is the program text on stdin, when Kind is StdinCode.
+	Code string
+	// File is the path stdin reads from, when Kind is StdinFile.
+	File string
+}
+
+// Supplied reports whether anything was attached to stdin. It separates an
+// interpreter waiting on a terminal from one running whatever arrives.
+func (s Stdin) Supplied() bool {
+	return s.Kind != StdinInherited
+}
+
 // State holds the mutable state during a breakdown pass. This is the
 // breakdown's actual internal state - hooks can read and mutate it directly.
 type State struct {
@@ -237,6 +273,11 @@ type State struct {
 	// declarative layers (rule trees, snippets) are filtered before
 	// evaluation and never consult this.
 	RuleConfig RuleConfigs
+	// Stdin is what is known about the standard input of the command being
+	// broken down. It is ambient like Cwd: a statement's own redirect
+	// overrides it, a pipe hides it, and it reaches an inner command only
+	// when the outer command forwards its stdin.
+	Stdin Stdin
 }
 
 // CodeSnippet holds non-bash code extracted from a command (e.g. Python source
@@ -293,6 +334,13 @@ type BreakdownWork struct {
 	// Python source). The framework transfers these to BreakdownResult for
 	// the orchestrator to scan.
 	CodeSnippets []CodeSnippet
+	// ForwardStdin lets the inner work inherit this command's stdin. Set it
+	// where the command hands its own stdin to a command the user chose
+	// (exec wrappers, eval, bash -c). Leave it off where the command
+	// consumes stdin itself (xargs), replaces it (bash reading its script
+	// from stdin), or runs the inner work later (trap), so an interpreter
+	// inside cannot claim input it will never read.
+	ForwardStdin bool
 }
 
 func (w BreakdownWork) empty() bool {

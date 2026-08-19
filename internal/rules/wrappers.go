@@ -20,6 +20,10 @@ type wrapperDef struct {
 	// with non-empty denyFlags would panic.
 	denyRule       *model.RuleDef
 	skipPositional int // positional args to skip
+	// consumesStdin marks a wrapper that reads stdin for its own purposes
+	// instead of handing it to the command it runs, so the inner command
+	// must not treat a heredoc on the wrapper as its own input.
+	consumesStdin bool
 }
 
 // wrapperBreakdown builds a FullParser and BreakdownFunc from a wrapperDef. The
@@ -69,8 +73,11 @@ func wrapperBreakdown(
 			return model.Safe(), nil
 		}
 
+		// These wrappers exec the inner command, so it runs on the
+		// wrapper's own descriptors.
 		return model.ReplaceOuter(model.BreakdownWork{
-			Commands: [][]*syntax.Word{rest},
+			Commands:     [][]*syntax.Word{rest},
+			ForwardStdin: !def.consumesStdin,
 		}), nil
 	}
 
