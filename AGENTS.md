@@ -152,7 +152,9 @@ Run all tests:
   `bin/agent-permissions` and does NOT rebuild it — skipping
   `./build.sh` silently tests a stale binary and passes against
   the old behaviour. (`go test ./...` compiles fresh, so Go unit
-  tests don't have this trap.)
+  tests don't have this trap.) Never rebuild while a run is in
+  flight: `./build.sh` replaces the binary the tests are calling,
+  which fails one of them at random.
 * **bash vs Go tests.** Go is for unit tests, bash is for integration
   tests. Go unit tests (`go test ./...`) cover package internals
   (rules engine, parser, word helpers). Bash integration tests
