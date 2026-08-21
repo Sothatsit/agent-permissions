@@ -2,6 +2,7 @@
   "description": "Git, GitHub CLI, and pre-commit. Reads and staging are allowed; local writes are SoftAsk; push and gh writes are Ask; auth-credential commands are Deny. The Rules layer owns git remote/branch/tag and gh api (read vs write classification).",
   "Allow": {
     "Commands": {
+      "git --version:*": "Read-only",
       "git status:*": "Read-only",
       "git log:*": "Read-only",
       "git diff:*": "Read-only",
@@ -21,6 +22,7 @@
       "git ls-remote:*": "Read-only",
       "git submodule status:*": "Read-only",
       "git cat-file:*": "Read-only",
+      "git init:*": "Local changes",
       "git add:*": "Local changes",
       "git mv:*": "Local changes",
       "git fetch:*": "Read-only",

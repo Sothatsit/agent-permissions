@@ -3821,8 +3821,8 @@ assert_contains "deny: git --config-env denied" \
 # Informational options are left alone so they keep matching their own patterns
 # rather than collapsing into bare git.
 out=$(_run_hook 'git --version')
-assert_not_contains "not denied: git --version" \
-    "$(_decision "$out")" "deny"
+assert_contains "allow: git --version" \
+    "$(_decision "$out")" "allow"
 
 # --- git --upload-pack / --receive-pack ---
 
