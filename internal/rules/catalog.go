@@ -27,9 +27,11 @@ var (
 		"git -e/--edit opens an interactive editor")
 	gitCommandExec = defineRule("git.command-execution",
 		"git --upload-pack/--receive-pack/"+
-			"--open-files-in-pager run arbitrary commands")
+			"--open-files-in-pager/--exec-path run "+
+			"arbitrary commands")
 	gitConfigInject = defineRule("git.config-injection",
-		"git -c injects config that can execute commands")
+		"git -c/--config-env injects config that can "+
+			"execute commands")
 	gitBranchWrites = defineRule("git.branch-writes",
 		"git branch creates, renames, or deletes branches")
 	gitTagWrites = defineRule("git.tag-writes",
@@ -88,6 +90,8 @@ var (
 		"trap with code that can't be verified")
 	commandUnverified = defineRule("command.unverified",
 		"command builtin with flags that can't be verified")
+	gitUnverified = defineRule("git.unverified",
+		"git global options that can't be verified")
 	envUnverified = defineRule("env.unverified",
 		"env -S/--split-string or flags that can't be verified")
 	chrootUnverified = defineRule("chroot.unverified",

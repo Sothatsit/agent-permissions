@@ -3747,12 +3747,10 @@ out=$(_run_hook 'git -C /a -C b status')
 assert_contains "allow: git multiple -C status" \
     "$(_decision "$out")" "allow"
 
-# -C stripped even when mixed with other global flags. --no-pager survives and
-# prevents pattern matching, so the result is undecided (same as git --no-pager
-# diff without -C).
+# -C stripped alongside git's other global options.
 out=$(_run_hook 'git --no-pager -C /repo diff')
-assert_not_contains "not denied: git --no-pager -C diff" \
-    "$(_decision "$out")" "deny"
+assert_contains "allow: git --no-pager -C diff" \
+    "$(_decision "$out")" "allow"
 
 # -C does not interfere with dangerous flag detection.
 out=$(_run_hook 'git -C /repo -c core.pager=evil log')
@@ -3770,6 +3768,61 @@ assert_not_contains "not denied: git opaque -C" \
 out=$(_run_hook 'git branch -C main copy')
 assert_contains "ask: git branch -C not stripped" \
     "$(_decision "$out")" "ask"
+
+# --- git global options ---
+
+# Global options are stripped in breakdown so permission patterns match plain
+# git <subcommand>.
+out=$(_run_hook 'git --no-pager diff')
+assert_contains "allow: git --no-pager diff" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook 'git --literal-pathspecs --no-optional-locks status')
+assert_contains "allow: git repeated global options status" \
+    "$(_decision "$out")" "allow"
+
+# A value-taking option arrives either as two words or as one.
+out=$(_run_hook 'git --work-tree /repo status')
+assert_contains "allow: git --work-tree status" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook 'git --git-dir=/repo/.git status')
+assert_contains "allow: git --git-dir= status" \
+    "$(_decision "$out")" "allow"
+
+# Stripping keeps a governed command governed. Left in place, the option stops
+# the command matching any pattern, and an unknown command only soft-asks.
+out=$(_run_hook 'git --no-pager push --force')
+assert_contains "ask: git --no-pager push" \
+    "$(_decision "$out")" "ask"
+
+out=$(_run_hook 'git --git-dir=/repo/.git branch -D main')
+assert_contains "rule classifies git --git-dir= branch -D" \
+    "$(_reason "$out")" "git.branch-writes"
+
+# A value-taking option with nothing left to take cannot be verified, and the
+# denial names a rule so it can be disabled.
+out=$(_run_hook 'git --git-dir')
+assert_contains "deny: git --git-dir without argument" \
+    "$(_decision "$out")" "deny"
+assert_contains "rule named for git --git-dir denial" \
+    "$(_reason "$out")" "(from rule:git.unverified)"
+
+# --exec-path points git at another directory of subcommand binaries.
+out=$(_run_hook 'git --exec-path=/tmp/evil status')
+assert_contains "deny: git --exec-path denied" \
+    "$(_decision "$out")" "deny"
+
+# --config-env is -c with the value read from an environment variable.
+out=$(_run_hook 'git --config-env=core.pager=EVIL log')
+assert_contains "deny: git --config-env denied" \
+    "$(_decision "$out")" "deny"
+
+# Informational options are left alone so they keep matching their own patterns
+# rather than collapsing into bare git.
+out=$(_run_hook 'git --version')
+assert_not_contains "not denied: git --version" \
+    "$(_decision "$out")" "deny"
 
 # --- git --upload-pack / --receive-pack ---
 

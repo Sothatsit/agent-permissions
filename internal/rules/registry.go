@@ -25,31 +25,36 @@ func Registry() (
 
 	// --- Guarded: deny specific dangerous flags ---
 
-	// git: strip -C <path> in breakdown so permission patterns match plain
-	// git <subcommand>. Deny flags that open editors, execute arbitrary
-	// commands, or inject config.
+	// git: strip the global options in breakdown so permission patterns
+	// match plain git <subcommand>. Deny flags that open editors, execute
+	// arbitrary commands, or inject config.
 	r["git"] = &model.CommandRules{
 		OwnedPatternPrefixes: [][]string{
 			{"branch"}, {"remote"}, {"tag"},
 		},
-		// git accepts repeated -C options. breakdownGit removes each
-		// option and path before the owned subcommand reaches the rules
-		// layer.
-		PatternPrefixSkips: []model.PatternPrefixSkip{
-			{Option: "-C", Arguments: 1},
-		},
-		Breakdown: breakdownGit,
-		PathMode:  model.PathSkip,
+		// git accepts repeated global options. breakdownGit removes each
+		// option and its argument before the owned subcommand reaches
+		// the rules layer, so a pattern may carry any run of them, in
+		// either the two-word or the attached --option=value form.
+		PatternPrefixSkips: gitPatternPrefixSkips,
+		Breakdown:          breakdownGit,
+		Unverified:         gitUnverified,
+		PathMode:           model.PathSkip,
 		Rules: []model.Rule{
 			model.Flag("-e", "--edit").
 				WithRuleDef(gitInteractive).Deny(
 				"opens an interactive editor"),
+			// --exec-path points git at another directory of
+			// subcommand binaries, so it runs those instead.
 			model.Flag("--upload-pack",
 				"--receive-pack",
 				"--open-files-in-pager",
+				"--exec-path",
 			).WithRuleDef(gitCommandExec).Deny(
 				"can execute arbitrary commands"),
-			model.Flag("-c").
+			// --config-env is -c with the value read from an
+			// environment variable.
+			model.Flag("-c", "--config-env").
 				WithRuleDef(gitConfigInject).
 				ValueCouldContain("=").Deny(
 				"can execute arbitrary commands " +

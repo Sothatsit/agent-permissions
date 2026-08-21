@@ -2,6 +2,9 @@ package rules
 
 import (
 	"fmt"
+	"maps"
+	"slices"
+	"strings"
 
 	"github.com/sothatsit/agent-permissions/internal/model"
 	"github.com/sothatsit/agent-permissions/internal/word"
@@ -9,11 +12,87 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-// breakdownGit strips -C <path> from git's global options so the command
-// matches permission patterns written for plain git <subcommand>. -C only
-// changes git's working directory - no security implication. Scanning stops at
-// the first non-flag arg (the subcommand), so subcommand-level -C flags (e.g.
-// git branch -C) are not affected.
+// gitGlobalOptionArguments holds the options that precede git's subcommand and
+// how many following words each takes. These change where or how git runs,
+// never what it executes, so breakdown strips them. Leaving one in place costs
+// more than a missed allow, because a command that matches no pattern looks
+// unknown, and an unknown command only soft-asks. Options that can execute code
+// (-c, --config-env, --exec-path) are denied by the rules layer, and the
+// informational ones (--version, --help, --man-path) keep their own patterns.
+var gitGlobalOptionArguments = map[string]int{
+	"-p": 0, "--paginate": 0, "-P": 0, "--no-pager": 0,
+	"--bare":               0,
+	"--no-replace-objects": 0,
+	"--no-lazy-fetch":      0,
+	"--no-optional-locks":  0,
+	"--no-advice":          0,
+	"--literal-pathspecs":  0,
+	"--glob-pathspecs":     0,
+	"--noglob-pathspecs":   0,
+	"--icase-pathspecs":    0,
+	"-C":                   1,
+	"--git-dir":            1,
+	"--work-tree":          1,
+	"--namespace":          1,
+	"--attr-source":        1,
+}
+
+// gitOptionTakesAttachedValue reports whether git also accepts the option's
+// argument in the same word as --option=value. git reads that form for its long
+// options only, so -C /path stays two words.
+func gitOptionTakesAttachedValue(
+	name string, arguments int,
+) bool {
+	return arguments > 0 &&
+		strings.HasPrefix(name, "--")
+}
+
+// gitPatternPrefixSkips mirrors the options above, so preset validation sees
+// the same leading options breakdown removes and rejects a pattern that reaches
+// an owned subcommand past them.
+var gitPatternPrefixSkips = func() []model.PatternPrefixSkip {
+	var skips []model.PatternPrefixSkip
+	for _, name := range slices.Sorted(
+		maps.Keys(gitGlobalOptionArguments),
+	) {
+		arguments := gitGlobalOptionArguments[name]
+		skips = append(skips, model.PatternPrefixSkip{
+			Option:    name,
+			Arguments: arguments,
+		})
+		if gitOptionTakesAttachedValue(name, arguments) {
+			skips = append(skips, model.PatternPrefixSkip{
+				Option: name + "=",
+				Prefix: true,
+			})
+		}
+	}
+
+	return skips
+}()
+
+// findGitGlobalOption names the global option a word holds and reports how many
+// following words it takes.
+func findGitGlobalOption(
+	w *syntax.Word,
+) (string, int, bool) {
+	for name, arguments := range gitGlobalOptionArguments {
+		if word.DefinitelyEqual(w, name) {
+			return name, arguments, true
+		}
+		if gitOptionTakesAttachedValue(name, arguments) &&
+			word.DefinitelyHasPrefix(w, name+"=") {
+			return name, 0, true
+		}
+	}
+
+	return "", 0, false
+}
+
+// breakdownGit strips git's global options so the command matches permission
+// patterns written for plain git <subcommand>. Scanning stops at the first
+// non-flag arg (the subcommand), so subcommand flags of the same name (e.g. git
+// branch -C) are not affected.
 func breakdownGit(
 	input model.ParseResult,
 	_ *model.State,
@@ -25,17 +104,6 @@ func breakdownGit(
 	for i := 0; i < len(args); i++ {
 		w := args[i]
 
-		if word.DefinitelyEqual(w, "-C") {
-			if i+1 >= len(args) {
-				return model.BreakdownOutcome{}, fmt.Errorf(
-					"git -C requires a path argument")
-			}
-
-			found = true
-			i++ // skip path
-			continue
-		}
-
 		// Non-flag word = subcommand. Stop scanning for global options
 		// and copy the rest as-is.
 		if !word.DefinitelyHasPrefix(w, "-") {
@@ -43,8 +111,26 @@ func breakdownGit(
 			break
 		}
 
-		// Other global flag - keep it.
-		stripped = append(stripped, w)
+		name, arguments, ok := findGitGlobalOption(w)
+		if !ok {
+			// Not ours to strip - the rules layer may still deny it.
+			stripped = append(stripped, w)
+			continue
+		}
+		remaining := len(args) - i - 1
+		if arguments > remaining {
+			// Without the argument there is no telling where the
+			// subcommand starts, so nothing can be stripped.
+			return model.BreakdownOutcome{}, &model.RuleError{
+				Def: gitUnverified,
+				Reason: fmt.Sprintf(
+					"git %s requires an argument",
+					name),
+			}
+		}
+
+		found = true
+		i += arguments
 	}
 
 	if !found {
