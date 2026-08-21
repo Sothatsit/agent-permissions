@@ -179,6 +179,9 @@ func TestValidateExternalPresetsAllowsPatternLayerCommands(
 		"git",
 		"git status:*",
 		"/usr/bin/git -C /repo remote remove:*",
+		// Option globs match every stripped option, so a search over
+		// runs of them does not terminate on this pattern.
+		"git -* -* -* -* -* -* zzz",
 		"gh pr:*",
 		"tar:*",
 		"find:*",

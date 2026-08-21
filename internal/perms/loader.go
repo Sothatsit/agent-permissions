@@ -264,11 +264,10 @@ func ruleOwnedPattern(
 	return "", false
 }
 
-type patternTokenConstraint struct {
-	literal string
-	any     bool
-}
-
+// patternOverlapsNormalizedOwnedPrefix reports whether the pattern could reach
+// an owned subcommand past the leading options Breakdown strips. Searching over
+// runs of those options costs a branch per skip per element, which a pattern of
+// option globs turns into a hang, so walk the pattern's own elements instead.
 func patternOverlapsNormalizedOwnedPrefix(
 	pat Pattern,
 	prefix []string,
@@ -284,64 +283,89 @@ func patternOverlapsNormalizedOwnedPrefix(
 		return false
 	}
 
-	owner := make([]patternTokenConstraint, 0, len(prefix)-1)
-	for _, element := range prefix[1:] {
-		owner = append(owner, patternTokenConstraint{
-			literal: element,
-		})
-	}
+	// Everything after the command name, which both the stripped options
+	// and the owned prefix align against.
+	args := pat.Elements[1:]
 
-	var leading []patternTokenConstraint
-	var search func(int) bool
-	search = func(depth int) bool {
-		if depth > len(pat.Elements) {
-			return false
+	// An option running past the last element leaves the rest of the
+	// command unwritten, which only a trailing wildcard can cover.
+	overrunOverlaps := pat.Mode != MatchExact
+
+	reached := make([]bool, len(args)+1)
+	reached[0] = true
+
+	for at := 0; at <= len(args); at++ {
+		if !reached[at] {
+			continue
+		}
+
+		// Position zero is the pattern as written, which the caller
+		// already compared against the owned prefix.
+		if at > 0 && ownedPrefixAlignsAt(pat, prefix, at) {
+			return true
+		}
+		if at == len(args) {
+			if overrunOverlaps {
+				return true
+			}
+
+			continue
 		}
 
 		for _, skip := range skips {
-			before := len(leading)
-			leading = append(leading, patternTokenConstraint{
-				literal: skip.Option,
-			})
-			for range skip.Arguments {
-				leading = append(leading,
-					patternTokenConstraint{any: true})
+			if !skipOptionMatches(skip, args[at]) {
+				continue
 			}
 
-			candidate := append(
-				append([]patternTokenConstraint{}, leading...),
-				owner...)
-			if patternOverlapsTokenConstraints(pat, candidate) {
-				return true
-			}
-			if search(depth + 1) {
-				return true
+			// The option names this element, and its arguments take
+			// the elements after it whatever they hold.
+			next := at + 1 + skip.Arguments
+			if next > len(args) {
+				if overrunOverlaps {
+					return true
+				}
+
+				continue
 			}
 
-			leading = leading[:before]
+			reached[next] = true
 		}
-
-		return false
 	}
 
-	return search(1)
+	return false
 }
 
-func patternOverlapsTokenConstraints(
-	pat Pattern,
-	args []patternTokenConstraint,
+// skipOptionMatches reports whether a pattern element could name this stripped
+// option. An option whose argument arrives attached is a glob comparison,
+// because the pattern may spell that value however it likes.
+func skipOptionMatches(
+	skip model.PatternPrefixSkip, element string,
 ) bool {
-	shared := min(len(pat.Elements)-1, len(args))
+	if skip.Prefix {
+		return globLanguagesOverlap(
+			element, skip.Option+"*")
+	}
+
+	return globMatch(element, skip.Option)
+}
+
+// ownedPrefixAlignsAt reports whether the owned subcommands sit in the pattern
+// from the given element onwards.
+func ownedPrefixAlignsAt(
+	pat Pattern, prefix []string, at int,
+) bool {
+	args := pat.Elements[1:]
+	owner := prefix[1:]
+	remaining := len(args) - at
+
+	shared := min(remaining, len(owner))
 	for i := 0; i < shared; i++ {
-		constraint := args[i]
-		if !constraint.any &&
-			!globMatch(pat.Elements[i+1], constraint.literal) {
+		if !globMatch(args[at+i], owner[i]) {
 			return false
 		}
 	}
 
-	candidateLength := len(args) + 1
-	return len(pat.Elements) >= candidateLength ||
+	return remaining >= len(owner) ||
 		pat.Mode != MatchExact
 }
 

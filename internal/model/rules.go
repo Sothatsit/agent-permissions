@@ -112,10 +112,13 @@ type CommandRules struct {
 }
 
 // PatternPrefixSkip is a repeatable leading option removed by Breakdown, and
-// how many following words it consumes.
+// how many following words it consumes. Prefix marks an option whose argument
+// arrives attached in the same word, as --option=value. Option then names the
+// leading text of one word rather than the whole word.
 type PatternPrefixSkip struct {
 	Option    string
 	Arguments int
+	Prefix    bool
 }
 
 // Matcher tests whether a rule applies. On match it returns scoped input for
