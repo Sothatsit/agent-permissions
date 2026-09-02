@@ -2079,41 +2079,41 @@ echo 'import os; os.system("true")' > "$_bp_env_cwd/scoped.py"
 echo 'print("safe")' > "$_bp_tmpdir/project/scoped.py"
 
 out=$(_run_hook 'env -C env-cwd python3 selected.py')
-assert_contains "ask: env -C scopes relative script" \
-    "$(_decision "$out")" "ask"
+assert_contains "deny: env -C scopes relative script" \
+    "$(_decision "$out")" "deny"
 
 out=$(_run_hook 'env --chdir=env-cwd python3 selected.py')
-assert_contains "ask: env --chdir scopes relative script" \
-    "$(_decision "$out")" "ask"
+assert_contains "deny: env --chdir scopes relative script" \
+    "$(_decision "$out")" "deny"
 
 # Repeated -C flags do not chain. env keeps the final value and resolves it
 # against the directory in which env itself starts.
 out=$(_run_hook \
     'env -C env-first -C env-cwd python3 selected.py')
-assert_contains "ask: env final -C uses incoming directory" \
-    "$(_decision "$out")" "ask"
+assert_contains "deny: env final -C uses incoming directory" \
+    "$(_decision "$out")" "deny"
 
 out=$(_run_hook \
     'env -C env-cwd env -C sub python3 nested.py')
-assert_contains "ask: nested env -C scopes compose" \
-    "$(_decision "$out")" "ask"
+assert_contains "deny: nested env -C scopes compose" \
+    "$(_decision "$out")" "deny"
 
 out=$(_run_hook \
     'env -C env-first env -C ../env-cwd python3 selected.py')
-assert_contains "ask: nested relative env -C uses parent scope" \
-    "$(_decision "$out")" "ask"
+assert_contains "deny: nested relative env -C uses parent scope" \
+    "$(_decision "$out")" "deny"
 
 # A wrapper-scoped directory is valid inside conditional shell syntax, and it
 # does not leak to the next command after the wrapper exits.
 out=$(_run_hook \
     "true && env -C $_bp_env_cwd python3 selected.py")
-assert_contains "ask: conditional env -C uses selected directory" \
-    "$(_decision "$out")" "ask"
+assert_contains "deny: conditional env -C uses selected directory" \
+    "$(_decision "$out")" "deny"
 
 out=$(_run_hook \
     'env -C env-cwd python3 after-env.py && python3 after-env.py')
-assert_contains "ask: env -C directory does not leak" \
-    "$(_decision "$out")" "ask"
+assert_contains "deny: env -C directory does not leak" \
+    "$(_decision "$out")" "deny"
 
 # The shell expands wrapper operands before env changes directory. Both the
 # directory value and substitutions in the inner argv use the outer cwd.
@@ -2128,8 +2128,8 @@ assert_contains "deny: env earlier -C substitution scanned" \
 
 out=$(_run_hook \
     'env -C env-cwd echo "$(python3 expanded.py)"')
-assert_contains "ask: env inner substitution uses outer directory" \
-    "$(_decision "$out")" "ask"
+assert_contains "deny: env inner substitution uses outer directory" \
+    "$(_decision "$out")" "deny"
 
 out=$(_run_hook \
     'env -C env-cwd echo "$(python3 scoped.py)"')
@@ -3246,8 +3246,8 @@ assert_contains "allow: awk safe program file" \
     "$(_decision "$out")" "allow"
 
 out=$(_run_hook 'awk -f ./dangerous.awk file.txt')
-assert_contains "ask: awk dangerous program file" \
-    "$(_decision "$out")" "ask"
+assert_contains "deny: awk dangerous program file" \
+    "$(_decision "$out")" "deny"
 
 out=$(_run_hook \
     'awk -i ./safe.awk '\''BEGIN{system("ssh evil")}'\''')
@@ -3311,8 +3311,8 @@ assert_contains "deny: awk GNU inline source flag" \
 # separator, so a dangerous token can cross the file boundary.
 out=$(_run_hook \
     'awk -f ./awk-program-part-one -f ./awk-program-part-two file.txt')
-assert_contains "ask: awk command split across program files" \
-    "$(_decision "$out")" "ask"
+assert_contains "deny: awk command split across program files" \
+    "$(_decision "$out")" "deny"
 
 # Strings and regular expressions may contain scanner trigger text without
 # executing anything.
@@ -3615,8 +3615,8 @@ assert_contains "allow: sed safe program file" \
     "$(_decision "$out")" "allow"
 
 out=$(_run_hook 'sed -f dangerous.sed file.txt')
-assert_contains "ask: sed dangerous program file" \
-    "$(_decision "$out")" "ask"
+assert_contains "deny: sed dangerous program file" \
+    "$(_decision "$out")" "deny"
 
 # GNU in POSIX mode and BSD stop parsing options at the first positional. GNU's
 # default mode still permutes them.
@@ -3634,16 +3634,16 @@ assert_contains "deny: sed late program-file option" \
 # preceding -f does not.
 out=$(_run_hook \
     'sed -f split-start.sed -f split-end.sed file.txt')
-assert_contains "ask: sed execution split across files" \
-    "$(_decision "$out")" "ask"
+assert_contains "deny: sed execution split across files" \
+    "$(_decision "$out")" "deny"
 
 out=$(_run_hook 'sed -f split-start.sed -e ge file.txt')
 assert_contains "deny: sed execution split into inline code" \
     "$(_decision "$out")" "deny"
 
 out=$(_run_hook 'sed -lnfdangerous.sed file.txt')
-assert_contains "ask: BSD sed clustered program file" \
-    "$(_decision "$out")" "ask"
+assert_contains "deny: BSD sed clustered program file" \
+    "$(_decision "$out")" "deny"
 
 out=$(_run_hook 'sed -f - file.txt')
 assert_contains "deny: sed program from stdin" \
@@ -6773,7 +6773,8 @@ assert_contains "python: stdin source attributes rule" \
 # --- Python: code snippet scanning (files) ---
 #
 # When python3 runs a file, breakdown reads it and scans for dangerous patterns.
-# Clean files are allowed. Dangerous patterns produce ask (for files).
+# Clean files are allowed. Dangerous patterns deny, as inline code does, with a
+# suggestion to allow the file by path.
 
 echo 'print("hello world")' \
     > "$_bp_scripts/clean.py"
@@ -6787,18 +6788,20 @@ subprocess.run(["ls", "-la"])' \
     > "$_bp_scripts/uses-subprocess.py"
 
 out=$(_run_hook "python3 uses-subprocess.py")
-assert_contains "python: subprocess file ask" \
-    "$(_decision "$out")" "ask"
+assert_contains "python: subprocess file deny" \
+    "$(_decision "$out")" "deny"
 assert_contains "python: subprocess file reason" \
     "$(_reason "$out")" "subprocess"
+assert_contains "python: subprocess file suggests its invocation" \
+    "$(_reason "$out")" "add Bash(python3 uses-subprocess.py)"
 
 echo 'from os import system
 system("ls")' \
     > "$_bp_scripts/uses-os-system.py"
 
 out=$(_run_hook "python3 uses-os-system.py")
-assert_contains "python: os.system file ask" \
-    "$(_decision "$out")" "ask"
+assert_contains "python: os.system file deny" \
+    "$(_decision "$out")" "deny"
 assert_contains "python: os.system file reason" \
     "$(_reason "$out")" "os"
 
@@ -6807,16 +6810,16 @@ popen("ls")' \
     > "$_bp_scripts/uses-os-popen.py"
 
 out=$(_run_hook "python3 uses-os-popen.py")
-assert_contains "python: os.popen file ask" \
-    "$(_decision "$out")" "ask"
+assert_contains "python: os.popen file deny" \
+    "$(_decision "$out")" "deny"
 
 echo 'from os import execvp
 execvp("/bin/ls", ["ls"])' \
     > "$_bp_scripts/uses-os-exec.py"
 
 out=$(_run_hook "python3 uses-os-exec.py")
-assert_contains "python: os.exec file ask" \
-    "$(_decision "$out")" "ask"
+assert_contains "python: os.exec file deny" \
+    "$(_decision "$out")" "deny"
 
 # import os alone is fine - only dangerous names trigger.
 echo 'import os
@@ -6833,8 +6836,8 @@ os.system("ls -la")' \
     > "$_bp_scripts/uses-os-qualified.py"
 
 out=$(_run_hook "python3 uses-os-qualified.py")
-assert_contains "python: os.system qualified call ask" \
-    "$(_decision "$out")" "ask"
+assert_contains "python: os.system qualified call deny" \
+    "$(_decision "$out")" "deny"
 assert_contains "python: os.system qualified call reason" \
     "$(_reason "$out")" "os"
 
@@ -6843,16 +6846,16 @@ os.popen("ls").read()' \
     > "$_bp_scripts/uses-os-popen-qualified.py"
 
 out=$(_run_hook "python3 uses-os-popen-qualified.py")
-assert_contains "python: os.popen qualified call ask" \
-    "$(_decision "$out")" "ask"
+assert_contains "python: os.popen qualified call deny" \
+    "$(_decision "$out")" "deny"
 
 echo 'import os
 os.execvp("/bin/ls", ["ls"])' \
     > "$_bp_scripts/uses-os-exec-qualified.py"
 
 out=$(_run_hook "python3 uses-os-exec-qualified.py")
-assert_contains "python: os.exec qualified call ask" \
-    "$(_decision "$out")" "ask"
+assert_contains "python: os.exec qualified call deny" \
+    "$(_decision "$out")" "deny"
 
 # Multiple dangerous imports - all reasons shown.
 echo 'import subprocess
@@ -6860,8 +6863,8 @@ from os import system' \
     > "$_bp_scripts/uses-multi.py"
 
 out=$(_run_hook "python3 uses-multi.py")
-assert_contains "python: multi-danger ask" \
-    "$(_decision "$out")" "ask"
+assert_contains "python: multi-danger deny" \
+    "$(_decision "$out")" "deny"
 assert_contains "python: multi-danger shows subprocess" \
     "$(_reason "$out")" "subprocess"
 assert_contains "python: multi-danger shows os" \
@@ -6954,10 +6957,10 @@ echo 'import subprocess
 subprocess.run(["ls"])' \
     > "$_bp_scripts/trusted.py"
 
-# Without override - ask (dangerous patterns).
+# Without override - deny (dangerous patterns).
 out=$(_run_hook "python3 trusted.py")
-assert_contains "python: override before ask" \
-    "$(_decision "$out")" "ask"
+assert_contains "python: override before deny" \
+    "$(_decision "$out")" "deny"
 
 # With user allow entry - skip scanning, allow.
 _write_project_settings \
@@ -7041,7 +7044,7 @@ out=$(_run_hook 'python3 -c "print(42)"')
 assert_contains "python: clean -c deny under python3 * deny" \
     "$(_decision "$out")" "deny"
 
-# File-based: pattern Allow does suppress snippet Ask.
+# File-based: pattern Allow does suppress snippet Deny.
 echo 'import subprocess
 subprocess.run(["ls"])' \
     > "$_bp_scripts/broad-allowed.py"
@@ -7064,8 +7067,8 @@ printf 'from os import (\n    system,\n    path\n)\n' \
     > "$_bp_scripts/multiline-import.py"
 
 out=$(_run_hook "python3 multiline-import.py")
-assert_contains "python: multiline from-import ask" \
-    "$(_decision "$out")" "ask"
+assert_contains "python: multiline from-import deny" \
+    "$(_decision "$out")" "deny"
 assert_contains "python: multiline from-import reason" \
     "$(_reason "$out")" "os"
 
@@ -7089,8 +7092,8 @@ assert_contains "python: import in docstring allow" \
 
 # --- Python: combined with other commands ---
 #
-# Code snippet ask reasons should combine with ask reasons from other commands
-# in compound statements.
+# A code snippet deny decides the whole compound statement and names the
+# snippet.
 
 echo 'import subprocess
 subprocess.run(["ls"])' \
@@ -7098,12 +7101,10 @@ subprocess.run(["ls"])' \
 
 out=$(_run_hook \
     'python3 compound-py.py && curl http://example.com')
-assert_contains "python: compound ask decision" \
-    "$(_decision "$out")" "ask"
+assert_contains "python: compound deny decision" \
+    "$(_decision "$out")" "deny"
 assert_contains "python: compound shows subprocess" \
     "$(_reason "$out")" "subprocess"
-assert_contains "python: compound shows curl" \
-    "$(_reason "$out")" "curl"
 
 # --- Python: aliased and wildcard imports ---
 
@@ -7112,8 +7113,8 @@ sp.run(["ls"])' \
     > "$_bp_scripts/aliased-import.py"
 
 out=$(_run_hook "python3 aliased-import.py")
-assert_contains "python: aliased import ask" \
-    "$(_decision "$out")" "ask"
+assert_contains "python: aliased import deny" \
+    "$(_decision "$out")" "deny"
 assert_contains "python: aliased import reason" \
     "$(_reason "$out")" "subprocess"
 
@@ -7123,8 +7124,8 @@ system("ls")' \
     > "$_bp_scripts/wildcard-os-import.py"
 
 out=$(_run_hook "python3 wildcard-os-import.py")
-assert_contains "python: wildcard os import ask" \
-    "$(_decision "$out")" "ask"
+assert_contains "python: wildcard os import deny" \
+    "$(_decision "$out")" "deny"
 
 # --- Python: interpreter flags before script ---
 #
@@ -7136,17 +7137,17 @@ subprocess.run(["ls"])' \
     > "$_bp_scripts/flagged.py"
 
 out=$(_run_hook "python3 -u flagged.py")
-assert_contains "python: -u flag still scans ask" \
-    "$(_decision "$out")" "ask"
+assert_contains "python: -u flag still scans deny" \
+    "$(_decision "$out")" "deny"
 
 out=$(_run_hook "python3 -B flagged.py")
-assert_contains "python: -B flag still scans ask" \
-    "$(_decision "$out")" "ask"
+assert_contains "python: -B flag still scans deny" \
+    "$(_decision "$out")" "deny"
 
 # Combined flags: -uB should split into -u + -B and still scan the script.
 out=$(_run_hook "python3 -uB flagged.py")
 assert_contains "python: -uB combined still scans" \
-    "$(_decision "$out")" "ask"
+    "$(_decision "$out")" "deny"
 
 # Combined flags with -c: -Bc should split into -B + -c, where -c consumes the
 # next arg as inline code. Inline code gets deny (not ask) because there's no
@@ -7165,8 +7166,8 @@ assert_contains "python: -cB code is 'B'" \
 # to the script.
 out=$(_run_hook "python3 -u flagged.py run --test-name foo")
 assert_contains \
-    "python: script args not parsed as flags ask" \
-    "$(_decision "$out")" "ask"
+    "python: script args not parsed as flags deny" \
+    "$(_decision "$out")" "deny"
 
 # Same with a clean script - args don't cause a false "unrecognised flag"
 # denial.
@@ -7221,7 +7222,7 @@ subprocess.run(["ls"])' \
 
 out=$(_run_hook "python python2-test.py")
 assert_contains "python: python (not python3) scans" \
-    "$(_decision "$out")" "ask"
+    "$(_decision "$out")" "deny"
 
 # --- Python: module execution is unverified ---
 #
@@ -7290,13 +7291,13 @@ out=$(_run_hook "python3")
 assert_not_contains "python: bare interpreter not denied" \
     "$(_decision "$out")" "deny"
 
-# An input file is the user's own script, so it keeps file semantics: ask,
+# An input file is the user's own script, so it keeps file semantics: deny,
 # with a way to allow it.
 mkdir -p "$_bp_tmpdir/project"
 printf 'import subprocess\n' > "$_bp_tmpdir/project/danger.py"
 out=$(_run_hook "python3 - < $_bp_tmpdir/project/danger.py")
-assert_contains "python: dangerous stdin file asks" \
-    "$(_decision "$out")" "ask"
+assert_contains "python: dangerous stdin file deny" \
+    "$(_decision "$out")" "deny"
 
 printf 'print(42)\n' > "$_bp_tmpdir/project/clean.py"
 out=$(_run_hook "python3 - < $_bp_tmpdir/project/clean.py")
@@ -7536,8 +7537,8 @@ echo 'system("ls -la");' \
     > "$_bp_scripts/uses-system.pl"
 
 out=$(_run_hook "perl uses-system.pl")
-assert_contains "perl: system file ask" \
-    "$(_decision "$out")" "ask"
+assert_contains "perl: system file deny" \
+    "$(_decision "$out")" "deny"
 assert_contains "perl: system file reason" \
     "$(_reason "$out")" "shell command execution"
 
@@ -7546,8 +7547,8 @@ open2(\*READ, \*WRITE, "cmd");' \
     > "$_bp_scripts/uses-ipc.pl"
 
 out=$(_run_hook "perl uses-ipc.pl")
-assert_contains "perl: IPC file ask" \
-    "$(_decision "$out")" "ask"
+assert_contains "perl: IPC file deny" \
+    "$(_decision "$out")" "deny"
 
 out=$(_run_hook "perl nonexistent.pl")
 assert_contains "perl: missing file deny" \
@@ -7559,8 +7560,8 @@ echo 'system("ls");' \
     > "$_bp_scripts/perl-flagtest.pl"
 
 out=$(_run_hook "perl -w perl-flagtest.pl")
-assert_contains "perl: -w flag still scans ask" \
-    "$(_decision "$out")" "ask"
+assert_contains "perl: -w flag still scans deny" \
+    "$(_decision "$out")" "deny"
 
 # Combined flags with -e.
 out=$(_run_hook 'perl -we "system(\"ls\")"')
@@ -7573,7 +7574,7 @@ assert_contains "perl: optional -0 value keeps code visible" \
 
 out=$(_run_hook "perl -C perl-flagtest.pl")
 assert_contains "perl: optional -C value keeps file visible" \
-    "$(_decision "$out")" "ask"
+    "$(_decision "$out")" "deny"
 
 # After -e "code", Perl continues parsing its own flags (unlike Python).
 # Flag-like args are rejected; non-flag positionals are accepted once leading
@@ -7704,16 +7705,16 @@ echo 'system("ls -la")' \
     > "$_bp_scripts/uses-system.rb"
 
 out=$(_run_hook "ruby uses-system.rb")
-assert_contains "ruby: system file ask" \
-    "$(_decision "$out")" "ask"
+assert_contains "ruby: system file deny" \
+    "$(_decision "$out")" "deny"
 
 echo 'require "open3"
 Open3.capture3("ls")' \
     > "$_bp_scripts/uses-open3.rb"
 
 out=$(_run_hook "ruby uses-open3.rb")
-assert_contains "ruby: open3 file ask" \
-    "$(_decision "$out")" "ask"
+assert_contains "ruby: open3 file deny" \
+    "$(_decision "$out")" "deny"
 
 out=$(_run_hook "ruby nonexistent.rb")
 assert_contains "ruby: missing file deny" \
@@ -7842,19 +7843,19 @@ cp.exec("ls");' \
     > "$_bp_scripts/uses-child-process.js"
 
 out=$(_run_hook "node uses-child-process.js")
-assert_contains "node: child_process file ask" \
-    "$(_decision "$out")" "ask"
+assert_contains "node: child_process file deny" \
+    "$(_decision "$out")" "deny"
 
 # --inspect has an optional attached address. A separate word is still the
 # script path and must reach the source scanner.
 out=$(_run_hook "node --inspect uses-child-process.js")
 assert_contains "node: inspect still scans file" \
-    "$(_decision "$out")" "ask"
+    "$(_decision "$out")" "deny"
 
 out=$(_run_hook \
     "node --inspect=127.0.0.1:9229 uses-child-process.js")
 assert_contains "node: attached inspect address scans file" \
-    "$(_decision "$out")" "ask"
+    "$(_decision "$out")" "deny"
 
 echo 'console.log("decoy");' > "$_bp_scripts/inspect"
 out=$(_run_hook "node inspect uses-child-process.js")

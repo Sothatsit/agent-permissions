@@ -644,20 +644,20 @@ func (p *Permissions) checkSnippet(
 		reason += "  (from rule:" + lang.Def.ID + ")"
 	}
 
-	// Inline code (-c) keeps the original decision (deny). File-based code
-	// is downgraded to ask.
-	decision := strongest
+	// A file is denied like inline code, so writing a snippet to a file
+	// cannot turn a deny into a prompt. A file the user vouches for is
+	// allowed by naming its invocation, which a pattern allow on the
+	// interpreter alone would also do, at the cost of every script.
 	if snippet.SourceFile != "" &&
-		decision == model.Deny {
-		decision = model.Ask
-		reason += ". To always allow: add " +
-			p.buildPermissionSuggestion(
-				word.Texts(
-					snippet.SourceScript), "")
+		strongest == model.Deny {
+		invocation := strings.Join(
+			word.Texts(snippet.SourceScript), " ")
+		reason += ". To always allow: add Bash(" +
+			invocation + ")"
 	}
 
 	return commandCheck{
-		decision: decision,
+		decision: strongest,
 		source:   sourceRules,
 		ruleDef:  lang.Def,
 		// Snippet reasons are pre-composed and bypass formatCheck, so
