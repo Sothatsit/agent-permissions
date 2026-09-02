@@ -730,7 +730,7 @@ cannot make a partly processed aggregate look safe.
 - `env` is the one wrapper that honours a leading `NAME=val`, so it
   uses `Assigns`: `env LD_PRELOAD=/x.so cmd` is a real injection and
   the name must reach the deny axis. Every other registered wrapper
-  (`timeout`, `nohup`, `setsid`, `nice`, `ionice`, `exec`,
+  (`timeout`, `nohup`, `setsid`, `nice`, `ionice`, `taskset`, `exec`,
   `stdbuf`, `strace`, ...) execs its inner command directly via
   `execvp`, so a leading `NAME=val` is the program name, not an
   assignment, and is deliberately not honoured. `env` is

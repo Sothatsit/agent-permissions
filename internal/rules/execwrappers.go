@@ -63,6 +63,26 @@ var ioniceParser, breakdownIonice = wrapperBreakdown(
 		},
 	})
 
+// taskset MASK cmd pins cmd to CPUs. -c makes MASK a CPU list, and -p makes
+// the positionals a mask and PID for an existing process, so no command runs.
+var tasksetParser, breakdownTaskset = wrapperBreakdown(
+	wrapperDef{
+		flags: []model.FlagDef{
+			{Name: "--all-tasks"},
+			{Name: "--cpu-list"},
+			{Name: "--version"},
+			{Name: "--help"},
+			{Name: "--pid"},
+			{Name: "-a"},
+			{Name: "-c"},
+			{Name: "-h"},
+			{Name: "-p"},
+			{Name: "-V"},
+		},
+		skipPositional: 1,
+		noCommandFlags: map[string]bool{"--pid": true, "-p": true},
+	})
+
 // A redirect-only `exec > log` has no command and is safe.
 var execParser, breakdownExec = wrapperBreakdown(
 	wrapperDef{

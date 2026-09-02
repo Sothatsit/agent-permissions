@@ -342,9 +342,9 @@ func Registry() (
 		Unverified:      envUnverified,
 	}
 
-	// nohup/setsid/nice/ionice/exec: transparent exec wrappers. Skip own
-	// flags, extract the inner command; empty inner is safe (e.g. ionice -p
-	// PID, exec > log).
+	// nohup/setsid/nice/ionice/taskset/exec: transparent exec wrappers.
+	// Skip own flags, extract the inner command; empty inner is safe (e.g.
+	// ionice -p PID, taskset -p PID, exec > log).
 	r["nohup"] = &model.CommandRules{
 		OwnsAllPatterns: true,
 		Parser:          nohupParser,
@@ -364,6 +364,11 @@ func Registry() (
 		OwnsAllPatterns: true,
 		Parser:          ioniceParser,
 		Breakdown:       breakdownIonice,
+	}
+	r["taskset"] = &model.CommandRules{
+		OwnsAllPatterns: true,
+		Parser:          tasksetParser,
+		Breakdown:       breakdownTaskset,
 	}
 	r["exec"] = &model.CommandRules{
 		OwnsAllPatterns: true,

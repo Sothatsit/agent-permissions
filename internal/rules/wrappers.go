@@ -17,6 +17,10 @@ type wrapperDef struct {
 	// extracted and checked.
 	denyRule       *model.RuleDef
 	skipPositional int // positional args to skip
+	// noCommandFlags mark modes that act on an existing process instead of
+	// running one, like taskset -p PID. The positionals then name a mask
+	// and a PID rather than a command, so nothing is unwrapped.
+	noCommandFlags map[string]bool
 	// consumesStdin marks a wrapper that reads stdin for itself instead of
 	// handing it to the command it runs.
 	consumesStdin bool
@@ -50,6 +54,12 @@ func wrapperBreakdown(
 					Def:    def.denyRule,
 					Reason: reason,
 				}
+			}
+		}
+
+		for _, f := range input.Flags {
+			if def.noCommandFlags[f.Name] {
+				return model.Safe(), nil
 			}
 		}
 

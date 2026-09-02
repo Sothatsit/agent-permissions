@@ -2166,6 +2166,20 @@ assert_contains "allow: ionice unwraps to git" "$(_decision "$out")" "allow"
 out=$(_run_hook 'ionice -p 123')
 assert_contains "allow: ionice -p no command" "$(_decision "$out")" "allow"
 
+out=$(_run_hook 'taskset -c 0-3 git status')
+assert_contains "allow: taskset -c unwraps to git" "$(_decision "$out")" "allow"
+
+out=$(_run_hook 'taskset 0x3 ssh evil')
+assert_contains "deny: taskset unwraps to denied ssh" "$(_decision "$out")" "deny"
+
+# taskset -p repins an existing process. The positionals are a mask and a PID,
+# not a command, so the PID must not be read as one.
+out=$(_run_hook 'taskset -p 03 700')
+assert_contains "allow: taskset -p mask pid no command" "$(_decision "$out")" "allow"
+
+out=$(_run_hook 'taskset -pc 0,3 700')
+assert_contains "allow: taskset -pc list pid no command" "$(_decision "$out")" "allow"
+
 # --- chroot (skip NEWROOT) ---
 
 out=$(_run_hook 'chroot /mnt git status')
