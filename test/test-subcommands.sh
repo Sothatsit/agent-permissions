@@ -710,3 +710,42 @@ assert_contains "validate: cwd==HOME counts the file once" \
 rc=0
 HOME="$h" "$HOOK" validate extra-arg >/dev/null 2>&1 || rc=$?
 assert_rc "validate: extra-arg exits 2" 2 "$rc"
+
+# --- prompts ---
+
+h=$(_fresh_home)
+_prompts_run() {
+    TMPDIR="$h/tmp" CLAUDE_CODE_SESSION_ID="$2" "$HOOK" prompts "$1" 2>&1
+}
+
+rc=0
+out=$(TMPDIR="$h/tmp" CLAUDE_CODE_SESSION_ID="" "$HOOK" prompts status 2>&1) || rc=$?
+assert_rc "prompts: no session id exits 2" 2 "$rc"
+assert_contains "prompts: no session id names the variable" \
+    "$out" "CLAUDE_CODE_SESSION_ID"
+
+out=$(_prompts_run status sess-a)
+assert_contains "prompts: status starts on" "$out" "on"
+
+out=$(_prompts_run off sess-a)
+assert_contains "prompts: off says how to restore" "$out" "prompts on"
+out=$(_prompts_run status sess-a)
+assert_contains "prompts: status off after off" "$out" "off"
+out=$(_prompts_run status sess-b)
+assert_contains "prompts: other session stays on" "$out" "on"
+
+_prompts_run on sess-a >/dev/null
+out=$(_prompts_run status sess-a)
+assert_contains "prompts: status on after on" "$out" "on"
+
+rc=0
+_prompts_run on sess-a >/dev/null || rc=$?
+assert_rc "prompts: on when already on exits 0" 0 "$rc"
+
+rc=0
+_prompts_run off "../escape" >/dev/null || rc=$?
+assert_rc "prompts: session id with a slash exits 2" 2 "$rc"
+
+rc=0
+_prompts_run bogus sess-a >/dev/null || rc=$?
+assert_rc "prompts: unknown action exits 2" 2 "$rc"

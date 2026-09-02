@@ -47,9 +47,15 @@ Four tiers, in deny → allow precedence order:
 | Tier | Behaviour |
 | ---- | --------- |
 | `Deny` | Hook returns `deny`. |
-| `Ask` | Hook returns `ask`. Always prompts. |
+| `Ask` | Hook returns `ask`. Always prompts, unless the session cannot take a prompt (see below), in which case it denies. |
 | `SoftAsk` | Prompts in normal mode. In Claude Code's auto mode, falls through to its classifier for per-invocation judgement. |
 | `Allow` | Hook returns `allow`. |
+
+A session cannot take a prompt when Claude Code runs it in `dontAsk`
+mode, or when its prompts have been switched off with
+`agent-permissions prompts off`. In either case the hook denies where
+it would have asked, and says so in the reason. The auto-mode
+classifier is left alone: a `SoftAsk` still falls through to it.
 
 Within one normal source, tier precedence is
 `Deny` > `Ask` > `Allow` > `SoftAsk`.
@@ -509,7 +515,18 @@ agent-permissions check '<cmd>'   # Simulate the hook and explain the decision
 agent-permissions validate        # Report malformed entries and bad rule/preset references
 agent-permissions presets list    # Show enforced, enabled, and disabled presets
 agent-permissions rules list      # List built-in rules as 'id - description'
+agent-permissions prompts off     # Deny instead of asking, for this Claude Code session
+agent-permissions prompts on      # Prompt again
+agent-permissions prompts status  # Print on or off
 ```
+
+`prompts` acts on the session named by `CLAUDE_CODE_SESSION_ID`, which
+Claude Code sets for every Bash command, so the agent can run it and
+so can you, by typing `! agent-permissions prompts off` at the prompt.
+Subagents share the parent's session id, so one switch covers them
+too. The switch only ever moves towards deny, so the agent is free to
+flip it either way. It is a file under `$TMPDIR`, keyed by session id,
+that the hook checks on every command.
 
 To enable or disable an ordinary preset, edit
 `~/.agents/permissions.json` (or

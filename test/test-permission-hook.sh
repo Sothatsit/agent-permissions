@@ -46,24 +46,18 @@ export AGENT_PERMISSIONS_PRESET_DIRS=""
 export AGENT_PERMISSIONS_ENFORCED_PRESET_DIRS=""
 
 # _hook_input generates the stdin JSON for a given bash command. Optional second
-# arg sets permission_mode.
+# arg sets permission_mode, and _bp_session_id, when set, adds session_id.
 _hook_input() {
     local cmd="$1" mode="${2:-}"
-    if [[ -n "$mode" ]]; then
-        jq -n --arg cmd "$cmd" \
-            --arg cwd "$_bp_tmpdir/project" \
-            --arg mode "$mode" \
-            '{"tool_name":"Bash",
-              "tool_input":{"command":$cmd},
-              "cwd":$cwd,
-              "permission_mode":$mode}'
-    else
-        jq -n --arg cmd "$cmd" \
-            --arg cwd "$_bp_tmpdir/project" \
-            '{"tool_name":"Bash",
-              "tool_input":{"command":$cmd},
-              "cwd":$cwd}'
-    fi
+    jq -n --arg cmd "$cmd" \
+        --arg cwd "$_bp_tmpdir/project" \
+        --arg mode "$mode" \
+        --arg sid "${_bp_session_id:-}" \
+        '{"tool_name":"Bash",
+          "tool_input":{"command":$cmd},
+          "cwd":$cwd}
+         + (if $mode != "" then {"permission_mode":$mode} else {} end)
+         + (if $sid != "" then {"session_id":$sid} else {} end)'
 }
 
 # _run_hook calls the hook with a bash command. Passes CLAUDE_CONFIG_DIR
@@ -77,6 +71,7 @@ _run_hook() {
     local enforced_names="${_bp_enforced_presets:-}"
     _hook_input "$cmd" "$mode" \
         | CLAUDE_CONFIG_DIR="$_bp_tmpdir/config" \
+            TMPDIR="$_bp_tmpdir/tmp" \
             AGENT_PERMISSIONS_PRESET_DIRS="$preset_dirs" \
             AGENT_PERMISSIONS_ENFORCED_PRESET_DIRS="$enforced_dirs" \
             AGENT_PERMISSIONS_ENFORCED_PRESETS="$enforced_names" \
@@ -8127,4 +8122,79 @@ assert_contains "snippet: node danger auto denies" \
 # allow stays as allow.
 out=$(_run_hook "python3 clean.py" "auto")
 assert_contains "snippet: file script auto allows" \
+    "$(_decision "$out")" "allow"
+
+# --- Prompts off: the hook denies where it would ask ---
+#
+# The switch is a marker under TMPDIR keyed by session id, written by
+# `prompts off`. _run_hook points the hook's TMPDIR at the test tree, so the
+# subcommand must write there too.
+
+_write_project_settings '{}'
+_prompts() {
+    TMPDIR="$_bp_tmpdir/tmp" CLAUDE_CODE_SESSION_ID="$_bp_session_id" \
+        "$HOOK" prompts "$1" 2>&1
+}
+
+_bp_session_id="test-session-$$"
+out=$(_run_hook "frobnicate --foo")
+assert_contains "prompts on: unknown command asks" \
+    "$(_decision "$out")" "ask"
+
+_prompts off >/dev/null
+out=$(_run_hook "frobnicate --foo")
+assert_contains "prompts off: unknown command denies" \
+    "$(_decision "$out")" "deny"
+assert_contains "prompts off: reason names the switch" \
+    "$(_reason "$out")" "prompts are off"
+assert_contains "prompts off: reason says how to restore" \
+    "$(_reason "$out")" "agent-permissions prompts on"
+assert_contains "prompts off: reason keeps the original" \
+    "$(_reason "$out")" "Unknown command"
+
+# An explicit ask entry denies too.
+_write_project_settings '{"permissions":{"ask":["Bash(git status)"]}}'
+out=$(_run_hook "git status")
+assert_contains "prompts off: ask entry denies" \
+    "$(_decision "$out")" "deny"
+_write_project_settings '{}'
+
+out=$(_run_hook "git status")
+assert_contains "prompts off: allow still allows" \
+    "$(_decision "$out")" "allow"
+
+# In auto mode a soft-ask still goes to the classifier, not to deny.
+out=$(_run_hook "frobnicate --foo" "auto")
+decision=$(_decision "$out")
+assert_contains "prompts off: auto soft-ask still falls through" \
+    "${decision:-empty}" "empty"
+
+# The switch is per session. Another session, or a hook input with no
+# session id, keeps its prompts.
+_bp_session_id="other-session-$$"
+out=$(_run_hook "frobnicate --foo")
+assert_contains "prompts off: other session still asks" \
+    "$(_decision "$out")" "ask"
+
+_bp_session_id=""
+out=$(_run_hook "frobnicate --foo")
+assert_contains "prompts off: no session id still asks" \
+    "$(_decision "$out")" "ask"
+
+_bp_session_id="test-session-$$"
+_prompts on >/dev/null
+out=$(_run_hook "frobnicate --foo")
+assert_contains "prompts on again: unknown command asks" \
+    "$(_decision "$out")" "ask"
+_bp_session_id=""
+
+# dontAsk mode denies where the hook would ask, whatever the switch says.
+out=$(_run_hook "frobnicate --foo" "dontAsk")
+assert_contains "dontAsk: unknown command denies" \
+    "$(_decision "$out")" "deny"
+assert_contains "dontAsk: reason names the mode" \
+    "$(_reason "$out")" "dontAsk"
+
+out=$(_run_hook "git status" "dontAsk")
+assert_contains "dontAsk: allow still allows" \
     "$(_decision "$out")" "allow"

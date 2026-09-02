@@ -57,6 +57,8 @@ func run() error {
 		return runRulesCommand(os.Args[2:])
 	case "install":
 		return install(os.Args[2:])
+	case "prompts":
+		return prompts(os.Args[2:])
 	default:
 		printUsage(os.Stderr)
 		return fmt.Errorf(
@@ -93,6 +95,9 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w,
 		"  install           Wire the hook into known harness "+
 			"configs (e.g. ~/.claude/settings.json)")
+	fmt.Fprintln(w,
+		"  prompts off|on|status  Turn permission prompts off "+
+			"or on for this Claude Code session")
 	fmt.Fprintln(w, "  --version         Print version")
 	fmt.Fprintln(w, "  --help            Print this help")
 }
@@ -100,6 +105,7 @@ func printUsage(w io.Writer) {
 // hookInput is the PreToolUse event from Claude Code.
 type hookInput struct {
 	ToolName       string `json:"tool_name"`
+	SessionID      string `json:"session_id"`
 	PermissionMode string `json:"permission_mode"`
 	ToolInput      struct {
 		Command string `json:"command"`
@@ -183,11 +189,9 @@ func runClaudeHook() error {
 			return nil
 		}
 
-		return writeDecision(model.Ask,
-			"\n"+result.Reason+"\n\n")
+		return writeAsk(input, result.Reason)
 	case model.Ask:
-		return writeDecision(
-			model.Ask, "\n"+result.Reason+"\n\n")
+		return writeAsk(input, result.Reason)
 	case model.Deny:
 		return writeDecision(model.Deny, result.Reason)
 	case model.Undecided:
@@ -224,6 +228,26 @@ func breakdownDenialReason(err error) string {
 	}
 
 	return reason
+}
+
+// writeAsk prompts, unless the session cannot take a prompt: its prompts
+// are switched off, or Claude Code runs it in dontAsk mode. Then it denies
+// with the same reason, so the outcome does not hang on what Claude Code
+// makes of a hook's ask in that mode.
+func writeAsk(input hookInput, reason string) error {
+	var cause string
+	switch {
+	case input.PermissionMode == "dontAsk":
+		cause = "the session runs in dontAsk mode"
+	case promptsOff(input.SessionID):
+		cause = "permission prompts are off for this session " +
+			"(`agent-permissions prompts on` restores them)"
+	default:
+		return writeDecision(model.Ask, "\n"+reason+"\n\n")
+	}
+
+	return writeDecision(model.Deny,
+		"Denied instead of asked because "+cause+". "+reason)
 }
 
 func writeDecision(decision model.Decision, reason string) error {
