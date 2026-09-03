@@ -3,7 +3,10 @@ set -uo pipefail
 
 #
 # Test orchestrator. Runs Go unit tests, JSON preset invariant tests, and the
-# bash integration tests against the built hook binary.
+# bash integration tests against the built hook binary. With no arguments
+# every suite runs; naming suites runs just those, in the order given.
+#
+#   test/test.sh [go|presets|hook|subcommands]...
 #
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -52,9 +55,35 @@ _run_suite() {
     source "$TEST_DIR/$file"
 }
 
-_run_go_tests
-_run_suite "Preset Invariants"     test-presets.sh
-_run_suite "Bash Integration"      test-permission-hook.sh
-_run_suite "Subcommand Integration" test-subcommands.sh
+_run_named_suite() {
+    case $1 in
+        go)          _run_go_tests ;;
+        presets)     _run_suite "Preset Invariants"      test-presets.sh ;;
+        hook)        _run_suite "Bash Integration"       test-permission-hook.sh ;;
+        subcommands) _run_suite "Subcommand Integration" test-subcommands.sh ;;
+    esac
+}
+
+suites=("$@")
+if [[ ${#suites[@]} -eq 0 ]]; then
+    suites=(go presets hook subcommands)
+fi
+
+# Reject a bad name before any suite runs, so a typo cannot pass as a
+# shorter run.
+for suite in "${suites[@]}"; do
+    case $suite in
+        go|presets|hook|subcommands) ;;
+        *)
+            echo "unknown suite: $suite" >&2
+            echo "usage: test/test.sh [go|presets|hook|subcommands]..." >&2
+            exit 2
+            ;;
+    esac
+done
+
+for suite in "${suites[@]}"; do
+    _run_named_suite "$suite"
+done
 
 print_test_summary

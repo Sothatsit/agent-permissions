@@ -587,10 +587,12 @@ dependency).
 
 ```
 ./test/test.sh
+./test/test.sh hook
 ```
 
 Runs Go unit tests, JSON preset invariants, and the bash
-integration suite against the built binary.
+integration suite against the built binary. Name suites to run only
+those: `go`, `presets`, `hook`, or `subcommands`.
 
 ## License
 

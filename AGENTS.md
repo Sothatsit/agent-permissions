@@ -147,7 +147,10 @@ Run all tests:
   verify the actual behavior before modifying code. Run the command
   and check the output.
 * **After any code change,** run `./build.sh && ./test/test.sh`
-  without asking. Don't commit without it green. The bash
+  without asking. Don't commit without it green. While iterating,
+  name the suite you are working in, such as `./test/test.sh hook`
+  or `./test/test.sh subcommands`, and run the full set before the
+  commit. The bash
   integration suite runs against the pre-built
   `bin/agent-permissions` and does NOT rebuild it — skipping
   `./build.sh` silently tests a stale binary and passes against
