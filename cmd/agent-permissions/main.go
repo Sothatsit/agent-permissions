@@ -106,6 +106,7 @@ func printUsage(w io.Writer) {
 type hookInput struct {
 	ToolName       string `json:"tool_name"`
 	SessionID      string `json:"session_id"`
+	AgentID        string `json:"agent_id"`
 	PermissionMode string `json:"permission_mode"`
 	ToolInput      struct {
 		Command string `json:"command"`
@@ -189,9 +190,11 @@ func runClaudeHook() error {
 			return nil
 		}
 
-		return writeAsk(input, result.Reason)
+		return writeAsk(
+			input, resolved.SubagentsCanAsk, result.Reason)
 	case model.Ask:
-		return writeAsk(input, result.Reason)
+		return writeAsk(
+			input, resolved.SubagentsCanAsk, result.Reason)
 	case model.Deny:
 		return writeDecision(model.Deny, result.Reason)
 	case model.Undecided:
@@ -230,24 +233,39 @@ func breakdownDenialReason(err error) string {
 	return reason
 }
 
-// writeAsk prompts, unless the session cannot take a prompt: its prompts
-// are switched off, or Claude Code runs it in dontAsk mode. Then it denies
-// with the same reason, so the outcome does not hang on what Claude Code
-// makes of a hook's ask in that mode.
-func writeAsk(input hookInput, reason string) error {
-	var cause string
+// writeAsk prompts, unless nobody should be asked: Claude Code runs the
+// session in dontAsk mode, the command comes from a subagent, or the
+// session's prompts are switched off. Then it denies, keeping the reason
+// and telling the agent what to do instead. Denying dontAsk asks ourselves
+// keeps the outcome from hanging on what Claude Code makes of a hook's ask
+// in that mode. agent_id is present only inside a subagent call.
+func writeAsk(
+	input hookInput, subagentsCanAsk bool, reason string,
+) error {
+	var denial string
 	switch {
 	case input.PermissionMode == "dontAsk":
-		cause = "the session runs in dontAsk mode"
+		denial = "Denied: this command would have asked, and the " +
+			"session runs in dontAsk mode. Find another way, or " +
+			"ask the user in your reply."
+	case input.AgentID != "" && !subagentsCanAsk:
+		denial = "Denied: this command would have asked, and " +
+			"subagents cannot ask. An ask from a subagent " +
+			"interrupts the user without the context for it, or " +
+			"waits while they are away. Report the command and " +
+			"why you needed it to your parent agent, which can " +
+			"raise it with the user."
 	case promptsOff(input.SessionID):
-		cause = "permission prompts are off for this session " +
-			"(`agent-permissions prompts on` restores them)"
+		denial = "Denied: this command would have asked, and " +
+			"permission prompts are off for this session. Do not " +
+			"turn them on (`agent-permissions prompts on`) just to " +
+			"retry. An ask waits for the user, who may be away. " +
+			"Find another way, or ask the user in your reply."
 	default:
 		return writeDecision(model.Ask, "\n"+reason+"\n\n")
 	}
 
-	return writeDecision(model.Deny,
-		"Denied instead of asked because "+cause+". "+reason)
+	return writeDecision(model.Deny, denial+" "+reason)
 }
 
 func writeDecision(decision model.Decision, reason string) error {

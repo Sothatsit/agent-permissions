@@ -46,18 +46,21 @@ export AGENT_PERMISSIONS_PRESET_DIRS=""
 export AGENT_PERMISSIONS_ENFORCED_PRESET_DIRS=""
 
 # _hook_input generates the stdin JSON for a given bash command. Optional second
-# arg sets permission_mode, and _bp_session_id, when set, adds session_id.
+# arg sets permission_mode. _bp_session_id and _bp_agent_id, when set, add
+# session_id and agent_id.
 _hook_input() {
     local cmd="$1" mode="${2:-}"
     jq -n --arg cmd "$cmd" \
         --arg cwd "$_bp_tmpdir/project" \
         --arg mode "$mode" \
         --arg sid "${_bp_session_id:-}" \
+        --arg aid "${_bp_agent_id:-}" \
         '{"tool_name":"Bash",
           "tool_input":{"command":$cmd},
           "cwd":$cwd}
          + (if $mode != "" then {"permission_mode":$mode} else {} end)
-         + (if $sid != "" then {"session_id":$sid} else {} end)'
+         + (if $sid != "" then {"session_id":$sid} else {} end)
+         + (if $aid != "" then {"agent_id":$aid} else {} end)'
 }
 
 # _run_hook calls the hook with a bash command. Passes CLAUDE_CONFIG_DIR
@@ -8147,8 +8150,8 @@ assert_contains "prompts off: unknown command denies" \
     "$(_decision "$out")" "deny"
 assert_contains "prompts off: reason names the switch" \
     "$(_reason "$out")" "prompts are off"
-assert_contains "prompts off: reason says how to restore" \
-    "$(_reason "$out")" "agent-permissions prompts on"
+assert_contains "prompts off: reason warns against restoring to retry" \
+    "$(_reason "$out")" "Do not turn them on"
 assert_contains "prompts off: reason keeps the original" \
     "$(_reason "$out")" "Unknown command"
 
@@ -8198,3 +8201,54 @@ assert_contains "dontAsk: reason names the mode" \
 out=$(_run_hook "git status" "dontAsk")
 assert_contains "dontAsk: allow still allows" \
     "$(_decision "$out")" "allow"
+
+# --- Subagents: the hook denies where it would ask ---
+#
+# agent_id is present only inside a subagent call. The denial tells the
+# subagent to report to its parent. subagents-can-ask in the most specific
+# .agents config turns prompting back on.
+
+_write_project_settings '{}'
+_bp_agent_id="agent-$$"
+out=$(_run_hook "frobnicate --foo")
+assert_contains "subagent: unknown command denies" \
+    "$(_decision "$out")" "deny"
+assert_contains "subagent: reason says to report to the parent" \
+    "$(_reason "$out")" "parent agent"
+assert_contains "subagent: reason keeps the original" \
+    "$(_reason "$out")" "Unknown command"
+
+out=$(_run_hook "git status")
+assert_contains "subagent: allow still allows" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook "frobnicate --foo" "auto")
+decision=$(_decision "$out")
+assert_contains "subagent: auto soft-ask still falls through" \
+    "${decision:-empty}" "empty"
+
+_write_agent_config '{"subagents-can-ask": true}'
+out=$(_run_hook "frobnicate --foo")
+assert_contains "subagent: project subagents-can-ask asks" \
+    "$(_decision "$out")" "ask"
+
+# The most specific file wins, in either direction.
+_write_local_agent_config '{"subagents-can-ask": false}'
+out=$(_run_hook "frobnicate --foo")
+assert_contains "subagent: local false beats project true" \
+    "$(_decision "$out")" "deny"
+
+_write_agent_config '{"subagents-can-ask": false}'
+_write_local_agent_config '{"subagents-can-ask": true}'
+out=$(_run_hook "frobnicate --foo")
+assert_contains "subagent: local true beats project false" \
+    "$(_decision "$out")" "ask"
+
+# A subagent's ask is denied before the session switch is consulted, and
+# the main thread is not affected by the subagent default.
+_write_agent_config '{}'
+_write_local_agent_config '{}'
+_bp_agent_id=""
+out=$(_run_hook "frobnicate --foo")
+assert_contains "main thread: unknown command still asks" \
+    "$(_decision "$out")" "ask"

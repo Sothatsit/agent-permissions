@@ -53,9 +53,13 @@ Four tiers, in deny → allow precedence order:
 
 A session cannot take a prompt when Claude Code runs it in `dontAsk`
 mode, or when its prompts have been switched off with
-`agent-permissions prompts off`. In either case the hook denies where
-it would have asked, and says so in the reason. The auto-mode
-classifier is left alone: a `SoftAsk` still falls through to it.
+`agent-permissions prompts off`. A subagent's command cannot prompt
+either, unless `subagents-can-ask` is set in `permissions.json`: an
+ask from a subagent interrupts the user without its context, or stalls
+a background agent until they return. In each case the hook denies
+where it would have asked, and the reason tells the agent what to do
+instead. The auto-mode classifier is left alone: a `SoftAsk` still
+falls through to it.
 
 Within one normal source, tier precedence is
 `Deny` > `Ask` > `Allow` > `SoftAsk`.
@@ -462,6 +466,10 @@ objects you can fill in.
   `disabled-presets` filters what remains.
 
 Enforced presets remain active in every case.
+
+`subagents-can-ask: true` lets a subagent's command prompt instead of
+being denied. The most specific file that sets it wins, local over
+project over global, and it defaults to false when no file sets it.
 
 If `disabled-presets` names an enforced preset,
 `agent-permissions validate` reports the failed override. The preset

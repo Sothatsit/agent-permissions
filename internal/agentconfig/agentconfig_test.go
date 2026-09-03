@@ -94,6 +94,24 @@ func TestParseEnabledPresets(t *testing.T) {
 	}
 }
 
+func TestParseSubagentsCanAsk(t *testing.T) {
+	c, err := Parse("test.json", []byte(`{"subagents-can-ask": true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.SubagentsCanAsk == nil || !*c.SubagentsCanAsk {
+		t.Errorf("got %v, want true", c.SubagentsCanAsk)
+	}
+
+	c, err = Parse("test.json", []byte(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.SubagentsCanAsk != nil {
+		t.Errorf("absent field parsed as %v, want nil", *c.SubagentsCanAsk)
+	}
+}
+
 func TestParseDisabledPresetsEmpty(t *testing.T) {
 	// Empty explicit list is meaningful (no disables).
 	data := []byte(`{"disabled-presets": []}`)
@@ -167,6 +185,11 @@ func TestParseRejectsNullValues(t *testing.T) {
 			"preset name",
 			`{"disabled-presets": [null]}`,
 			`$["disabled-presets"][0]`,
+		},
+		{
+			"subagents",
+			`{"subagents-can-ask": null}`,
+			`$["subagents-can-ask"]`,
 		},
 		{
 			"reason",

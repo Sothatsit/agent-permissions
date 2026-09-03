@@ -24,6 +24,11 @@ import (
 type Resolved struct {
 	Permissions *Permissions
 
+	// SubagentsCanAsk lets a subagent's command prompt instead of being
+	// denied. It comes from the most specific .agents config that sets
+	// subagents-can-ask, and is false when none does.
+	SubagentsCanAsk bool
+
 	cwd        string
 	registry   map[string]*model.CommandRules
 	ruleConfig model.RuleConfigs
@@ -76,6 +81,8 @@ func (snapshot *PolicySnapshot) Resolve() *Resolved {
 
 	ruleConfig := resolveRuleConfig(
 		globalAgent, projectAgent, localAgent, selected)
+	subagentsCanAsk := resolveSubagentsCanAsk(
+		globalAgent, projectAgent, localAgent)
 	registry, snippetRules := rules.Registry()
 	rules.FilterByConfig(
 		registry, snippetRules, ruleConfig)
@@ -111,9 +118,10 @@ func (snapshot *PolicySnapshot) Resolve() *Resolved {
 	}
 
 	return &Resolved{
-		cwd:        snapshot.cwd,
-		registry:   registry,
-		ruleConfig: ruleConfig,
+		SubagentsCanAsk: subagentsCanAsk,
+		cwd:             snapshot.cwd,
+		registry:        registry,
+		ruleConfig:      ruleConfig,
 		Permissions: &Permissions{
 			Sources:         sources,
 			EnforcedSources: enforcedSources,
@@ -463,6 +471,21 @@ func globLanguagesOverlap(a, b string) bool {
 // Claude settings.json does not participate - rule config is an
 // agent-permissions concept kept in the shared layers, which is what makes it
 // identical across harnesses.
+// resolveSubagentsCanAsk takes the most specific .agents config that sets
+// subagents-can-ask, so a project can let its subagents prompt without
+// touching the user's global file, and vice versa.
+func resolveSubagentsCanAsk(
+	global, project, local *agentconfig.Config,
+) bool {
+	for _, c := range []*agentconfig.Config{local, project, global} {
+		if c != nil && c.SubagentsCanAsk != nil {
+			return *c.SubagentsCanAsk
+		}
+	}
+
+	return false
+}
+
 func resolveRuleConfig(
 	global, project, local *agentconfig.Config,
 	selected []*presets.Preset,

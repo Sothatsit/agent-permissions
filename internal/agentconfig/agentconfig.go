@@ -7,7 +7,8 @@
 // reason is shown in hook output and may be empty. A top-level Rules object
 // (rule ID -> {Enabled}) overrides Rules-layer config. The top-level shape also
 // carries optional enabled-presets / disabled-presets fields for selecting
-// which embedded presets contribute.
+// which embedded presets contribute, and subagents-can-ask, which lets a
+// subagent's command prompt instead of being denied.
 package agentconfig
 
 import (
@@ -55,6 +56,10 @@ type Config struct {
 	// "explicitly nothing".
 	EnabledPresets  *[]string
 	DisabledPresets *[]string
+
+	// SubagentsCanAsk is nil when the field is absent, so a more general
+	// file can still decide.
+	SubagentsCanAsk *bool
 }
 
 // Clone returns an independent copy of the config.
@@ -76,6 +81,10 @@ func (c *Config) Clone() *Config {
 	if c.DisabledPresets != nil {
 		disabled := slices.Clone(*c.DisabledPresets)
 		cloned.DisabledPresets = &disabled
+	}
+	if c.SubagentsCanAsk != nil {
+		canAsk := *c.SubagentsCanAsk
+		cloned.SubagentsCanAsk = &canAsk
 	}
 
 	return &cloned
@@ -108,6 +117,7 @@ type rawConfig struct {
 	Rules           map[string]model.RuleConfig `json:"Rules,omitempty"`
 	EnabledPresets  *[]string                   `json:"enabled-presets,omitempty"`
 	DisabledPresets *[]string                   `json:"disabled-presets,omitempty"`
+	SubagentsCanAsk *bool                       `json:"subagents-can-ask,omitempty"`
 }
 
 // Load reads the JSON file at path and returns the parsed config. Returns nil,
@@ -147,6 +157,7 @@ func Parse(path string, data []byte) (*Config, error) {
 		Rules:           raw.Rules,
 		EnabledPresets:  raw.EnabledPresets,
 		DisabledPresets: raw.DisabledPresets,
+		SubagentsCanAsk: raw.SubagentsCanAsk,
 	}, nil
 }
 
@@ -166,6 +177,7 @@ func (c *Config) Save() error {
 		Rules:           c.Rules,
 		EnabledPresets:  c.EnabledPresets,
 		DisabledPresets: c.DisabledPresets,
+		SubagentsCanAsk: c.SubagentsCanAsk,
 	}
 	data, err := json.MarshalIndent(raw, "", "  ")
 	if err != nil {
