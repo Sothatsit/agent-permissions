@@ -1,5 +1,13 @@
 {
   "Allow": {
+    "Commands": {
+      "bin/agent-permissions --version": "the local build, read-only",
+      "bin/agent-permissions --help": "the local build, read-only",
+      "bin/agent-permissions check *": "the local build, read-only",
+      "bin/agent-permissions validate": "the local build, read-only",
+      "bin/agent-permissions presets list": "the local build, read-only",
+      "bin/agent-permissions rules list": "the local build, read-only"
+    },
     "EnvVars": {
       "CLAUDE_CONFIG_DIR": "hook development drives the binary against a clean config",
       "AGENT_PERMISSIONS_PRESET_DIRS": "hook development pins the presets a check sees",
