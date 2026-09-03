@@ -3628,16 +3628,33 @@ out=$(_run_hook \
 assert_contains "deny: sed late program-file option" \
     "$(_decision "$out")" "deny"
 
-# Sed concatenates sources in option order. A preceding -e inserts a newline. A
-# preceding -f does not.
+# Every -e and -f fragment is its own script line, in GNU and BSD sed alike,
+# so a command cannot be assembled across fragments: `s/x/y/` then `ge` is an
+# error in both, not an e flag. Concatenating them would deny here.
 out=$(_run_hook \
     'sed -f split-start.sed -f split-end.sed file.txt')
-assert_contains "deny: sed execution split across files" \
-    "$(_decision "$out")" "deny"
+assert_contains "allow: sed fragments split across files stay separate" \
+    "$(_decision "$out")" "allow"
 
 out=$(_run_hook 'sed -f split-start.sed -e ge file.txt')
-assert_contains "deny: sed execution split into inline code" \
+assert_contains "allow: sed file and inline fragments stay separate" \
+    "$(_decision "$out")" "allow"
+
+# The same split once made a second expression's text read as flags of the
+# first substitution, so any e in it denied.
+out=$(_run_hook "sed -e 's/a/b/' -e 's/d/e/' file.txt")
+assert_contains "allow: sed second expression with an e" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook "sed -e 's/a/b/' -e 'e ssh evil' file.txt")
+assert_contains "deny: sed e command in a later expression" \
     "$(_decision "$out")" "deny"
+
+# Appended text is the one thing that continues into the next fragment, and
+# there it is text, not a command, in sed and in the scan alike.
+out=$(_run_hook "sed -e '1a\\' -e 'e ssh evil' file.txt")
+assert_contains "allow: sed continued a\\ text is not a command" \
+    "$(_decision "$out")" "allow"
 
 out=$(_run_hook 'sed -lnfdangerous.sed file.txt')
 assert_contains "deny: BSD sed clustered program file" \

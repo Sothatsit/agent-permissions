@@ -642,37 +642,19 @@ func sedProgramSnippets(
 		sourceFiles = append(sourceFiles, path)
 	}
 
-	var exact strings.Builder
-	for i, content := range contents {
-		if i > 0 && !sources[i-1].file {
-			exact.WriteByte('\n')
-		}
-
-		exact.WriteString(content)
-	}
-
-	joined := strings.Join(contents, "")
-
+	// GNU and BSD sed both end the current script line at every -e and -f
+	// boundary, so a command can never be assembled from two fragments.
+	// Only a/i/c text continues into the next fragment, where it is text.
 	sourceFile := ""
 	if !hasInline {
 		sourceFile = strings.Join(sourceFiles, " + ")
 	}
 
-	exactCode := exact.String()
-	snippets := []model.CodeSnippet{{
+	return []model.CodeSnippet{{
 		Language:   model.LangSed,
-		Code:       exactCode,
+		Code:       strings.Join(contents, "\n"),
 		SourceFile: sourceFile,
-	}}
-	if joined != exactCode {
-		snippets = append(snippets, model.CodeSnippet{
-			Language:   model.LangSed,
-			Code:       joined,
-			SourceFile: sourceFile,
-		})
-	}
-
-	return snippets, nil
+	}}, nil
 }
 
 func readSedProgramFile(
