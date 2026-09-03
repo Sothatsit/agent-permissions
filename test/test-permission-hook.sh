@@ -7871,6 +7871,28 @@ out=$(_run_hook \
 assert_contains "node: ES import deny" \
     "$(_decision "$out")" "deny"
 
+# Built-ins can be named with the node: prefix, and loaded dynamically.
+out=$(_run_hook \
+    'node -e "import cp from \"node:child_process\""')
+assert_contains "node: node:child_process import deny" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    'node -e "require(\"node:child_process\")"')
+assert_contains "node: node:child_process require deny" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook \
+    'node -e "const cp = await import(\"child_process\")"')
+assert_contains "node: dynamic import deny" \
+    "$(_decision "$out")" "deny"
+
+echo 'import {execFileSync} from "node:child_process";
+execFileSync("ls");' > "$_bp_scripts/esm-child-process.mjs"
+out=$(_run_hook "node esm-child-process.mjs")
+assert_contains "node: ESM node: import file deny" \
+    "$(_decision "$out")" "deny"
+
 # Whitespace-tolerant require matching.
 out=$(_run_hook \
     'node -e "require(  \"child_process\"  )"')

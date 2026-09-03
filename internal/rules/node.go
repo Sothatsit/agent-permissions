@@ -73,10 +73,12 @@ func nodeInterpolationContents(code string) []string {
 		})
 }
 
-// nodeRequire matches Node.js require() calls and ESM from-imports:
-// require('mod'), from 'mod'.
+// nodeRequire matches the ways a Node.js module is loaded: require('mod'),
+// ESM from 'mod', and dynamic import('mod'), each with or without the
+// node: prefix that names a built-in.
 func nodeRequire(modules ...string) matchBuilder {
 	return syntaxNode.match(
-		`\b(?:require\s*\(?\s*|from\s+)['"](?:` +
+		`\b(?:require\s*\(?\s*|import\s*\(\s*|from\s+)` +
+			`['"](?:node:)?(?:` +
 			reAlternation(modules) + `)['"]`)
 }
