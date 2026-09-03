@@ -245,19 +245,19 @@ func writeAsk(
 	var denial string
 	switch {
 	case input.PermissionMode == "dontAsk":
-		denial = "Denied: this command would have asked, and the " +
-			"session runs in dontAsk mode. Find another way, or " +
-			"ask the user in your reply."
+		denial = "Denied: this command would have asked the user, " +
+			"and the session is running in dontAsk mode. Find " +
+			"another way, or ask the user in your reply."
 	case input.AgentID != "" && !subagentsCanAsk:
-		denial = "Denied: this command would have asked, and " +
-			"subagents cannot ask. An ask from a subagent " +
+		denial = "Denied: this command would have asked the user, " +
+			"and subagents cannot ask. An ask from a subagent " +
 			"interrupts the user without the context for it, or " +
 			"waits while they are away. Report the command and " +
 			"why you needed it to your parent agent, which can " +
 			"raise it with the user."
 	case promptsOff(input.SessionID):
-		denial = "Denied: this command would have asked, and " +
-			"permission prompts are off for this session. Do not " +
+		denial = "Denied: this command would have asked the user, " +
+			"and permission prompts are off for this session. Do not " +
 			"turn them on (`agent-permissions prompts on`) just to " +
 			"retry. An ask waits for the user, who may be away. " +
 			"Find another way, or ask the user in your reply."
