@@ -1,0 +1,10 @@
+{
+  "Allow": {
+    "EnvVars": {
+      "CLAUDE_CONFIG_DIR": "hook development drives the binary against a clean config",
+      "AGENT_PERMISSIONS_PRESET_DIRS": "hook development pins the presets a check sees",
+      "AGENT_PERMISSIONS_ENFORCED_PRESET_DIRS": "hook development pins the presets a check sees",
+      "AGENT_PERMISSIONS_ENFORCED_PRESETS": "hook development pins the presets a check sees"
+    }
+  }
+}
