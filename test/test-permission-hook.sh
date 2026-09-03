@@ -3993,12 +3993,23 @@ out=$(_run_hook "env CLAUDE_CODE_SESSION_ID=other git status")
 assert_contains "ask: env CLAUDE_CODE_SESSION_ID asks" \
     "$(_decision "$out")" "ask"
 
-# A user allow cannot silence it: escape-hatches is enforced.
+# A command allow does not touch the variable axis, but an explicit .agents
+# allow on the variable does lift the soft-ask, so a repo that drives the
+# hook with a clean config can opt out.
 _write_project_settings '{"permissions":{"allow":["Bash(git status)"]}}'
 out=$(_run_hook "CLAUDE_CONFIG_DIR=/tmp/other git status")
-assert_contains "ask: harness variable asks despite allow" \
+assert_contains "ask: harness variable asks despite command allow" \
     "$(_decision "$out")" "ask"
 _write_project_settings '{}'
+
+_write_agent_config '{"Allow":{"EnvVars":{"CLAUDE_CONFIG_DIR":"hook dev"}}}'
+out=$(_run_hook "CLAUDE_CONFIG_DIR=/tmp/other git status")
+assert_contains "allow: .agents allow lifts the harness variable soft-ask" \
+    "$(_decision "$out")" "allow"
+out=$(_run_hook "ANTHROPIC_BASE_URL=http://x git status")
+assert_contains "ask: other harness variables still ask" \
+    "$(_decision "$out")" "ask"
+_write_agent_config '{}'
 
 # --- Suspicious env vars: soft-ask with attribution ---
 
