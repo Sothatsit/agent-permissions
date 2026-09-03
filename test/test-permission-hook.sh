@@ -3953,6 +3953,36 @@ out=$(_run_hook "LD_PRELOAD=/tmp/evil.so git status")
 assert_contains "deny: LD_PRELOAD denied" \
     "$(_decision "$out")" "deny"
 
+# Harness and hook identity variables ask: an assignment aims a nested
+# session, or the hook it runs, at something the user did not choose.
+# Allowed as written, each would print "allow" here.
+out=$(_run_hook "CLAUDE_CONFIG_DIR=/tmp/other git status")
+assert_contains "ask: CLAUDE_CONFIG_DIR assignment asks" \
+    "$(_decision "$out")" "ask"
+
+out=$(_run_hook "CLAUDECODE=1 git status")
+assert_contains "ask: CLAUDECODE assignment asks" \
+    "$(_decision "$out")" "ask"
+
+out=$(_run_hook "ANTHROPIC_BASE_URL=http://x git status")
+assert_contains "ask: ANTHROPIC_BASE_URL assignment asks" \
+    "$(_decision "$out")" "ask"
+
+out=$(_run_hook "AGENT_PERMISSIONS_ENFORCED_PRESETS= git status")
+assert_contains "ask: AGENT_PERMISSIONS_ENFORCED_PRESETS assignment asks" \
+    "$(_decision "$out")" "ask"
+
+out=$(_run_hook "env CLAUDE_CODE_SESSION_ID=other git status")
+assert_contains "ask: env CLAUDE_CODE_SESSION_ID asks" \
+    "$(_decision "$out")" "ask"
+
+# A user allow cannot silence it: escape-hatches is enforced.
+_write_project_settings '{"permissions":{"allow":["Bash(git status)"]}}'
+out=$(_run_hook "CLAUDE_CONFIG_DIR=/tmp/other git status")
+assert_contains "ask: harness variable asks despite allow" \
+    "$(_decision "$out")" "ask"
+_write_project_settings '{}'
+
 # --- Suspicious env vars: soft-ask with attribution ---
 
 # Suspicious env vars now resolve via the escape-hatches preset's

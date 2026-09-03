@@ -1,5 +1,5 @@
 {
-  "description": "Commands and environment variables that can escape or bypass the permission model. Privilege escalation (sudo, su, ssh), namespace bypass (unshare, nsenter), wrapper bypass (builtin), command-name redirection (alias), multi-tool dispatch (busybox), out-of-session persistence (crontab, at), and environment variables that hijack later command execution (BASH_ENV, LD_PRELOAD, etc.). Denied outright since the hook cannot scope them safely. Suspicious-but-useful variables like PATH and EDITOR soft-ask so the user can confirm legitimate per-call uses. Transparent exec wrappers (env, nohup, setsid, nice, exec) are handled by the Rules layer instead — it unwraps and re-checks the inner command.",
+  "description": "Commands and environment variables that can escape or bypass the permission model. Privilege escalation (sudo, su, ssh), namespace bypass (unshare, nsenter), wrapper bypass (builtin), command-name redirection (alias), multi-tool dispatch (busybox), out-of-session persistence (crontab, at), and environment variables that hijack later command execution (BASH_ENV, LD_PRELOAD, etc.). Denied outright since the hook cannot scope them safely. Variables that identify the agent harness or its permission hook (CLAUDE*, ANTHROPIC_*, AGENT_PERMISSIONS_*) ask: assigning one aims a nested session or the hook at something the user did not choose, and honest uses are rare. Suspicious-but-useful variables like PATH and EDITOR soft-ask so the user can confirm legitimate per-call uses. Transparent exec wrappers (env, nohup, setsid, nice, exec) are handled by the Rules layer instead — it unwraps and re-checks the inner command.",
   "Deny": {
     "Commands": {
       "ssh:*": "remote execution",
@@ -36,6 +36,13 @@
       "AWKLIBPATH": "redirects awk native-extension lookup",
       "LESSOPEN": "runs on file open in less",
       "LESSCLOSE": "runs on file close in less"
+    }
+  },
+  "Ask": {
+    "EnvVars": {
+      "CLAUDE*": "identifies the Claude Code session, its config dir, and its temp dir to nested tools and hooks",
+      "ANTHROPIC_*": "aims a nested Claude at another endpoint or key",
+      "AGENT_PERMISSIONS_*": "sets the policy a nested session's hook loads"
     }
   },
   "SoftAsk": {
