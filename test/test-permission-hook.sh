@@ -4650,6 +4650,13 @@ out=$(_run_hook 'bash script.sh')
 assert_contains "deny: bash script.sh denied" "$(_decision "$out")" "deny"
 assert_contains "bash script.sh suggests direct" "$(_reason "$out")" "./script.sh"
 
+# bash ./script.sh - the suggestion keeps the path's own "./" instead of
+# doubling it. A doubled prefix reads as advice to run some other file.
+out=$(_run_hook 'bash ./script.sh')
+assert_contains "deny: bash ./script.sh denied" "$(_decision "$out")" "deny"
+assert_not_contains "bash ./script.sh suggestion not doubled" \
+    "$(_reason "$out")" "././script.sh"
+
 # bash --version and --help - read-only, allowed.
 out=$(_run_hook 'bash --version')
 assert_contains "allow: bash --version" \

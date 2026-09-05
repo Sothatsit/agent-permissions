@@ -818,7 +818,9 @@ func TestDirectPath(t *testing.T) {
 	}{
 		{"script.sh", "./script.sh"},
 		{"/usr/bin/bash", "/usr/bin/bash"},
-		{"./already", "././already"},
+		{"sub/script.sh", "./sub/script.sh"},
+		{"./already", "./already"},
+		{"../up.sh", "../up.sh"},
 	}
 	for _, tt := range tests {
 		got := DirectPath(tt.in)

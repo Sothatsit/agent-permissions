@@ -756,9 +756,14 @@ func SplitPrefix(
 
 // --- Utilities ---
 
-// DirectPath prepends "./" to a relative path, leaving an absolute one alone.
+// DirectPath spells a path the way a shell runs it as a command. A bare
+// name needs "./" in front or the shell searches PATH instead. A path that
+// already leads with "./" or "../" runs as it stands, and doubling the
+// prefix onto it only makes the suggestion look wrong.
 func DirectPath(path string) string {
-	if filepath.IsAbs(path) {
+	if filepath.IsAbs(path) ||
+		strings.HasPrefix(path, "./") ||
+		strings.HasPrefix(path, "../") {
 		return path
 	}
 
