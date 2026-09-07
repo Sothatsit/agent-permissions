@@ -1,6 +1,7 @@
 package perms
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -128,7 +129,7 @@ func TestCheckFormatsAskSoftAskAndUnknown(t *testing.T) {
 			"Unknown command. <unknown-command-header>:\n" +
 			"* Bash(mystery:*)",
 	}
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Check() = %#v, want %#v", got, want)
 	}
 }

@@ -1,6 +1,7 @@
 package perms
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/sothatsit/agent-permissions/internal/model"
@@ -91,7 +92,7 @@ func TestCheckRuleDefaultsAreStableAndAttributed(t *testing.T) {
 
 			first := permissions.Check(breakdown)
 			second := permissions.Check(breakdown)
-			if first != second {
+			if !reflect.DeepEqual(first, second) {
 				t.Fatalf(
 					"repeated checks differ:\nfirst:  %+v\nsecond: %+v",
 					first, second,

@@ -132,6 +132,9 @@ type ConfigWarning struct {
 type Result struct {
 	Decision model.Decision
 	Reason   string
+	// Allows names every entry that allowed the command, for check to
+	// show. The hook sends only Reason, which stays empty on an allow.
+	Allows []string
 }
 
 // DenyResult builds the grouped "Deny:" format for callers that deny outside
@@ -213,7 +216,12 @@ func (c *labelCollector) addAll(items []string) {
 	}
 }
 
+// add ignores an empty label: a bare safe word, a function call, or a
+// snippet no rule matched allows with nothing to attribute.
 func (c *labelCollector) add(item string) {
+	if item == "" {
+		return
+	}
 	if c.seen == nil {
 		c.seen = map[string]bool{}
 	}
@@ -232,8 +240,8 @@ func (c *labelCollector) add(item string) {
 // Allow because an unknown command must not be silently allowed, which is the
 // one place this differs from combineDecision's enforced-versus-normal fold.
 type decisionAggregate struct {
-	decision               model.Decision
-	denies, asks, softAsks labelCollector
+	decision                       model.Decision
+	denies, asks, softAsks, allows labelCollector
 }
 
 // add reports one axis's decision with the labels it should display, and
@@ -271,6 +279,8 @@ func (a *decisionAggregate) add(
 			a.decision != model.SoftAsk {
 			a.decision = model.Undecided
 		}
+	case model.Allow:
+		a.allows.addAll(labels)
 	}
 
 	return true
@@ -490,11 +500,19 @@ func (p *Permissions) Check(
 		}
 	}
 
+	// An allow on one axis beside an ask on another is not what decided
+	// the command, so it is reported only when allow is the outcome.
+	var allows []string
+	if aggregate.decision == model.Allow {
+		allows = aggregate.allows.items
+	}
+
 	return Result{
 		Decision: aggregate.decision,
 		Reason: formatResult(
 			aggregate.asks.items, aggregate.softAsks.items,
 			unknowns.items, nil, unknownHeader),
+		Allows: allows,
 	}
 }
 
@@ -939,9 +957,7 @@ func matchFirst(
 	return Pattern{}, false
 }
 
-// matchTier tries the raw args, then the basename-stripped form. The Allow tier
-// gets an empty reason because Allow never surfaces, but the source is still
-// recorded for attribution.
+// matchTier tries the raw args, then the basename-stripped form.
 func matchTier(
 	src SourcePerms,
 	patterns []Pattern,

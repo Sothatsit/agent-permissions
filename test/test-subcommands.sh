@@ -518,6 +518,21 @@ assert_contains "check: shows decision line" "$out" \
     "Decision:"
 assert_contains "check: lists at least one preset source" \
     "$out" "preset:"
+assert_contains "check: allow names the entry" \
+    "$out" "Allowed by:"
+assert_contains "check: allow shows the pattern" \
+    "$out" "* git status:*"
+assert_contains "check: allow attributes the source" \
+    "$out" "(from preset:git)"
+
+# An allowed command beside a soft-asked variable did not decide the
+# outcome, so it is not reported as what allowed it.
+out=$(cd "$check_project" && CLAUDE_CONFIG_DIR="$h/empty-claude" \
+    _sc_run "$h" check 'CLAUDE_CODE_SESSION_ID=x git status')
+assert_contains "check: soft-asked variable beside an allow soft-asks" \
+    "$out" "Decision: soft_ask"
+assert_not_contains "check: no Allowed by on a soft-ask" \
+    "$out" "Allowed by:"
 
 out=$(cd "$check_project" && CLAUDE_CONFIG_DIR="$h/empty-claude" \
     _sc_run "$h" check 'some-unknown-tool arg')

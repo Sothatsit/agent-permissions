@@ -102,6 +102,16 @@ func check(args []string) error {
 		fmt.Println(strings.TrimRight(result.Reason, "\n"))
 	}
 
+	// An allow sends the agent nothing, so this block is check's own,
+	// in the reason block's bullet form.
+	if len(result.Allows) > 0 {
+		fmt.Println()
+		fmt.Println("Allowed by:")
+		for _, l := range result.Allows {
+			fmt.Printf("* %s\n", l)
+		}
+	}
+
 	if len(resolved.Permissions.Warnings) > 0 {
 		fmt.Println()
 		fmt.Println("Warnings:")

@@ -234,11 +234,11 @@ safety net that ignores PATH.
 
 The `agent-permissions check '<cmd>'` subcommand shows exactly
 which source and pattern decided a given command, which is the
-fastest way to understand a surprising prompt or denial. (Note
-that `check` uses a placeholder harness, so harness-specific
-strings like the Claude Code `/permissions` reference appear as
-`<unknown-command-header>` instead — the live hook emits the
-real text.)
+fastest way to understand a surprising prompt, denial, or
+allow. (Note that `check` uses a placeholder harness, so
+harness-specific strings like the Claude Code `/permissions`
+reference appear as `<unknown-command-header>` instead — the
+live hook emits the real text.)
 
 ## Presets
 
@@ -567,9 +567,18 @@ Extracted commands:
 
 Decision: soft_ask
 
-Reasons:
-  Soft-ask. To allow, add to your Allow permissions:
-  * git rm:*  (from preset:git)
+Soft-ask. To allow, add to your Allow permissions:
+* git rm:*  (from preset:git)
+```
+
+The block after the decision is what the hook would send the agent.
+An allow sends nothing, so `check` lists what allowed it instead:
+
+```
+Decision: allow
+
+Allowed by:
+* git status:* - Read-only  (from preset:git)
 ```
 
 ## Build from source
