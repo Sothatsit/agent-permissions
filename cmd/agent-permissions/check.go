@@ -9,6 +9,17 @@ import (
 	"github.com/sothatsit/agent-permissions/internal/word"
 )
 
+// printReasons prints a hook reason string the way the hook sends it, under
+// the report's usual indented header.
+func printReasons(reason string) {
+	fmt.Println("Reasons:")
+	for _, line := range strings.Split(
+		strings.TrimRight(reason, "\n"), "\n",
+	) {
+		fmt.Printf("  %s\n", line)
+	}
+}
+
 // check simulates the hook on a bash command and prints the decision with the
 // resolution chain that produced it, for "why is this prompting?" debugging.
 func check(args []string) error {
@@ -62,9 +73,12 @@ func check(args []string) error {
 	if brErr != nil {
 		fmt.Println("Decision: deny")
 		fmt.Println()
-		fmt.Println("Reason:")
-		fmt.Printf("  breakdown error: %s\n",
-			breakdownDenialReason(brErr))
+		// The hook wraps a breakdown error like any other deny, so
+		// wrap it the same way here. check exists to predict the
+		// hook, and a prefix of its own misreports what the agent
+		// will be told.
+		printReasons(perms.DenyResult(
+			breakdownDenialReason(brErr)).Reason)
 		return nil
 	}
 
@@ -93,13 +107,7 @@ func check(args []string) error {
 	fmt.Printf("Decision: %s\n", result.Decision)
 	if result.Reason != "" {
 		fmt.Println()
-		fmt.Println("Reasons:")
-		for _, line := range strings.Split(
-			strings.TrimRight(result.Reason, "\n"),
-			"\n",
-		) {
-			fmt.Printf("  %s\n", line)
-		}
+		printReasons(result.Reason)
 	}
 
 	if len(resolved.Permissions.Warnings) > 0 {
