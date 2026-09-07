@@ -85,3 +85,39 @@ func TestReadScriptRejectsFIFOWithoutBlocking(t *testing.T) {
 		t.Fatal("ReadScript blocked while opening a FIFO")
 	}
 }
+
+// A missing script gets the ordering explained, because the write that
+// would have created it has not run yet. Anything else keeps the plain
+// wording, which the callers prefix with the path as spelled.
+func TestScriptReadReasonExplainsAMissingScript(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "later.py")
+
+	_, err := ReadScript(missing, "")
+	if err == nil {
+		t.Fatal("expected a read error")
+	}
+
+	got := ScriptReadReason("later.py", err)
+	if !strings.Contains(got, "in an earlier command") {
+		t.Errorf("missing script not explained: %q", got)
+	}
+	if !strings.Contains(got, missing) {
+		t.Errorf("reason lost the resolved path: %q", got)
+	}
+
+	// A directory exists, so the reason stays the plain one and keeps the
+	// path the caller spelled.
+	_, err = ReadScript(dir, "")
+	if err == nil {
+		t.Fatal("expected a read error")
+	}
+
+	got = ScriptReadReason("thedir", err)
+	if strings.Contains(got, "in an earlier command") {
+		t.Errorf("explained a file that exists: %q", got)
+	}
+	if !strings.HasPrefix(got, "thedir: ") {
+		t.Errorf("reason dropped the spelled path: %q", got)
+	}
+}

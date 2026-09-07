@@ -696,7 +696,7 @@ func readSedProgramFile(
 	if err != nil {
 		return "", "", &model.RuleError{
 			Def:    sedCommandExec,
-			Reason: fmt.Sprintf("%s: %v", path, err),
+			Reason: model.ScriptReadReason(path, err),
 		}
 	}
 

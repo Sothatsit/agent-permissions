@@ -4645,17 +4645,38 @@ assert_contains "deny: bash -i -c denied" "$(_decision "$out")" "deny"
 out=$(_run_hook 'sh --rcfile evil.sh -c "git status"')
 assert_contains "deny: sh --rcfile -c denied" "$(_decision "$out")" "deny"
 
-# bash script.sh - denial suggests invoking the script directly.
-out=$(_run_hook 'bash script.sh')
-assert_contains "deny: bash script.sh denied" "$(_decision "$out")" "deny"
-assert_contains "bash script.sh suggests direct" "$(_reason "$out")" "./script.sh"
+# A script the hook finds but cannot use gets advice to run it directly.
+# The fixture is a directory: a path that does not exist takes the
+# missing-script branch below, which offers no such advice.
+mkdir -p "$_bp_tmpdir/project/notafile"
 
-# bash ./script.sh - the suggestion keeps the path's own "./" instead of
-# doubling it. A doubled prefix reads as advice to run some other file.
-out=$(_run_hook 'bash ./script.sh')
-assert_contains "deny: bash ./script.sh denied" "$(_decision "$out")" "deny"
-assert_not_contains "bash ./script.sh suggestion not doubled" \
-    "$(_reason "$out")" "././script.sh"
+out=$(_run_hook 'bash notafile')
+assert_contains "deny: bash on an unusable path" \
+    "$(_decision "$out")" "deny"
+assert_contains "unusable path suggests direct" \
+    "$(_reason "$out")" "run the script directly (./notafile)"
+assert_not_contains "unusable path is not explained as missing" \
+    "$(_reason "$out")" "in an earlier command"
+
+# The suggestion keeps the path's own "./" instead of doubling it. A
+# doubled prefix reads as advice to run some other file.
+out=$(_run_hook 'bash ./notafile')
+assert_contains "deny: bash ./notafile denied" "$(_decision "$out")" "deny"
+assert_not_contains "direct-run suggestion not doubled" \
+    "$(_reason "$out")" "././notafile"
+
+# A script the same command writes is not there when the hook scans it, and
+# "no such file or directory" alone reads as though the write failed.
+out=$(_run_hook 'cat > /tmp/ap-later.py <<EOF
+print(1)
+EOF
+python3 /tmp/ap-later.py')
+assert_contains "deny: script written and run in one command" \
+    "$(_decision "$out")" "deny"
+assert_contains "write-then-run explains the scan order" \
+    "$(_reason "$out")" "in an earlier command"
+assert_not_contains "write-then-run drops the direct-run advice" \
+    "$(_reason "$out")" "run the script directly"
 
 # bash --version and --help - read-only, allowed.
 out=$(_run_hook 'bash --version')

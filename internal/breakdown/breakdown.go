@@ -6,6 +6,7 @@ package breakdown
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"path/filepath"
 	"strings"
@@ -422,6 +423,15 @@ func (b *breaker) runBreakdown(
 		inner, scanErr := b.scanFile(path, depth)
 		restore()
 		if scanErr != nil {
+			// Running a script that is not there fails the same
+			// way, so the direct-run advice only fits a file we
+			// found and could not use.
+			if errors.Is(scanErr, fs.ErrNotExist) {
+				return breakdownRun{}, errors.New(
+					model.ScriptReadReason(
+						path, scanErr))
+			}
+
 			return breakdownRun{}, fmt.Errorf(
 				"%s: %v. Fix the issue and "+
 					"retry, or run the script "+

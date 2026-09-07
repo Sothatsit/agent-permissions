@@ -237,9 +237,8 @@ func scriptFile(
 	data, err := model.ReadScript(path, state.Cwd)
 	if err != nil {
 		return model.BreakdownOutcome{}, &model.RuleError{
-			Def: cfg.unverified,
-			Reason: fmt.Sprintf(
-				"%s: %v", path, err),
+			Def:    cfg.unverified,
+			Reason: model.ScriptReadReason(path, err),
 		}
 	}
 
