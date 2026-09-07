@@ -257,10 +257,12 @@ func writeAsk(
 			"raise it with the user."
 	case promptsOff(input.SessionID):
 		denial = "Denied: this command would have asked the user, " +
-			"and permission prompts are off for this session. Do not " +
-			"turn them on (`agent-permissions prompts on`) just to " +
-			"retry. An ask waits for the user, who may be away. " +
-			"Find another way, or ask the user in your reply."
+			"and permission prompts are off for this session. An " +
+			"ask waits for the user, who may be away, so find " +
+			"another way or ask in your reply. Do not turn prompts " +
+			"on yourself (`agent-permissions prompts on`) just to " +
+			"retry. If the user tells you to turn them on, do it " +
+			"and retry."
 	default:
 		return writeDecision(model.Ask, "\n"+reason+"\n\n")
 	}
