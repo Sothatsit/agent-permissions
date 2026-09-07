@@ -8258,10 +8258,10 @@ assert_contains "prompts off: unknown command denies" \
     "$(_decision "$out")" "deny"
 assert_contains "prompts off: reason names the switch" \
     "$(_reason "$out")" "prompts are off"
-assert_contains "prompts off: reason warns against restoring to retry" \
-    "$(_reason "$out")" "Do not turn prompts on yourself"
-assert_contains "prompts off: reason lets the user call for the switch" \
-    "$(_reason "$out")" "If the user tells you to turn them on"
+assert_contains "prompts off: reason says how to restore prompts" \
+    "$(_reason "$out")" "agent-permissions prompts on"
+assert_contains "prompts off: reason warns against flipping the switch" \
+    "$(_reason "$out")" "leave them on"
 assert_contains "prompts off: reason keeps the original" \
     "$(_reason "$out")" "Unknown command"
 
