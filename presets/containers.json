@@ -11,5 +11,9 @@
     "Commands": {
       "docker:*": "daemon runs as root, flags can escape the sandbox"
     }
+  },
+  "Rules": {
+    "podman.unverified": {"Enabled": true},
+    "docker.unverified": {"Enabled": true}
   }
 }

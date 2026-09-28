@@ -3879,6 +3879,66 @@ out=$(_run_hook 'git --version')
 assert_contains "allow: git --version" \
     "$(_decision "$out")" "allow"
 
+# --- podman and docker global options ---
+
+# A site that asks or denies container subcommands must see them past leading
+# global options. Left in place, an option stops the command matching those
+# entries, and the containers preset's podman:* allows it.
+_write_external_preset dug-test.json '{"description":"site containers",
+  "Ask":{"Commands":{
+    "podman login:*":"stores registry credentials",
+    "podman run:*":"runs a container",
+    "docker run:*":"runs a container"}},
+  "Deny":{"Commands":{"podman system reset:*":"deletes all podman state"}}}'
+
+_assert_resolves_like_bare() {
+    local cmd="$1" bare="$2" want="$3"
+    local got bare_got
+    got=$(_decision "$(_run_hook "$cmd")")
+    bare_got=$(_decision "$(_run_hook "$bare")")
+    assert_contains "$want: $bare" "decision=$bare_got" "decision=$want"
+    assert_contains "$cmd resolves like $bare" \
+        "decision=$got" "decision=$bare_got"
+}
+
+_assert_resolves_like_bare 'podman --log-level=info login reg.example' \
+    'podman login reg.example' ask
+_assert_resolves_like_bare 'podman --log-level info login reg.example' \
+    'podman login reg.example' ask
+_assert_resolves_like_bare 'podman --root /x run alpine' \
+    'podman run alpine' ask
+_assert_resolves_like_bare 'podman --log-level=info system reset --force' \
+    'podman system reset --force' deny
+_assert_resolves_like_bare 'podman --remote=true -c conn login reg' \
+    'podman login reg' ask
+_assert_resolves_like_bare 'docker -H tcp://h -D run alpine' \
+    'docker run alpine' ask
+
+# A path-invoked podman keeps its own command and adds the stripped one, so the
+# stricter decision wins.
+out=$(_run_hook '/usr/bin/podman --root /x system reset --force')
+assert_contains "deny: path-invoked podman with global option" \
+    "$(_decision "$out")" "deny"
+
+# Informational options stay in place and keep today's decision.
+out=$(_run_hook 'podman --version')
+assert_contains "allow: podman --version" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook 'podman --help')
+assert_contains "allow: podman --help" \
+    "$(_decision "$out")" "allow"
+
+_clear_external_presets
+
+# A value-taking option with nothing left to take cannot be verified, and the
+# denial names a rule so it can be disabled.
+out=$(_run_hook 'podman --root')
+assert_contains "deny: podman --root without argument" \
+    "$(_decision "$out")" "deny"
+assert_contains "rule named for podman --root denial" \
+    "$(_reason "$out")" "(from rule:podman.unverified)"
+
 # --- git --upload-pack / --receive-pack ---
 
 # --upload-pack= form executes arbitrary program.

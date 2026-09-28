@@ -94,6 +94,10 @@ var (
 		"command builtin with flags that can't be verified")
 	gitUnverified = defineRule("git.unverified",
 		"git global options that can't be verified")
+	podmanUnverified = defineRule("podman.unverified",
+		"podman global options that can't be verified")
+	dockerUnverified = defineRule("docker.unverified",
+		"docker global options that can't be verified")
 	envUnverified = defineRule("env.unverified",
 		"env -S/--split-string or flags that can't be verified")
 	chrootUnverified = defineRule("chroot.unverified",

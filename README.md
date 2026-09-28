@@ -293,6 +293,15 @@ and `git status <anything>`. Use `git status *` (with a space) if
 you need to require at least one argument, and bare `git status`
 for the no-args form only.
 
+`git`, `podman`, and `docker` accept options before their
+subcommand, like `git -C /repo` or `podman --root /x`. The hook
+strips the ones it knows before matching, so `podman
+--log-level=info login reg` matches `podman login:*`. A pattern
+that names a stripped option, like `podman --root:*`, therefore
+never matches a command run by its bare name. An option the hook
+does not know stays in place, and the command then matches only
+patterns like `podman:*`.
+
 A preset may also carry a `Rules` axis that configures Rules-layer
 rules (layer 2) by ID:
 

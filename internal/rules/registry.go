@@ -32,12 +32,12 @@ func Registry() (
 		OwnedPatternPrefixes: [][]string{
 			{"branch"}, {"remote"}, {"tag"},
 		},
-		// git accepts repeated global options. breakdownGit removes each
+		// git accepts repeated global options. Breakdown removes each
 		// option and its argument before the owned subcommand reaches
 		// the rules layer, so a pattern may carry any run of them, in
 		// either the two-word or the attached --option=value form.
-		PatternPrefixSkips: gitPatternPrefixSkips,
-		Breakdown:          breakdownGit,
+		PatternPrefixSkips: gitGlobalOptions.patternPrefixSkips(),
+		Breakdown:          gitGlobalOptions.strip,
 		Unverified:         gitUnverified,
 		PathMode:           model.PathSkip,
 		Rules: []model.Rule{
@@ -98,6 +98,25 @@ func Registry() (
 				model.Always().Hook(classifyGhApi),
 			),
 		},
+	}
+
+	// podman/docker: strip the global options in breakdown so a pattern
+	// for <cli> <subcommand> matches past any run of them. Otherwise
+	// podman --log-level=info login matches only podman:*, and an Ask or
+	// Deny on podman login:* never sees it. Nothing here denies a flag,
+	// so no pattern is rule-owned and podman:* stays in presets.
+	// PathAllow keeps a path-invoked command for its own path patterns
+	// and adds the stripped bare form, so /usr/bin/podman --root /x
+	// login still reaches podman login:*.
+	r["podman"] = &model.CommandRules{
+		Breakdown:  podmanGlobalOptions.strip,
+		Unverified: podmanUnverified,
+		PathMode:   model.PathAllow,
+	}
+	r["docker"] = &model.CommandRules{
+		Breakdown:  dockerGlobalOptions.strip,
+		Unverified: dockerUnverified,
+		PathMode:   model.PathAllow,
 	}
 
 	// tar: deny flags that execute external programs.
