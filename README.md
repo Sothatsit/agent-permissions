@@ -128,6 +128,10 @@ command denies just those forms. Examples:
   flags pipe archive contents into an arbitrary external
   command, turning a normally-safe extraction into command
   execution.
+- `rg --pre` and `rg --hostname-bin`. The first runs a program on
+  every file searched, and the second runs one to find the host
+  name for hyperlinks, so a read-only search becomes command
+  execution.
 - `sed` program text from the first operand, `-e`, or `-f` is scanned for the
   `e` command and `s///e` flag. Input filenames are data. A dynamic filename
   needs `--` or a definite `/`, `./`, or `../` prefix so it cannot become a

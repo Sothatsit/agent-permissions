@@ -3369,6 +3369,32 @@ assert_contains "allow: sort without dangerous flags allowed" "$(_decision "$out
 out=$(_run_hook 'sort --compress-program=ssh file.txt')
 assert_contains "deny: sort compress-program denied" "$(_decision "$out")" "deny"
 
+# rg without flags that run programs is read-only.
+out=$(_run_hook 'rg --pre-glob "*.pdf" pattern')
+assert_contains "allow: rg --pre-glob alone runs nothing" \
+    "$(_decision "$out")" "allow"
+
+# rg --pre runs a program on every file it searches.
+out=$(_run_hook 'rg --pre ./x.sh pattern')
+assert_contains "deny: rg --pre separate" "$(_decision "$out")" "deny"
+assert_contains "rule named for rg --pre denial" \
+    "$(_reason "$out")" "(from rule:rg.command-execution)"
+
+out=$(_run_hook 'rg --pre=./x.sh --pre-glob "*.pdf" pattern')
+assert_contains "deny: rg --pre= form" "$(_decision "$out")" "deny"
+
+# rg --hostname-bin runs a program to name the host for hyperlinks.
+out=$(_run_hook 'rg --hostname-bin=./x.sh pattern')
+assert_contains "deny: rg --hostname-bin" "$(_decision "$out")" "deny"
+
+# The rule follows rg's name, not the path it was invoked by.
+out=$(_run_hook '/d/sw/ripgrep/latest/rg --pre ./x.sh pattern')
+assert_contains "deny: path-invoked rg --pre" "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'rg -- --pre file')
+assert_contains "allow: rg --pre after -- is a pattern" \
+    "$(_decision "$out")" "allow"
+
 # sed without e modifier is safe.
 out=$(_run_hook "sed 's/foo/bar/' file.txt")
 assert_contains "allow: sed without e modifier allowed" "$(_decision "$out")" "allow"

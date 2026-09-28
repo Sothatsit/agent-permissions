@@ -149,6 +149,7 @@
   "Rules": {
     "tar.command-execution": {"Enabled": true},
     "sort.command-execution": {"Enabled": true},
+    "rg.command-execution": {"Enabled": true},
     "man.command-execution": {"Enabled": true},
     "make.command-execution": {"Enabled": true},
     "zip.command-execution": {"Enabled": true},

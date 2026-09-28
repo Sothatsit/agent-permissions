@@ -130,6 +130,19 @@ func Registry() (
 		},
 	}
 
+	// rg: --pre runs a program on every file searched, and --hostname-bin
+	// runs one on every search to name the host for hyperlinks.
+	// --pre-glob only narrows which files --pre sees, so it runs nothing
+	// by itself. -z/--search-zip runs fixed decompressors that only a PATH
+	// change can redirect, and PATH assignments already soft-ask.
+	r["rg"] = &model.CommandRules{
+		Rules: []model.Rule{
+			model.Flag("--pre", "--hostname-bin").
+				WithRuleDef(rgCommandExec).Deny(
+				"can execute arbitrary commands"),
+		},
+	}
+
 	// man: deny pager/browser flags that execute programs.
 	r["man"] = &model.CommandRules{
 		Rules: []model.Rule{

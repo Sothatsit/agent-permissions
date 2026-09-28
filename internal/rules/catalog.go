@@ -44,6 +44,8 @@ var (
 		"tar flags that run an external program")
 	sortCommandExec = defineRule("sort.command-execution",
 		"sort --compress-program runs an external program")
+	rgCommandExec = defineRule("rg.command-execution",
+		"rg --pre/--hostname-bin run an external program")
 	manCommandExec = defineRule("man.command-execution",
 		"man pager/browser flags run a program")
 	makeCommandExec = defineRule("make.command-execution",

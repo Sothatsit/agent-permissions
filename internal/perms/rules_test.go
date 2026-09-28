@@ -2,9 +2,11 @@ package perms
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/sothatsit/agent-permissions/internal/model"
+	"github.com/sothatsit/agent-permissions/internal/rules"
 	"github.com/sothatsit/agent-permissions/internal/word"
 )
 
@@ -105,6 +107,40 @@ func TestCheckRuleDefaultsAreStableAndAttributed(t *testing.T) {
 
 			if first.Reason != test.wantReason {
 				t.Errorf("reason = %q, want %q", first.Reason, test.wantReason)
+			}
+		})
+	}
+}
+
+func TestRgCommandExecutionDeniesFlagsThatRunPrograms(t *testing.T) {
+	registry, _ := rules.Registry()
+	permissions := &Permissions{rules: registry}
+	tests := []struct {
+		args     []string
+		wantDeny bool
+	}{
+		{[]string{"rg", "--pre", "./x.sh", "pattern"}, true},
+		{[]string{"rg", "--pre=./x.sh", "pattern"}, true},
+		{[]string{"rg", "--hostname-bin", "./x.sh", "pattern"}, true},
+		{[]string{"rg", "--hostname-bin=./x.sh", "pattern"}, true},
+		{[]string{"/d/sw/ripgrep/latest/rg", "--pre", "./x.sh", "p"}, true},
+		{[]string{"/opt/untrusted/rg", "--pre=./x.sh", "p"}, true},
+		{[]string{"rg", "--pre-glob", "*.pdf", "pattern"}, false},
+		{[]string{"rg", "-z", "pattern"}, false},
+		{[]string{"rg", "--", "--pre", "file"}, false},
+	}
+
+	for _, test := range tests {
+		t.Run(strings.Join(test.args, " "), func(t *testing.T) {
+			got := permissions.Check(model.BreakdownResult{
+				Commands: []model.Command{{
+					Args: word.FromStrings(test.args),
+				}},
+			})
+			denied := got.Decision == model.Deny
+			if denied != test.wantDeny {
+				t.Errorf("decision = %v, want deny %v", got.Decision,
+					test.wantDeny)
 			}
 		})
 	}
