@@ -38,6 +38,13 @@ func TestContainerGlobalOptionsStripBeforeSubcommand(t *testing.T) {
 			[]string{"podman system reset --force"}},
 		{"podman -r -c conn --url=ssh://h ps",
 			[]string{"podman ps"}},
+		// Hidden options, docker-compatible ones among them.
+		{"podman -D -H tcp://h --context=default login reg",
+			[]string{"podman login reg"}},
+		{"podman --noout --db-backend sqlite --max-workers=4 ps",
+			[]string{"podman ps"}},
+		{"podman --debug=true --trace pull alpine",
+			[]string{"podman pull alpine"}},
 		// pflag reads a boolean's value only when attached, so the next
 		// word stays the subcommand.
 		{"podman --remote=false ps", []string{"podman ps"}},
@@ -79,6 +86,7 @@ func TestContainerGlobalOptionMissingArgumentDenied(t *testing.T) {
 	for _, cmd := range []string{
 		"podman --root",
 		"podman --log-level",
+		"podman -H",
 		"docker -H",
 	} {
 		t.Run(cmd, func(t *testing.T) {

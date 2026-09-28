@@ -3911,6 +3911,9 @@ _assert_resolves_like_bare 'podman --log-level=info system reset --force' \
     'podman system reset --force' deny
 _assert_resolves_like_bare 'podman --remote=true -c conn login reg' \
     'podman login reg' ask
+_assert_resolves_like_bare 'podman -D login reg' 'podman login reg' ask
+_assert_resolves_like_bare 'podman -H tcp://h --noout --db-backend=sqlite login reg' \
+    'podman login reg' ask
 _assert_resolves_like_bare 'docker -H tcp://h -D run alpine' \
     'docker run alpine' ask
 
