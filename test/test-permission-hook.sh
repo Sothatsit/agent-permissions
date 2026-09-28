@@ -4616,6 +4616,12 @@ out=$(_run_hook "TAR_OPTIONS='--checkpoint-action=exec=evil' tar -cf archive.tar
 assert_contains "deny: TAR_OPTIONS" \
     "$(_decision "$out")" "deny"
 
+# A ripgrep config file can carry --pre, which rg.command-execution denies on
+# the command line.
+out=$(_run_hook "RIPGREP_CONFIG_PATH=./rgrc rg pattern")
+assert_contains "deny: RIPGREP_CONFIG_PATH" \
+    "$(_decision "$out")" "deny"
+
 
 # =========================================================================
 # REAL-WORLD PATTERNS

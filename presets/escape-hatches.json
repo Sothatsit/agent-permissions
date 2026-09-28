@@ -23,6 +23,7 @@
       "GIT_CONFIG_KEY_*": "injects arbitrary git config entries",
       "GIT_CONFIG_VALUE_*": "injects arbitrary git config entries",
       "TAR_OPTIONS": "injects flags into every tar invocation",
+      "RIPGREP_CONFIG_PATH": "config file can set rg --pre, which runs a program on every file searched",
       "LD_PRELOAD": "loaded into every dynamic exec",
       "LD_LIBRARY_PATH": "redirects shared library lookup",
       "LD_AUDIT": "audit hook injected into dynamic exec",
