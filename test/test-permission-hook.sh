@@ -3976,17 +3976,33 @@ out=$(_run_hook '/opt/x/podman-run login')
 assert_contains "deny: path-invoked podman-run takes podman's deny" \
     "$(_decision "$out")" "deny"
 
-# An entry naming podman-run decides for it, and leaves podman alone.
+# The two forms' entries count as entries for one command. In one source, tier
+# precedence combines them, so podman's ask beats podman-run's allow.
 _write_external_preset dug-test.json "{\"description\":\"site\",$_alias_site,
   \"Allow\":{\"Commands\":{\"podman-run push:*\":\"sandboxed push\"}}}"
 
 out=$(_run_hook 'podman-run push x')
-assert_contains "allow: podman-run's own entry beats podman's ask" \
+assert_contains "ask: same source, podman's ask beats podman-run's allow" \
+    "$(_decision "$out")" "ask"
+
+# Across sources, the higher one decides whichever form its entry names.
+_write_agent_config '{"Allow":{"Commands":{"podman-run push:*":""}}}'
+out=$(_run_hook 'podman-run push x')
+assert_contains "allow: higher source's podman-run entry decides" \
     "$(_decision "$out")" "allow"
 
 out=$(_run_hook 'podman push x')
 assert_contains "ask: podman keeps its own ask beside the alias" \
     "$(_decision "$out")" "ask"
+
+_write_agent_config '{"Deny":{"Commands":{"podman push:*":""}}}'
+_write_external_preset dug-test.json "{\"description\":\"site\",
+  \"Allow\":{\"Commands\":{\"podman-run push:*\":\"sandboxed push\"}},
+  \"Aliases\":{\"podman-run\":\"podman\"}}"
+out=$(_run_hook 'podman-run push x')
+assert_contains "deny: higher source's podman entry decides" \
+    "$(_decision "$out")" "deny"
+_clear_agent_config
 
 _clear_external_presets
 

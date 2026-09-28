@@ -405,25 +405,33 @@ The request was to
 
 `"Aliases": {"podman-run": "podman"}` does that. The hook matches two
 forms of the command, as written and with the target's name in its
-place. How the forms combine follows from the two policy planes.
+place, and treats them as one command. Every source matches the
+entries for either form as if they had all been written for the same
+command, so both planes keep the rules they already have. In normal
+resolution the first source with an entry for either form decides,
+whichever form it names, and within that source two matching entries
+for the two forms combine by `Deny > Ask > Allow > SoftAsk`, as two
+entries for one command do. In the enforced plane every match of
+either form participates, and the strongest wins.
 
-In normal resolution the target's form is a fallback. It is matched
-only when the written form leaves every normal source undecided. The
-rejected alternative merged the forms per source, so the first source
-with an opinion on either form would decide. That respects source
-priority, but a user's `podman push:*` Deny would then override a
-preset's `podman-run push:*` Allow, and an entry naming `podman-run`
-would stop deciding the way it did before the alias. The fallback
-keeps an entry naming the command final, and the target fills in only
-where the command's own policy has no opinion.
+The first version preferred the command's own entries. The target's
+form was a fallback in normal resolution, matched only when the
+written form left every normal source undecided, so an entry naming
+`podman-run` always decided for it. The review rejected that. An alias
+says the wrapper runs the target, so policy on the target is policy on
+the wrapper. With the fallback, a preset's `podman-run push:*` Allow
+overrode the user's own `podman push:*` Deny in a higher-priority
+source, which inverts source priority for exactly the commands the
+user wrote a rule about. Equal treatment keeps source priority as the
+one thing that orders normal policy. A user or site that wants
+`podman-run push` treated apart from `podman push` writes the
+podman-run entry in a source that outranks the podman one, or in the
+same source at a stronger tier.
 
-In the enforced plane both forms participate, and the strongest match
-wins, as every enforced match does. A fallback there would be an
-ordering inside the plane. One enforced preset's `podman-run:*` Allow
-would hide another's `podman login:*` Deny, which is the failure the
-plane exists to prevent. The cost is that an enforced preset cannot
-carve `podman-run push` out of its own enforced `podman push:*` Ask. A
-site that wants that puts the Ask in an ordinary preset.
+The enforced plane never had a fallback. One there would be an
+ordering inside the plane, and one enforced preset's `podman-run:*`
+Allow would hide another's `podman login:*` Deny, which is the failure
+the plane exists to prevent.
 
 A path-invoked command keeps its trust in the target's form, so
 `/opt/x/podman-run login` meets podman's denials wherever it lives,

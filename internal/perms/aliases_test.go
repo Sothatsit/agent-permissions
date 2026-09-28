@@ -41,7 +41,7 @@ func tierSource(
 	return src
 }
 
-func TestAliasTakesTargetEntriesWhereItsOwnHaveNoOpinion(t *testing.T) {
+func TestAliasMatchesBothFormsAsOneCommand(t *testing.T) {
 	podmanRun := map[string]Alias{"podman-run": {
 		Name: "podman-run", Target: "podman", Source: "test",
 	}}
@@ -55,7 +55,7 @@ func TestAliasTakesTargetEntriesWhereItsOwnHaveNoOpinion(t *testing.T) {
 		wantLabel string
 	}{
 		{
-			name: "target fills in",
+			name: "target entry matches the alias",
 			normal: []map[model.Decision][]string{
 				{model.Allow: {"podman:*"}},
 			},
@@ -72,37 +72,68 @@ func TestAliasTakesTargetEntriesWhereItsOwnHaveNoOpinion(t *testing.T) {
 			args: []string{"podman-run", "ps"},
 			want: model.Undecided,
 		},
+		// Within one source the two forms' entries combine by tier
+		// precedence, as two entries for one command would.
 		{
-			name: "own entry decides over the target's",
+			name: "same source: target's ask beats own allow",
 			normal: []map[model.Decision][]string{{
 				model.Allow: {"podman-run push:*"},
 				model.Ask:   {"podman push:*"},
 			}},
 			args:      []string{"podman-run", "push", "x"},
+			want:      model.Ask,
+			wantLabel: "podman push:* (via alias podman-run)",
+		},
+		{
+			name: "same source: own deny beats target's allow",
+			normal: []map[model.Decision][]string{{
+				model.Allow: {"podman:*"},
+				model.Deny:  {"podman-run login:*"},
+			}},
+			args:      []string{"podman-run", "login"},
+			want:      model.Deny,
+			wantLabel: "podman-run login:*",
+		},
+		{
+			name: "same source: own allow beats target's soft-ask",
+			normal: []map[model.Decision][]string{{
+				model.SoftAsk: {"podman push:*"},
+				model.Allow:   {"podman-run push:*"},
+			}},
+			args:      []string{"podman-run", "push", "x"},
 			want:      model.Allow,
 			wantLabel: "podman-run push:*",
 		},
+		// Across sources the first with an entry for either form
+		// decides, whichever form it names.
 		{
-			name: "target's entry still decides for the target",
-			normal: []map[model.Decision][]string{{
-				model.Allow: {"podman-run push:*"},
-				model.Ask:   {"podman push:*"},
-			}},
-			args: []string{"podman", "push", "x"},
-			want: model.Ask,
-		},
-		// The target is consulted only once the command's own entries
-		// leave the normal plane undecided, so source priority does not
-		// let a higher source's target entry override a lower source's
-		// own entry.
-		{
-			name: "own entry in a lower source beats the target's",
+			name: "higher source's target entry decides",
 			normal: []map[model.Decision][]string{
 				{model.Deny: {"podman push:*"}},
 				{model.Allow: {"podman-run push:*"}},
 			},
-			args: []string{"podman-run", "push", "x"},
-			want: model.Allow,
+			args:      []string{"podman-run", "push", "x"},
+			want:      model.Deny,
+			wantLabel: "podman push:* (via alias podman-run)",
+		},
+		{
+			name: "higher source's own entry decides",
+			normal: []map[model.Decision][]string{
+				{model.Allow: {"podman-run push:*"}},
+				{model.Deny: {"podman push:*"}},
+			},
+			args:      []string{"podman-run", "push", "x"},
+			want:      model.Allow,
+			wantLabel: "podman-run push:*",
+		},
+		{
+			name: "own entries leave the target alone",
+			normal: []map[model.Decision][]string{
+				{model.Allow: {"podman-run push:*"}},
+				{model.Ask: {"podman push:*"}},
+			},
+			args: []string{"podman", "push", "x"},
+			want: model.Ask,
 		},
 		{
 			name: "enforced target deny beats own normal allow",

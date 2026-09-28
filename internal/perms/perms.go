@@ -826,28 +826,20 @@ func (p *Permissions) checkOne(
 	// Enforced sources form a minimum policy: every match participates, and
 	// their strongest decision combines with the normal result.
 	forms := identity.forms()
-	normal := matchCommandSources(p.Sources, forms)
-	enforcedForms := forms
-	// An alias's target fills in only where the command's own normal
-	// entries have no opinion, so an entry naming the command still
-	// decides for it. Every enforced match participates, so the target's
-	// enforced entries hold for the command too, whatever its own say.
+	// An alias's target form joins the command's own forms, so every
+	// source matches the two as if all their entries named one command.
 	if alias, ok := p.Aliases[identity.name]; ok {
 		aliasForms := identity.aliasForms(alias.Target)
-		if normal.decision == model.Undecided {
-			normal = matchCommandSources(
-				p.Sources, aliasForms)
-		}
-
-		enforcedForms = commandForms{
+		forms = commandForms{
 			deny: slices.Concat(forms.deny, aliasForms.deny),
 			resolved: slices.Concat(
 				forms.resolved, aliasForms.resolved),
 		}
 	}
 
+	normal := matchCommandSources(p.Sources, forms)
 	enforced := matchEnforcedCommandSources(
-		p.EnforcedSources, enforcedForms)
+		p.EnforcedSources, forms)
 	check := combinePolicyChecks(normal, enforced)
 	if check.decision != model.Undecided {
 		return check

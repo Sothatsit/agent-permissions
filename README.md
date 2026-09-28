@@ -529,14 +529,17 @@ and `podman push x`. Both forms have the target's global options
 stripped, so `podman-run --log-level=info login` is checked as
 `podman-run login` and `podman login`.
 
-- **Its own entries decide first.** In normal resolution the target's
-  entries apply only when no source has an entry for the command as
-  written. So `podman-run push:*` in Allow allows `podman-run push x`
-  even where `podman push:*` asks, and an entry naming `podman-run`
-  in a lower-priority source beats one naming `podman` in a higher
-  one.
-- **The target's enforced entries hold.** Every enforced match
-  participates, the target's included, so an enforced
+- **Both forms count as one command.** Every source matches the
+  entries for either form as if they had all been written for the
+  command. The first normal source with an entry for either form
+  decides, whichever form that entry names. So a `podman push:*` Deny
+  in your `~/.agents/permissions.json` denies `podman-run push x` even
+  where a preset allows `podman-run push:*`. Within one source, the
+  tier order combines the two forms' entries as it does two entries
+  for one command, so a source holding both `podman push:*` in Ask and
+  `podman-run push:*` in Allow asks.
+- **Enforced entries of both forms participate.** The strongest
+  enforced match wins, whichever form it names, so an enforced
   `podman login:*` Deny denies `podman-run login` whatever any entry
   naming `podman-run` says.
 - **A path-invoked command keeps its trust.** `/opt/x/podman-run
