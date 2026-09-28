@@ -552,6 +552,17 @@ assert_contains "check: shows enforced source" \
     "$out" "enforced-preset:dug-locked"
 _sc_enforced_preset_dirs=""
 
+# check lists each alias with its source, and a match through one names it.
+h=$(_fresh_home)
+mkdir -p "$h/.agents"
+echo '{"Aliases":{"podman-run":"podman"}}' > "$h/.agents/permissions.json"
+out=$(cd "$check_project" && CLAUDE_CONFIG_DIR="$h/empty-claude" \
+    _sc_run "$h" check 'podman-run ps')
+assert_contains "check: lists the alias and its source" "$out" \
+    "podman-run -> podman  (from ~/.agents/permissions.json)"
+assert_contains "check: allow names the alias it came through" "$out" \
+    "* podman:* (via alias podman-run)"
+
 # Invalid usage exits non-zero.
 rc=0
 HOME="$h" "$HOOK" check >/dev/null 2>&1 || rc=$?
@@ -720,6 +731,31 @@ out=$(cd "$h" && CLAUDE_CONFIG_DIR="$h/empty-claude" \
 assert_rc "validate: cwd==HOME exits 2" 2 "$rc"
 assert_contains "validate: cwd==HOME counts the file once" \
     "$out" "Found 1 malformed"
+
+# An alias that cannot be honoured is reported, like a malformed entry: a name
+# that is not a bare command, an alias to itself, and a chain, which is not
+# followed.
+h=$(_fresh_home)
+mkdir -p "$h/.agents"
+cat > "$h/.agents/permissions.json" <<'EOF'
+{"Aliases": {
+  "tools/run": "podman",
+  "loop": "loop",
+  "outer": "podman-run",
+  "podman-run": "podman"
+}}
+EOF
+rc=0
+out=$(_validate_run "$h") || rc=$?
+assert_rc "validate: bad aliases exit 2" 2 "$rc"
+assert_contains "validate: counts every bad alias" "$out" \
+    "Found 3 malformed"
+assert_contains "validate: names a malformed alias" "$out" \
+    '"tools/run -> podman" ("tools/run" is not a bare command name)'
+assert_contains "validate: names an alias to itself" "$out" \
+    '"loop -> loop" (aliases a command to itself)'
+assert_contains "validate: names a chained alias" "$out" \
+    '"outer -> podman-run" (podman-run is itself an alias'
 
 # Invalid usage exits non-zero.
 rc=0

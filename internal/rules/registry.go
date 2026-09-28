@@ -36,10 +36,9 @@ func Registry() (
 		// option and its argument before the owned subcommand reaches
 		// the rules layer, so a pattern may carry any run of them, in
 		// either the two-word or the attached --option=value form.
-		PatternPrefixSkips: gitGlobalOptions.patternPrefixSkips(),
-		Breakdown:          gitGlobalOptions.strip,
-		Unverified:         gitUnverified,
-		PathMode:           model.PathSkip,
+		GlobalOptions: gitGlobalOptions,
+		Unverified:    gitUnverified,
+		PathMode:      model.PathSkip,
 		Rules: []model.Rule{
 			model.Flag("-e", "--edit").
 				WithRuleDef(gitInteractive).Deny(
@@ -109,14 +108,14 @@ func Registry() (
 	// and adds the stripped bare form, so /usr/bin/podman --root /x
 	// login still reaches podman login:*.
 	r["podman"] = &model.CommandRules{
-		Breakdown:  podmanGlobalOptions.strip,
-		Unverified: podmanUnverified,
-		PathMode:   model.PathAllow,
+		GlobalOptions: podmanGlobalOptions,
+		Unverified:    podmanUnverified,
+		PathMode:      model.PathAllow,
 	}
 	r["docker"] = &model.CommandRules{
-		Breakdown:  dockerGlobalOptions.strip,
-		Unverified: dockerUnverified,
-		PathMode:   model.PathAllow,
+		GlobalOptions: dockerGlobalOptions,
+		Unverified:    dockerUnverified,
+		PathMode:      model.PathAllow,
 	}
 
 	// tar: deny flags that execute external programs.

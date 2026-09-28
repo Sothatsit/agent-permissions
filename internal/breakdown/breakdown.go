@@ -275,8 +275,15 @@ func (b *breaker) runBreakdown(
 		model.PopulatePossibleFlags(&input)
 	}
 
-	outcome, err := rules.Breakdown(
-		input, &b.State)
+	var outcome model.BreakdownOutcome
+	var err error
+	if rules.GlobalOptions != nil {
+		outcome, err = rules.GlobalOptions.Strip(
+			input, rules.Unverified)
+	} else {
+		outcome, err = rules.Breakdown(
+			input, &b.State)
+	}
 	if err != nil {
 		// A denial attributed to a disabled rule is dropped, and the
 		// command falls through to the permissions layer instead.
@@ -736,7 +743,8 @@ func (b *breaker) processCallExprWithExpansion(
 	// command (./cmd, /usr/bin/cmd) gets here.
 	if b.registry != nil {
 		rules := b.registry[baseName]
-		if rules != nil && rules.Breakdown != nil {
+		if rules != nil && (rules.Breakdown != nil ||
+			rules.GlobalOptions != nil) {
 			skipBreakdown := false
 			retention := outerMayBeReplaced
 			if hasPath {

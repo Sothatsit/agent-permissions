@@ -389,6 +389,70 @@ cannot borrow an Allow from a rule registered for the same basename.
 Restrictive rule decisions still apply to that basename, and an explicit
 path pattern can still allow the binary.
 
+### Aliases
+
+**Q: How does a wrapper take the entries of the command it runs?**
+
+DUG's `podman-run` runs podman with sandbox setup and passes its
+arguments through, and its preset repeated every podman entry for it.
+The request was to
+
+> match `podman-run ...` against podman-run's own entries AND against
+> podman's entries (as if it were `podman ...`, including podman's
+> global-option stripping). A podman-run entry still works
+> independently, so `podman-run login:*` alone still decides
+> `podman-run login`.
+
+`"Aliases": {"podman-run": "podman"}` does that. The hook matches two
+forms of the command, as written and with the target's name in its
+place. How the forms combine follows from the two policy planes.
+
+In normal resolution the target's form is a fallback. It is matched
+only when the written form leaves every normal source undecided. The
+rejected alternative merged the forms per source, so the first source
+with an opinion on either form would decide. That respects source
+priority, but a user's `podman push:*` Deny would then override a
+preset's `podman-run push:*` Allow, and an entry naming `podman-run`
+would stop deciding the way it did before the alias. The fallback
+keeps an entry naming the command final, and the target fills in only
+where the command's own policy has no opinion.
+
+In the enforced plane both forms participate, and the strongest match
+wins, as every enforced match does. A fallback there would be an
+ordering inside the plane. One enforced preset's `podman-run:*` Allow
+would hide another's `podman login:*` Deny, which is the failure the
+plane exists to prevent. The cost is that an enforced preset cannot
+carve `podman-run push` out of its own enforced `podman push:*` Ask. A
+site that wants that puts the Ask in an ordinary preset.
+
+A path-invoked command keeps its trust in the target's form, so
+`/opt/x/podman-run login` meets podman's denials wherever it lives,
+and podman's other entries only from a directory on PATH.
+
+An alias takes the target's patterns and its global-option stripping,
+and nothing else from the Rules layer. Anything more would let the
+target's rules act before the command's own entries. An alias to
+`timeout` would unwrap `mytimeout 5 cmd` and drop the outer command,
+so an enforced `mytimeout:*` Deny would never see it. An alias to
+`git` would let git's rule Allow on `git remote -v` decide before a
+`mygit remote:*` Deny. Such a target is refused, and so is an alias
+from a command with rules of its own. To make that checkable, global
+options became their own `CommandRules.GlobalOptions` field, the
+breakdown for git, podman, and docker, rather than one `Breakdown`
+function among many. Stripping keeps the command's own name, so the
+aliased command still reaches its own entries.
+
+Aliases resolve by name the way `Rules` config does. Ordinary presets
+form the base, `.agents` config overrides it from global to local,
+and enforced presets apply last. A site whose floor depends on an
+alias declares it in an enforced preset, and no config can redirect
+it. Claude settings have no vocabulary for aliases.
+
+Aliases are one level. Following a chain would need cycle detection
+and a rule for which link's entries decide, for a need nobody has. A
+chain is reported by `validate`, and its middle link contributes only
+its own entries.
+
 ### Distribution
 
 **Q: How do users install agent-permissions?**

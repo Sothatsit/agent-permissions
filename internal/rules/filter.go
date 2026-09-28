@@ -68,10 +68,11 @@ func filterRules(
 }
 
 // ValidateRegistry asserts the registry's structural and attribution
-// invariants: a Parser must belong to a Breakdown, and every node that can
-// deny, ask, or soft-ask must have a governing RuleDef on its path so the
-// decision can be named and disabled. The registry is static, so a violation is
-// a coding mistake, and this check stays off the hook path.
+// invariants: a Parser must belong to a Breakdown, GlobalOptions replaces
+// Breakdown rather than joining it, and every node that can deny, ask, or
+// soft-ask must have a governing RuleDef on its path so the decision can be
+// named and disabled. The registry is static, so a violation is a coding
+// mistake, and this check stays off the hook path.
 func ValidateRegistry(
 	registry map[string]*model.CommandRules,
 	snippets map[string]*model.SnippetLang,
@@ -89,6 +90,11 @@ func ValidateRegistry(
 		if cr.Parser != nil && cr.Breakdown == nil {
 			problems = append(problems, fmt.Sprintf(
 				"%s: Parser has no Breakdown", name))
+		}
+		if cr.GlobalOptions != nil && cr.Breakdown != nil {
+			problems = append(problems, fmt.Sprintf(
+				"%s: GlobalOptions and Breakdown both "+
+					"set", name))
 		}
 		// A command's Default is governed by its Unverified rule, so a
 		// restrictive Default without one could never be disabled.

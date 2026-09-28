@@ -14,8 +14,8 @@ import (
 // and an unknown command only soft-asks. Options that can execute code (-c,
 // --config-env, --exec-path) are denied by the rules layer, and the
 // informational ones (--version, --help, --man-path) keep their own patterns.
-var gitGlobalOptions = globalOptions{
-	arguments: map[string]int{
+var gitGlobalOptions = &model.GlobalOptions{
+	Arguments: map[string]int{
 		"-p": 0, "--paginate": 0, "-P": 0, "--no-pager": 0,
 		"--bare":               0,
 		"--no-replace-objects": 0,
@@ -32,8 +32,7 @@ var gitGlobalOptions = globalOptions{
 		"--namespace":          1,
 		"--attr-source":        1,
 	},
-	takesAttachedValue: gitOptionTakesAttachedValue,
-	unverified:         gitUnverified,
+	TakesAttachedValue: gitOptionTakesAttachedValue,
 }
 
 // gitOptionTakesAttachedValue reports whether git also accepts the option's

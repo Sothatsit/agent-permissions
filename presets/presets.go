@@ -44,6 +44,8 @@ type TierEntries struct {
 // default-OFF in code, so a preset listing a rule with Enabled true turns it
 // on. Embedded presets own the rules for their topic. Ordinary presets follow
 // selection; enforced presets lock their enabled rules on.
+//
+// Aliases maps a command name to the command whose entries it also takes.
 type Preset struct {
 	Name        string                      `json:"-"`
 	Dir         string                      `json:"-"`
@@ -54,6 +56,7 @@ type Preset struct {
 	Ask         TierEntries                 `json:"Ask"`
 	Deny        TierEntries                 `json:"Deny"`
 	Rules       map[string]model.RuleConfig `json:"Rules,omitempty"`
+	Aliases     map[string]string           `json:"Aliases,omitempty"`
 }
 
 // Clone returns an independent copy of the preset.
@@ -68,6 +71,7 @@ func (p *Preset) Clone() *Preset {
 	cloned.Ask = cloneTier(p.Ask)
 	cloned.Deny = cloneTier(p.Deny)
 	cloned.Rules = maps.Clone(p.Rules)
+	cloned.Aliases = maps.Clone(p.Aliases)
 	return &cloned
 }
 

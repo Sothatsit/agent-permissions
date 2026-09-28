@@ -3942,6 +3942,85 @@ assert_contains "deny: podman --root without argument" \
 assert_contains "rule named for podman --root denial" \
     "$(_reason "$out")" "(from rule:podman.unverified)"
 
+# --- Aliases ---
+
+# podman-run passes its arguments through to podman, so an alias gives it
+# podman's entries, with podman's global options stripped. The containers
+# preset allows podman:*.
+_alias_site='"Deny":{"Commands":{"podman login:*":"stores registry credentials"}},
+  "Ask":{"Commands":{"podman push:*":"publishes an image"}},
+  "Aliases":{"podman-run":"podman"}'
+_write_external_preset dug-test.json "{\"description\":\"site\",$_alias_site}"
+
+out=$(_run_hook 'podman-run ps')
+assert_contains "allow: podman-run takes podman:* through its alias" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook 'podman-run login')
+assert_contains "deny: podman-run takes podman's deny" \
+    "$(_decision "$out")" "deny"
+assert_contains "podman-run deny names the alias" \
+    "$(_reason "$out")" "podman login:* (via alias podman-run)"
+
+out=$(_run_hook 'podman-run --log-level=info login')
+assert_contains "deny: podman-run strips podman's global options" \
+    "$(_decision "$out")" "deny"
+
+out=$(_run_hook 'podman-run push x')
+assert_contains "ask: podman-run takes podman's ask" \
+    "$(_decision "$out")" "ask"
+
+# A path-invoked podman-run reaches podman's denials wherever it lives, as a
+# path-invoked podman does.
+out=$(_run_hook '/opt/x/podman-run login')
+assert_contains "deny: path-invoked podman-run takes podman's deny" \
+    "$(_decision "$out")" "deny"
+
+# An entry naming podman-run decides for it, and leaves podman alone.
+_write_external_preset dug-test.json "{\"description\":\"site\",$_alias_site,
+  \"Allow\":{\"Commands\":{\"podman-run push:*\":\"sandboxed push\"}}}"
+
+out=$(_run_hook 'podman-run push x')
+assert_contains "allow: podman-run's own entry beats podman's ask" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook 'podman push x')
+assert_contains "ask: podman keeps its own ask beside the alias" \
+    "$(_decision "$out")" "ask"
+
+_clear_external_presets
+
+# An alias in user config works the same way.
+_write_agent_config '{"Aliases":{"podman-run":"podman"}}'
+out=$(_run_hook 'podman-run ps')
+assert_contains "allow: alias declared in project config" \
+    "$(_decision "$out")" "allow"
+_clear_agent_config
+
+# An enforced denial on the target is a floor for the alias too. User config
+# can neither allow past it nor redirect the enforced alias.
+_write_enforced_preset dug-floor.json '{"description":"floor",
+  "Deny":{"Commands":{"podman login:*":"stores registry credentials"}},
+  "Aliases":{"podman-run":"podman"}}'
+_write_agent_config '{"Allow":{"Commands":{"podman-run login:*":""}},
+  "Aliases":{"podman-run":"docker"}}'
+out=$(_run_hook 'podman-run login')
+assert_contains "deny: enforced target deny beats own user allow" \
+    "$(_decision "$out")" "deny"
+_clear_agent_config
+_clear_enforced_presets
+
+# An alias that would hide the command's own entries fails closed in a preset.
+_write_external_preset dug-bad.json \
+    '{"description":"bad","Aliases":{"mygit":"git"}}'
+rc=0
+out=$(_run_hook_error 'ls') || rc=$?
+assert_contains "external-preset: alias to a ruled command exits 2" \
+    "$rc" "2"
+assert_contains "external-preset: alias problem named" \
+    "$out" "mygit -> git"
+_clear_external_presets
+
 # --- git --upload-pack / --receive-pack ---
 
 # --upload-pack= form executes arbitrary program.

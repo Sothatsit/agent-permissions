@@ -84,6 +84,25 @@ func (snapshot *PolicySnapshot) Resolve() *Resolved {
 	subagentsCanAsk := resolveSubagentsCanAsk(
 		globalAgent, projectAgent, localAgent)
 	registry, snippetRules := rules.Registry()
+
+	// Aliases are checked against the whole registry, so whether one is
+	// honoured does not depend on which rules are enabled.
+	agentConfigs := snapshot.AgentConfigs()
+	aliases, aliasWarnings := resolveAliases(
+		agentConfigs, selected, registry)
+
+	// An alias breaks down as its target does, so podman-run strips
+	// podman's global options and keeps its own name. Targets are read
+	// before any alias joins the registry, so a chained alias does not
+	// depend on map order.
+	aliasRules := map[string]*model.CommandRules{}
+	for _, alias := range aliases {
+		if target := registry[alias.Target]; target != nil {
+			aliasRules[alias.Name] = target
+		}
+	}
+
+	maps.Copy(registry, aliasRules)
 	rules.FilterByConfig(
 		registry, snippetRules, ruleConfig)
 
@@ -91,14 +110,14 @@ func (snapshot *PolicySnapshot) Resolve() *Resolved {
 	// malformed entries accumulate into Permissions.Warnings.
 	sources := make([]SourcePerms, 0, len(snapshot.claudeSettings))
 	var enforcedSources []SourcePerms
-	var warnings []ConfigWarning
+	warnings := aliasWarnings
 
 	for _, loaded := range snapshot.claudeSettings {
 		sources = append(sources, loaded.permissions.clone())
 		warnings = append(warnings, loaded.warnings...)
 	}
 
-	for _, loaded := range snapshot.AgentConfigs() {
+	for _, loaded := range agentConfigs {
 		src, w := fromAgentConfig(
 			loaded.SourceName, loaded.Config)
 		sources = append(sources, src)
@@ -126,6 +145,7 @@ func (snapshot *PolicySnapshot) Resolve() *Resolved {
 			Sources:         sources,
 			EnforcedSources: enforcedSources,
 			Warnings:        warnings,
+			Aliases:         aliases,
 			rules:           registry,
 			snippetRules:    snippetRules,
 			PathDirs:        maps.Clone(snapshot.pathDirs),
@@ -170,6 +190,8 @@ func validateExternalPresets(
 		}
 
 		src, warnings := fromPreset(p)
+		_, warnings = parseAliases(
+			warnings, src.Name, p.Aliases, registry)
 		for _, w := range warnings {
 			problems = append(problems, fmt.Sprintf(
 				"%s (%s): %q (%s)",
@@ -261,7 +283,7 @@ func ruleOwnedPattern(
 				pat, prefix, false,
 			) || patternOverlapsNormalizedOwnedPrefix(
 				pat, prefix,
-				commandRules.PatternPrefixSkips,
+				commandRules.GlobalOptions.PatternPrefixSkips(),
 				commandRules.PathMode == model.PathSkip,
 			) {
 				return strings.Join(prefix, " "), true
@@ -532,12 +554,16 @@ func resolveRuleConfig(
 	return out
 }
 
-func fromPreset(p *presets.Preset) (SourcePerms, []ConfigWarning) {
-	name := "preset:" + p.Name
+func presetSourceName(p *presets.Preset) string {
 	if p.Enforced {
-		name = "enforced-preset:" + p.Name
+		return "enforced-preset:" + p.Name
 	}
 
+	return "preset:" + p.Name
+}
+
+func fromPreset(p *presets.Preset) (SourcePerms, []ConfigWarning) {
+	name := presetSourceName(p)
 	src := SourcePerms{Name: name, AcceptsReasons: true}
 	var warnings []ConfigWarning
 

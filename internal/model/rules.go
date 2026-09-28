@@ -82,20 +82,22 @@ type CommandRules struct {
 	// OwnsAllPatterns marks commands whose breakdown or enabled Rules
 	// consume every bare-name invocation before command patterns can apply.
 	// OwnedPatternPrefixes lists argument prefixes with that property when
-	// other invocations still fall through, and PatternPrefixSkips mirrors
-	// leading options Breakdown removes before an owned subcommand reaches
-	// rule matching. Preset validation rejects overlaps rather than accept
-	// policy that runtime evaluation would ignore. A path-invoked PathAllow
-	// command remains addressable.
+	// other invocations still fall through, and preset validation skips the
+	// GlobalOptions before looking for them. Preset validation rejects
+	// overlaps rather than accept policy that runtime evaluation would
+	// ignore. A path-invoked PathAllow command remains addressable.
 	OwnsAllPatterns      bool
 	OwnedPatternPrefixes [][]string
-	PatternPrefixSkips   []PatternPrefixSkip
 	// Parser requires a Breakdown, because the permissions phase always
 	// matches possible flags conservatively instead.
 	Parser Parser
 	// Breakdown extracts inner commands, scans files, or mutates breakdown
 	// state. Nil means no unwrapping.
 	Breakdown BreakdownFunc
+	// GlobalOptions is the breakdown of a CLI that takes options before
+	// its subcommand, in place of Breakdown. Unlike an arbitrary Breakdown
+	// it keeps the command itself, which is what lets an alias take it.
+	GlobalOptions *GlobalOptions
 	// BreakdownDef governs the whole Breakdown, which the registry filter
 	// removes when the rule is disabled. Leave nil when useful work in the
 	// breakdown belongs to more than one rule.

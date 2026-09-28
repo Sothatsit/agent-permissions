@@ -5,10 +5,12 @@
 // The schema is four tier objects, each holding entries by tool axis (Commands,
 // EnvVars). Within each axis, entries are a map from pattern -> reason; the
 // reason is shown in hook output and may be empty. A top-level Rules object
-// (rule ID -> {Enabled}) overrides Rules-layer config. The top-level shape also
-// carries optional enabled-presets / disabled-presets fields for selecting
-// which embedded presets contribute, and subagents-can-ask, which lets a
-// subagent's command prompt instead of being denied.
+// (rule ID -> {Enabled}) overrides Rules-layer config, and a top-level Aliases
+// object (command -> command) lets one command take another's entries. The
+// top-level shape also carries optional enabled-presets / disabled-presets
+// fields for selecting which embedded presets contribute, and
+// subagents-can-ask, which lets a subagent's command prompt instead of being
+// denied.
 package agentconfig
 
 import (
@@ -49,6 +51,10 @@ type Config struct {
 	// enables. Nil when absent.
 	Rules map[string]model.RuleConfig
 
+	// Aliases maps a command name to the command whose entries it also
+	// takes. Nil when absent.
+	Aliases map[string]string
+
 	// EnabledPresets and DisabledPresets are nil when the field is absent
 	// from the JSON. An empty slice means the user explicitly wrote `[]`.
 	// The distinction matters: absent =
@@ -74,6 +80,7 @@ func (c *Config) Clone() *Config {
 	cloned.Ask = cloneTier(c.Ask)
 	cloned.Deny = cloneTier(c.Deny)
 	cloned.Rules = maps.Clone(c.Rules)
+	cloned.Aliases = maps.Clone(c.Aliases)
 	if c.EnabledPresets != nil {
 		enabled := slices.Clone(*c.EnabledPresets)
 		cloned.EnabledPresets = &enabled
@@ -115,6 +122,7 @@ type rawConfig struct {
 	Ask             TierEntries                 `json:"Ask,omitempty"`
 	Deny            TierEntries                 `json:"Deny,omitempty"`
 	Rules           map[string]model.RuleConfig `json:"Rules,omitempty"`
+	Aliases         map[string]string           `json:"Aliases,omitempty"`
 	EnabledPresets  *[]string                   `json:"enabled-presets,omitempty"`
 	DisabledPresets *[]string                   `json:"disabled-presets,omitempty"`
 	SubagentsCanAsk *bool                       `json:"subagents-can-ask,omitempty"`
@@ -155,6 +163,7 @@ func Parse(path string, data []byte) (*Config, error) {
 		Ask:             raw.Ask,
 		Deny:            raw.Deny,
 		Rules:           raw.Rules,
+		Aliases:         raw.Aliases,
 		EnabledPresets:  raw.EnabledPresets,
 		DisabledPresets: raw.DisabledPresets,
 		SubagentsCanAsk: raw.SubagentsCanAsk,
@@ -175,6 +184,7 @@ func (c *Config) Save() error {
 		Ask:             c.Ask,
 		Deny:            c.Deny,
 		Rules:           c.Rules,
+		Aliases:         c.Aliases,
 		EnabledPresets:  c.EnabledPresets,
 		DisabledPresets: c.DisabledPresets,
 		SubagentsCanAsk: c.SubagentsCanAsk,

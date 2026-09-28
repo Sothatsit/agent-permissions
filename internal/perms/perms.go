@@ -108,6 +108,10 @@ type Permissions struct {
 	// `check` and `validate` to surface. The hot path ignores them.
 	Warnings []ConfigWarning
 
+	// Aliases holds the effective alias for each command name that has
+	// one.
+	Aliases map[string]Alias
+
 	// Resolve installs these maps in one filter pass.
 	rules        map[string]*model.CommandRules
 	snippetRules map[string]*model.SnippetLang
@@ -704,6 +708,62 @@ type commandIdentity struct {
 	basenameArgs []string
 }
 
+// commandForm is one argv that patterns match a command by. via is the note a
+// match through it adds to the pattern, like " (via /usr/bin/git)", and is
+// empty for the argv as written.
+type commandForm struct {
+	args []string
+	via  string
+}
+
+// commandForms are the argvs each tier matches a command by. deny reaches a
+// path-invoked command through its basename wherever it lives, and resolved,
+// which the other tiers match, reaches it that way only when the shell would
+// have found it by that name.
+type commandForms struct {
+	deny     []commandForm
+	resolved []commandForm
+}
+
+func (c commandIdentity) forms() commandForms {
+	written := commandForm{args: c.args}
+	forms := commandForms{
+		deny:     []commandForm{written},
+		resolved: []commandForm{written},
+	}
+	if c.basenameArgs == nil {
+		return forms
+	}
+
+	basename := commandForm{
+		args: c.basenameArgs,
+		via:  " (via " + c.args[0] + ")",
+	}
+	forms.deny = append(forms.deny, basename)
+	if c.kind == trustedCommandPath {
+		forms.resolved = append(forms.resolved, basename)
+	}
+
+	return forms
+}
+
+// aliasForms are the command's argv with the alias target in place of its
+// name. A path-invoked command keeps its trust, so the target's denials reach
+// it wherever it lives, and the target's other entries only when it was found
+// on PATH.
+func (c commandIdentity) aliasForms(target string) commandForms {
+	form := commandForm{
+		args: slices.Concat([]string{target}, c.args[1:]),
+		via:  " (via alias " + c.args[0] + ")",
+	}
+	forms := commandForms{deny: []commandForm{form}}
+	if c.kind != untrustedCommandPath {
+		forms.resolved = []commandForm{form}
+	}
+
+	return forms
+}
+
 func (p *Permissions) identifyCommand(
 	cmd model.Command,
 ) commandIdentity {
@@ -765,17 +825,29 @@ func (p *Permissions) checkOne(
 	// 2. Pattern matching. Normal sources keep first-source semantics.
 	// Enforced sources form a minimum policy: every match participates, and
 	// their strongest decision combines with the normal result.
-	var pathResolved []string
-	if identity.kind == trustedCommandPath {
-		pathResolved = identity.basenameArgs
+	forms := identity.forms()
+	normal := matchCommandSources(p.Sources, forms)
+	enforcedForms := forms
+	// An alias's target fills in only where the command's own normal
+	// entries have no opinion, so an entry naming the command still
+	// decides for it. Every enforced match participates, so the target's
+	// enforced entries hold for the command too, whatever its own say.
+	if alias, ok := p.Aliases[identity.name]; ok {
+		aliasForms := identity.aliasForms(alias.Target)
+		if normal.decision == model.Undecided {
+			normal = matchCommandSources(
+				p.Sources, aliasForms)
+		}
+
+		enforcedForms = commandForms{
+			deny: slices.Concat(forms.deny, aliasForms.deny),
+			resolved: slices.Concat(
+				forms.resolved, aliasForms.resolved),
+		}
 	}
 
-	normal := matchCommandSources(
-		p.Sources, identity.args,
-		identity.basenameArgs, pathResolved)
 	enforced := matchEnforcedCommandSources(
-		p.EnforcedSources, identity.args,
-		identity.basenameArgs, pathResolved)
+		p.EnforcedSources, enforcedForms)
 	check := combinePolicyChecks(normal, enforced)
 	if check.decision != model.Undecided {
 		return check
@@ -801,31 +873,28 @@ func (p *Permissions) checkOne(
 // matchCommandSources applies normal first-source resolution. Within a source,
 // an explicit Allow opts out of SoftAsk.
 func matchCommandSources(
-	sources []SourcePerms,
-	argTexts, stripped, pathResolved []string,
+	sources []SourcePerms, forms commandForms,
 ) commandCheck {
 	for _, src := range sources {
 		if check, ok := matchTier(
-			src, src.Deny.Commands, model.Deny,
-			argTexts, stripped,
+			src, src.Deny.Commands, model.Deny, forms.deny,
 		); ok {
 			return check
 		}
 		if check, ok := matchTier(
-			src, src.Ask.Commands, model.Ask,
-			argTexts, pathResolved,
+			src, src.Ask.Commands, model.Ask, forms.resolved,
 		); ok {
 			return check
 		}
 		if check, ok := matchTier(
 			src, src.Allow.Commands, model.Allow,
-			argTexts, pathResolved,
+			forms.resolved,
 		); ok {
 			return check
 		}
 		if check, ok := matchTier(
 			src, src.SoftAsk.Commands, model.SoftAsk,
-			argTexts, pathResolved,
+			forms.resolved,
 		); ok {
 			return check
 		}
@@ -840,8 +909,7 @@ func matchCommandSources(
 // matchEnforcedCommandSources treats every enforced entry as an independent
 // minimum, so no ordering can hide a stronger match behind a weaker one.
 func matchEnforcedCommandSources(
-	sources []SourcePerms,
-	argTexts, stripped, pathResolved []string,
+	sources []SourcePerms, forms commandForms,
 ) commandCheck {
 	var matches []commandCheck
 	strongest := model.Undecided
@@ -849,19 +917,19 @@ func matchEnforcedCommandSources(
 		tiers := []struct {
 			patterns []Pattern
 			decision model.Decision
-			stripped []string
+			forms    []commandForm
 		}{
-			{src.Deny.Commands, model.Deny, stripped},
-			{src.Ask.Commands, model.Ask, pathResolved},
+			{src.Deny.Commands, model.Deny, forms.deny},
+			{src.Ask.Commands, model.Ask, forms.resolved},
 			{src.SoftAsk.Commands, model.SoftAsk,
-				pathResolved},
+				forms.resolved},
 			{src.Allow.Commands, model.Allow,
-				pathResolved},
+				forms.resolved},
 		}
 		for _, tier := range tiers {
 			tierMatches := matchTierAll(
 				src, tier.patterns, tier.decision,
-				argTexts, tier.stripped)
+				tier.forms)
 			if len(tierMatches) == 0 ||
 				tier.decision < strongest {
 				continue
@@ -957,23 +1025,17 @@ func matchFirst(
 	return Pattern{}, false
 }
 
-// matchTier tries the raw args, then the basename-stripped form.
+// matchTier tries each form in turn, the argv as written first.
 func matchTier(
 	src SourcePerms,
 	patterns []Pattern,
 	tier model.Decision,
-	argTexts, stripped []string,
+	forms []commandForm,
 ) (commandCheck, bool) {
-	if pat, ok := matchFirst(patterns, argTexts); ok {
-		return commandCheckFromPattern(
-			src, pat, tier, ""), true
-	}
-	if stripped != nil {
-		if pat, ok := matchFirst(patterns, stripped); ok {
-			via := fmt.Sprintf(
-				" (via %s)", argTexts[0])
+	for _, form := range forms {
+		if pat, ok := matchFirst(patterns, form.args); ok {
 			return commandCheckFromPattern(
-				src, pat, tier, via), true
+				src, pat, tier, form.via), true
 		}
 	}
 
@@ -981,27 +1043,22 @@ func matchTier(
 }
 
 // matchTierAll returns every match in one enforced tier. A pattern matching
-// both forms contributes one reason, preferring the raw form as matchTier does.
+// several forms contributes one reason, from the first form as matchTier does.
 func matchTierAll(
 	src SourcePerms,
 	patterns []Pattern,
 	tier model.Decision,
-	argTexts, stripped []string,
+	forms []commandForm,
 ) []commandCheck {
 	var matches []commandCheck
 	for _, pat := range patterns {
-		if matchPattern(pat, argTexts) {
-			matches = append(matches,
-				commandCheckFromPattern(
-					src, pat, tier, ""))
-			continue
-		}
-		if stripped != nil && matchPattern(pat, stripped) {
-			via := fmt.Sprintf(
-				" (via %s)", argTexts[0])
-			matches = append(matches,
-				commandCheckFromPattern(
-					src, pat, tier, via))
+		for _, form := range forms {
+			if matchPattern(pat, form.args) {
+				matches = append(matches,
+					commandCheckFromPattern(
+						src, pat, tier, form.via))
+				break
+			}
 		}
 	}
 
@@ -1009,8 +1066,9 @@ func matchTierAll(
 }
 
 // commandCheckFromPattern builds a pattern-layer match. The via suffix joins
-// the subject only for a basename-stripped retry, telling the user a
-// path-prefixed invocation hit a bare-name pattern.
+// the subject when the match came through another form of the command, telling
+// the user a path-prefixed invocation hit a bare-name pattern, or an alias hit
+// its target's.
 func commandCheckFromPattern(
 	src SourcePerms,
 	pat Pattern,

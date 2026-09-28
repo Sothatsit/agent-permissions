@@ -317,6 +317,10 @@ another source may still decide the rule. The object shape leaves room
 for future per-rule options. Override rules that are not enforced in
 your `.agents/permissions.json` (see Configuration).
 
+A preset may also carry `Aliases`, which let a wrapper such as
+`podman-run` take the entries of the command it runs (see Aliases
+under Configuration).
+
 All ordinary presets are active by default. To narrow that set, add
 `enabled-presets` or `disabled-presets` to your
 `~/.agents/permissions.json`. Enforced presets remain active. See
@@ -507,6 +511,58 @@ The most-specific `.agents` config with a preset selection wins:
 `<cwd>/.agents/permissions.json`, then the global file. If a file
 specifies either field, that's the authoritative list for that
 project.
+
+### Aliases
+
+A wrapper that passes its arguments through to another command can
+take that command's entries instead of repeating them. `Aliases` maps
+a command name to the command it runs, and a preset or any `.agents`
+config file may carry it.
+
+```json
+"Aliases": {"podman-run": "podman"}
+```
+
+The hook then checks the aliased command twice, once as written and
+once with the target's name in its place, like `podman-run push x`
+and `podman push x`. Both forms have the target's global options
+stripped, so `podman-run --log-level=info login` is checked as
+`podman-run login` and `podman login`.
+
+- **Its own entries decide first.** In normal resolution the target's
+  entries apply only when no source has an entry for the command as
+  written. So `podman-run push:*` in Allow allows `podman-run push x`
+  even where `podman push:*` asks, and an entry naming `podman-run`
+  in a lower-priority source beats one naming `podman` in a higher
+  one.
+- **The target's enforced entries hold.** Every enforced match
+  participates, the target's included, so an enforced
+  `podman login:*` Deny denies `podman-run login` whatever any entry
+  naming `podman-run` says.
+- **A path-invoked command keeps its trust.** `/opt/x/podman-run
+  login` reaches the target's denials wherever it lives, and the
+  target's other entries only when `/opt/x` is on PATH, as for any
+  path-invoked command.
+
+`check` lists every alias with its source, and a match through one
+reads `podman login:* (via alias podman-run)`.
+
+Aliases resolve by name the way `Rules` do. Ordinary presets form the
+base, and global, project, then local `.agents` config override it.
+Aliases from enforced presets apply last, so no config can redirect
+one that site policy depends on. Claude Code's `settings.json` has no
+alias field.
+
+An alias takes only the target's patterns and global-option
+stripping. Its target cannot be a command the Rules layer handles in
+any other way, like `git` or `timeout`, whose rules would decide or
+unwrap the command before its own entries saw it. Nor can it alias a
+command that has rules of its own. Aliases do not chain. When a target
+is itself an alias, only the target's own entries apply. `validate`
+reports each of these, along with an alias to itself and a name that
+is not a bare command name. User config leaves such an alias out with
+a warning, and an external preset fails to load, like any other
+semantic error in one.
 
 ## Install
 

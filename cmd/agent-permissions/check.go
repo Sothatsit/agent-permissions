@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"maps"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/sothatsit/agent-permissions/internal/perms"
@@ -58,6 +60,20 @@ func check(args []string) error {
 	}
 
 	fmt.Println()
+
+	// A match through an alias names it in its reason, and this says
+	// where each alias came from.
+	aliases := resolved.Permissions.Aliases
+	if len(aliases) > 0 {
+		fmt.Println("Aliases:")
+		for _, name := range slices.Sorted(maps.Keys(aliases)) {
+			alias := aliases[name]
+			fmt.Printf("  %s -> %s  (from %s)\n",
+				alias.Name, alias.Target, alias.Source)
+		}
+
+		fmt.Println()
+	}
 
 	if brErr != nil {
 		fmt.Println("Decision: deny")
