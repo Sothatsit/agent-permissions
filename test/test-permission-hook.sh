@@ -74,7 +74,6 @@ _run_hook() {
     local enforced_names="${_bp_enforced_presets:-}"
     _hook_input "$cmd" "$mode" \
         | CLAUDE_CONFIG_DIR="$_bp_tmpdir/config" \
-            TMPDIR="$_bp_tmpdir/tmp" \
             AGENT_PERMISSIONS_PRESET_DIRS="$preset_dirs" \
             AGENT_PERMISSIONS_ENFORCED_PRESET_DIRS="$enforced_dirs" \
             AGENT_PERMISSIONS_ENFORCED_PRESETS="$enforced_names" \
@@ -8427,14 +8426,12 @@ assert_contains "snippet: file script auto allows" \
 
 # --- Prompts off: the hook denies where it would ask ---
 #
-# The switch is a marker under TMPDIR keyed by session id, written by
-# `prompts off`. _run_hook points the hook's TMPDIR at the test tree, so the
-# subcommand must write there too.
+# The switch is a marker under ~/.agents keyed by session id, written by
+# `prompts off`. HOME is the test tree, so the real switch is never touched.
 
 _write_project_settings '{}'
 _prompts() {
-    TMPDIR="$_bp_tmpdir/tmp" CLAUDE_CODE_SESSION_ID="$_bp_session_id" \
-        "$HOOK" prompts "$1" 2>&1
+    CLAUDE_CODE_SESSION_ID="$_bp_session_id" "$HOOK" prompts "$1" 2>&1
 }
 
 _bp_session_id="test-session-$$"

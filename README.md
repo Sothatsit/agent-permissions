@@ -605,8 +605,8 @@ Claude Code sets for every Bash command, so the agent can run it and
 so can you, by typing `! agent-permissions prompts off` at the prompt.
 Subagents share the parent's session id, so one switch covers them
 too. The switch only ever moves towards deny, so the agent is free to
-flip it either way. It is a file under `$TMPDIR`, keyed by session id,
-that the hook checks on every command.
+flip it either way. It is a file under `~/.agents/state/prompts-off/`,
+keyed by session id, that the hook checks on every command.
 
 To enable or disable an ordinary preset, edit
 `~/.agents/permissions.json` (or

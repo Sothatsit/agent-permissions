@@ -766,11 +766,11 @@ assert_rc "validate: extra-arg exits 2" 2 "$rc"
 
 h=$(_fresh_home)
 _prompts_run() {
-    TMPDIR="$h/tmp" CLAUDE_CODE_SESSION_ID="$2" "$HOOK" prompts "$1" 2>&1
+    HOME="$h" CLAUDE_CODE_SESSION_ID="$2" "$HOOK" prompts "$1" 2>&1
 }
 
 rc=0
-out=$(TMPDIR="$h/tmp" CLAUDE_CODE_SESSION_ID="" "$HOOK" prompts status 2>&1) || rc=$?
+out=$(HOME="$h" CLAUDE_CODE_SESSION_ID="" "$HOOK" prompts status 2>&1) || rc=$?
 assert_rc "prompts: no session id exits 2" 2 "$rc"
 assert_contains "prompts: no session id names the variable" \
     "$out" "CLAUDE_CODE_SESSION_ID"

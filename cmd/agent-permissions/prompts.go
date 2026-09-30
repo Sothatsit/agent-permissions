@@ -9,9 +9,10 @@ import (
 )
 
 // promptsOffMarker is the file whose presence turns permission prompts off
-// for one Claude Code session. It lives under the temp directory because a
-// session runs on one host, and the marker should die with the host's temp
-// space rather than outlive the session in a config directory.
+// for one Claude Code session. It lives under ~/.agents, not the temp
+// directory, because Claude Code sets TMPDIR for its Bash commands but not
+// for its statusline, so the two would look in different places. Markers
+// outlive their sessions, which is harmless since session ids never repeat.
 func promptsOffMarker(sessionID string) (string, error) {
 	if sessionID == "" ||
 		sessionID == "." || sessionID == ".." ||
@@ -20,9 +21,13 @@ func promptsOffMarker(sessionID string) (string, error) {
 			"invalid session id %q", sessionID)
 	}
 
-	dir := filepath.Join(os.TempDir(),
-		fmt.Sprintf("agent-permissions-%d", os.Getuid()),
-		"prompts-off")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf(
+			"cannot determine home directory: %w", err)
+	}
+
+	dir := filepath.Join(home, ".agents", "state", "prompts-off")
 	return filepath.Join(dir, sessionID), nil
 }
 
