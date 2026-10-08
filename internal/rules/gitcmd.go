@@ -49,9 +49,11 @@ func gitOptionTakesAttachedValue(
 // error (deny).
 var gitBranchParser = model.NewFullParser(
 	[]model.FlagDef{
+		{Name: "--recurse-submodules"},
 		{Name: "--edit-description"},
 		{Name: "--set-upstream-to", Arg: true},
 		{Name: "--unset-upstream"},
+		{Name: "--create-reflog"},
 		{Name: "--show-current"},
 		{Name: "--ignore-case"},
 		{Name: "--no-contains", Arg: true},
@@ -61,6 +63,7 @@ var gitBranchParser = model.NewFullParser(
 		{Name: "--no-merged", Arg: true},
 		{Name: "--points-at", Arg: true},
 		{Name: "--no-color"},
+		{Name: "--no-track"},
 		{Name: "--contains", Arg: true},
 		{Name: "--verbose"},
 		{Name: "--remotes"},
@@ -70,6 +73,9 @@ var gitBranchParser = model.NewFullParser(
 		{Name: "--merged", Arg: true},
 		{Name: "--abbrev", Arg: true},
 		{Name: "--color"},
+		{Name: "--quiet"},
+		{Name: "--force"},
+		{Name: "--track"},
 		{Name: "--move", Arg: true},
 		{Name: "--copy", Arg: true},
 		{Name: "--sort", Arg: true},
@@ -78,6 +84,8 @@ var gitBranchParser = model.NewFullParser(
 		{Name: "-vv"},
 		{Name: "-a"}, {Name: "-r"}, {Name: "-v"},
 		{Name: "-i"}, {Name: "-l"},
+		{Name: "-q"}, {Name: "-h"},
+		{Name: "-f"}, {Name: "-t"},
 		{Name: "-D"}, {Name: "-M"}, {Name: "-C"},
 		{Name: "-d", Arg: true},
 		{Name: "-m", Arg: true},
@@ -116,6 +124,11 @@ var gitBranchWriteFlags = map[string]bool{
 	"-u":                 true,
 	"--set-upstream-to":  true,
 	"--unset-upstream":   true,
+	"-f":                 true, "--force": true,
+	"-t": true, "--track": true,
+	"--no-track":           true,
+	"--create-reflog":      true,
+	"--recurse-submodules": true,
 }
 
 func classifyGitBranch(

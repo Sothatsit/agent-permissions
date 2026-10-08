@@ -40,9 +40,17 @@ func Registry() (
 		Unverified:    gitUnverified,
 		PathMode:      model.PathSkip,
 		Rules: []model.Rule{
-			model.Flag("-e", "--edit").
-				WithRuleDef(gitInteractive).Deny(
-				"opens an interactive editor"),
+			// Elsewhere -e is a pattern (grep), an existence check
+			// (cat-file) or an email flag (blame, shortlog), and a
+			// short option's attached value, like the pickaxe in
+			// git log -Sname, would match it too.
+			model.Subcmd("add", "cherry-pick", "commit",
+				"config", "merge", "notes", "pull",
+				"revert", "tag",
+			).WithRuleDef(gitInteractive).Rules(
+				model.Flag("-e", "--edit").Deny(
+					"opens an interactive editor"),
+			),
 			// --exec-path points git at another directory of
 			// subcommand binaries, so it runs those instead.
 			model.Flag("--upload-pack",

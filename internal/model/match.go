@@ -60,8 +60,8 @@ func (m *FlagMatcher) shortFlagMatches(
 		}
 
 		// Naming the token says why a flag nobody typed was matched:
-		// -e reported "in -Slogged" is the l of a pickaxe value, not an
-		// editor. Which short options take a jammed-in value is
+		// -e reported "in -mfeature" is the e of a commit message, not
+		// an editor. Which short options take a jammed-in value is
 		// per-subcommand knowledge this parser does not keep, so the
 		// over-match stands and the message carries the evidence.
 		which := name

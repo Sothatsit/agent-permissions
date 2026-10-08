@@ -4085,7 +4085,7 @@ assert_contains "allow: git grep without pager flag" \
 
 # --- git -e/--edit ---
 
-# git -e opens an editor - denied on any subcommand.
+# git -e opens an editor on the subcommands that edit a message or file.
 out=$(_run_hook 'git add -e file.txt')
 assert_contains "deny: git add -e denied" \
     "$(_decision "$out")" "deny"
@@ -4095,17 +4095,30 @@ out=$(_run_hook 'git add --edit file.txt')
 assert_contains "deny: git add --edit denied" \
     "$(_decision "$out")" "deny"
 
-# git log -e is over-denied (grep flag, not editor) but agents can use
-# --extended-regexp instead.
-out=$(_run_hook 'git log -e --grep=foo')
-assert_contains "deny: git log -e over-denied" \
+# The subcommand is found past git's global options.
+out=$(_run_hook 'git -C /repo --no-pager commit -e')
+assert_contains "deny: git commit -e past global options" \
     "$(_decision "$out")" "deny"
+
+# Elsewhere -e is a pattern or an existence check, not an editor.
+out=$(_run_hook 'git grep -e foo -e bar')
+assert_contains "allow: git grep -e pattern" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook 'git cat-file -e HEAD')
+assert_contains "allow: git cat-file -e existence check" \
+    "$(_decision "$out")" "allow"
+
+# A pickaxe value holding an e is not -e.
+out=$(_run_hook 'git log -Slogged -- x.md')
+assert_contains "allow: git log pickaxe value holding an e" \
+    "$(_decision "$out")" "allow"
 
 # A value jammed onto a short option is over-denied for the letters it
 # holds, so the reason names the token the flag was found in.
-out=$(_run_hook 'git log -Slogged -- x.md')
-assert_contains "deny: -e found inside a pickaxe value" \
-    "$(_reason "$out")" "git -e in -Slogged"
+out=$(_run_hook 'git commit -mfeature')
+assert_contains "deny: -e found inside a commit message value" \
+    "$(_reason "$out")" "git commit -e in -mfeature"
 
 # git add without -e is still allowed.
 out=$(_run_hook 'git add file.txt')
@@ -6390,10 +6403,30 @@ out=$(_run_hook \
 assert_contains "ask: gh api --raw-field=value implies write" \
     "$(_decision "$out")" "ask"
 
-# Body flag with explicit GET - still ask (body present).
+# With GET, gh sends the fields in the query string.
 out=$(_run_hook \
-    'gh api -X GET repos/owner/repo/issues -f title=bug')
-assert_contains "ask: gh api -X GET with -f still ask" \
+    'gh api -X GET search/issues -f q=bug')
+assert_contains "allow: gh api -X GET with -f" \
+    "$(_decision "$out")" "allow"
+
+# A graphql request is a POST, but a query only reads.
+out=$(_run_hook \
+    "gh api graphql -f query='query{viewer{login}}' -F n=5")
+assert_contains "allow: gh api graphql query" \
+    "$(_decision "$out")" "allow"
+
+out=$(_run_hook \
+    "gh api graphql -f query='mutation{addStar(input:{}){x}}'")
+assert_contains "ask: gh api graphql mutation" \
+    "$(_decision "$out")" "ask"
+
+# A query read from a file or a substitution could be a mutation.
+out=$(_run_hook 'gh api graphql -F query=@q.graphql')
+assert_contains "ask: gh api graphql query from a file" \
+    "$(_decision "$out")" "ask"
+
+out=$(_run_hook 'gh api graphql -f query="$(cat q.graphql)"')
+assert_contains "ask: gh api graphql query from a substitution" \
     "$(_decision "$out")" "ask"
 
 # Case insensitive method detection (lowercase post).
@@ -6417,6 +6450,12 @@ assert_contains "reason: --input mentioned" \
 out=$(_run_hook 'gh api -X DELETE repos/owner/repo/issues/1')
 assert_contains "reason: DELETE mentioned" \
     "$(_reason "$out")" "DELETE"
+
+# --allow-escape-sequences only changes how gh prints the response.
+out=$(_run_hook \
+    'gh api repos/o/r/actions/jobs/1/logs --allow-escape-sequences')
+assert_contains "allow: gh api --allow-escape-sequences" \
+    "$(_decision "$out")" "allow"
 
 # --- Unrecognized args: deny (hook-decides safety net) ---
 
@@ -6656,6 +6695,18 @@ assert_contains "allow: git branch -a pattern" \
 out=$(_run_hook 'git branch --set-upstream-to=origin/main')
 assert_contains "ask: git branch --set-upstream-to" \
     "$(_decision "$out")" "ask"
+
+out=$(_run_hook 'git branch -f feature HEAD')
+assert_contains "ask: git branch -f" \
+    "$(_decision "$out")" "ask"
+
+out=$(_run_hook 'git branch --track=inherit feature origin/main')
+assert_contains "ask: git branch --track=inherit" \
+    "$(_decision "$out")" "ask"
+
+out=$(_run_hook 'git branch -q')
+assert_contains "allow: git branch -q" \
+    "$(_decision "$out")" "allow"
 
 # Combined short flags: -ar should split into -a + -r (both read flags).
 out=$(_run_hook 'git branch -ar')

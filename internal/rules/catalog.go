@@ -39,7 +39,7 @@ var (
 	gitRemoteWrites = defineRule("git.remote-writes",
 		"git remote adds, removes, or rewrites remotes")
 	ghAPIWrites = defineRule("gh.api-writes",
-		"gh api makes non-GET requests or sends fields")
+		"gh api makes write requests or GraphQL mutations")
 	tarCommandExec = defineRule("tar.command-execution",
 		"tar flags that run an external program")
 	sortCommandExec = defineRule("sort.command-execution",

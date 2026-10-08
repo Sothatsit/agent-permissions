@@ -13,6 +13,7 @@ import (
 // ghApiParser denies on an unknown flag.
 var ghApiParser = model.NewFullParser(
 	[]model.FlagDef{
+		{Name: "--allow-escape-sequences"},
 		{Name: "--raw-field", Arg: true},
 		{Name: "--hostname", Arg: true},
 		{Name: "--paginate"},
@@ -45,11 +46,16 @@ var ghApiMethodFlags = map[string]bool{
 	"-X": true, "--method": true,
 }
 
-// gh api flags that add request body data (imply POST).
-var ghApiBodyFlags = map[string]bool{
+// gh api flags that add a request parameter. They imply POST unless the method
+// is GET, which sends them in the query string.
+var ghApiFieldFlags = map[string]bool{
 	"-f": true, "--raw-field": true,
 	"-F": true, "--field": true,
-	"--input": true,
+}
+
+// gh api flags that read a parameter's value from a file given as @path.
+var ghApiFileFieldFlags = map[string]bool{
+	"-F": true, "--field": true,
 }
 
 func classifyGhApi(
@@ -62,24 +68,27 @@ func classifyGhApi(
 	}
 
 	var methodValue *syntax.Word
-	var bodyFlag string
+	var fields []model.ParsedFlag
+	var hasInput bool
 	var hasHostname bool
 
 	for _, f := range parsed.Flags {
 		if ghApiMethodFlags[f.Name] {
 			methodValue = f.Value
 		}
-		if ghApiBodyFlags[f.Name] {
-			bodyFlag = f.Name
+		if ghApiFieldFlags[f.Name] {
+			fields = append(fields, f)
+		}
+		if f.Name == "--input" {
+			hasInput = true
 		}
 		if f.Name == "--hostname" {
 			hasHostname = true
 		}
 	}
 
-	if bodyFlag != "" {
-		return model.Ask, fmt.Sprintf(
-			"gh api: %s implies write", bodyFlag)
+	if hasInput {
+		return model.Ask, "gh api: --input implies write"
 	}
 
 	if methodValue != nil {
@@ -93,6 +102,34 @@ func classifyGhApi(
 		if method != "GET" && method != "HEAD" {
 			return model.Ask, fmt.Sprintf(
 				"gh api: %s request", method)
+		}
+	}
+
+	if methodValue == nil && len(fields) > 0 {
+		isGraphQL := len(parsed.Positionals) == 1 &&
+			word.DefinitelyEqual(
+				parsed.Positionals[0], "graphql")
+		if !isGraphQL {
+			return model.Ask, fmt.Sprintf(
+				"gh api: %s implies write",
+				fields[0].Name)
+		}
+
+		// A graphql request is always a POST, whether or not it
+		// writes. GraphQL keywords are case-sensitive, so every
+		// mutation contains the word, and a query that only
+		// mentions it asks.
+		for _, f := range fields {
+			if word.MayContain(f.Value, "mutation") {
+				return model.Ask, "gh api: graphql " +
+					"query may be a mutation"
+			}
+			if ghApiFileFieldFlags[f.Name] &&
+				word.MayContain(f.Value, "=@") {
+				return model.Ask, fmt.Sprintf(
+					"gh api: %s reads a graphql "+
+						"field from a file", f.Name)
+			}
 		}
 	}
 
