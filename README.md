@@ -52,8 +52,8 @@ Four tiers, in deny → allow precedence order:
 | `Allow` | Hook returns `allow`. |
 
 A session cannot take a prompt when Claude Code runs it in `dontAsk`
-mode, or when its prompts have been switched off with
-`agent-permissions prompts off`. A subagent's command cannot prompt
+mode, or when its prompts are off (see `prompts` under Commands). A
+subagent's command cannot prompt
 either, unless `subagents-can-ask` is set in `permissions.json`: an
 ask from a subagent interrupts the user without its context, or stalls
 a background agent until they return. In each case the hook denies
@@ -488,6 +488,12 @@ Enforced presets remain active in every case.
 being denied. The most specific file that sets it wins, local over
 project over global, and it defaults to false when no file sets it.
 
+`prompts: "off"` starts every Claude Code session with its prompts off,
+as if it had run `agent-permissions prompts off`, and `"on"` or no entry
+starts them on. Only `~/.agents/permissions.json` may set it, since a
+project's file is shared by everyone working in the project. A project
+or local file that sets it fails to load.
+
 If `disabled-presets` names an enforced preset,
 `agent-permissions validate` reports the failed override. The preset
 remains active.
@@ -597,7 +603,8 @@ agent-permissions presets list    # Show enforced, enabled, and disabled presets
 agent-permissions rules list      # List built-in rules as 'id - description'
 agent-permissions prompts off     # Deny instead of asking, for this Claude Code session
 agent-permissions prompts on      # Prompt again
-agent-permissions prompts status  # Print on or off
+agent-permissions prompts once    # Prompt for the next ask, then turn prompts off
+agent-permissions prompts status  # Print on, off or once
 ```
 
 `prompts` acts on the session named by `CLAUDE_CODE_SESSION_ID`, which
@@ -605,8 +612,12 @@ Claude Code sets for every Bash command, so the agent can run it and
 so can you, by typing `! agent-permissions prompts off` at the prompt.
 Subagents share the parent's session id, so one switch covers them
 too. The switch only ever moves towards deny, so the agent is free to
-flip it either way. It is a file under `~/.agents/state/prompts-off/`,
-keyed by session id, that the hook checks on every command.
+flip it either way. It is a file under `~/.agents/state/prompts/`,
+keyed by session id and holding the mode, that the hook reads whenever
+it would ask. A session with no file takes the default that `prompts`
+in `~/.agents/permissions.json` sets. `once` turns prompts off as the
+hook sends the ask, since the hook never learns the answer, and an agent
+whose ask is rejected is told to stop before it could turn them off.
 
 To enable or disable an ordinary preset, edit
 `~/.agents/permissions.json` (or

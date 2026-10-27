@@ -96,8 +96,9 @@ func printUsage(w io.Writer) {
 		"  install           Wire the hook into known harness "+
 			"configs (e.g. ~/.claude/settings.json)")
 	fmt.Fprintln(w,
-		"  prompts off|on|status  Turn permission prompts off "+
-			"or on for this Claude Code session")
+		"  prompts off|on|once|status  Turn permission prompts "+
+			"off, on, or on for one ask, for this Claude Code "+
+			"session")
 	fmt.Fprintln(w, "  --version         Print version")
 	fmt.Fprintln(w, "  --help            Print this help")
 }
@@ -235,13 +236,18 @@ func breakdownDenialReason(err error) string {
 
 // writeAsk prompts, unless nobody should be asked: Claude Code runs the
 // session in dontAsk mode, the command comes from a subagent, or the
-// session's prompts are switched off. Then it denies, keeping the reason
-// and telling the agent what to do instead. Denying dontAsk asks ourselves
-// keeps the outcome from hanging on what Claude Code makes of a hook's ask
-// in that mode. agent_id is present only inside a subagent call.
+// session's prompts are off. Then it denies, keeping the reason and telling
+// the agent what to do instead. Denying dontAsk asks ourselves keeps the
+// outcome from hanging on what Claude Code makes of a hook's ask in that
+// mode. agent_id is present only inside a subagent call.
 func writeAsk(
 	input hookInput, subagentsCanAsk bool, reason string,
 ) error {
+	mode, err := sessionPromptsMode(input.SessionID)
+	if err != nil {
+		return err
+	}
+
 	var denial string
 	switch {
 	case input.PermissionMode == "dontAsk":
@@ -255,14 +261,23 @@ func writeAsk(
 			"waits while they are away. Report the command and " +
 			"why you needed it to your parent agent, which can " +
 			"raise it with the user."
-	case promptsOff(input.SessionID):
+	case mode == promptsOff:
 		denial = "Denied: this command would have asked the user, " +
 			"and permission prompts are off for this session. " +
 			"Find another way where there is one. When the work " +
-			"needs the user's answer, turn prompts on " +
-			"(`agent-permissions prompts on`) and retry, then " +
-			"leave them on rather than flipping the switch " +
-			"around single commands."
+			"needs the user's answer, run `agent-permissions " +
+			"prompts once` and retry. The hook asks that one " +
+			"time, then turns prompts off again."
+	case mode == promptsOnce:
+		// Prompts go off as the ask goes out. The hook never sees
+		// the answer, and an agent whose ask is rejected is told
+		// to stop, so neither could turn them off after it.
+		if err := switchPrompts(
+			input.SessionID, promptsOff); err != nil {
+			return err
+		}
+
+		fallthrough
 	default:
 		return writeDecision(model.Ask, "\n"+reason+"\n\n")
 	}

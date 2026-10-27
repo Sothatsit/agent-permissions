@@ -139,13 +139,11 @@ type PolicySnapshot struct {
 // LoadPolicySnapshot reads and validates every policy source once. Missing
 // .agents files remain represented by a source with a nil Config.
 func LoadPolicySnapshot(configDir, cwd string) (*PolicySnapshot, error) {
-	home, err := os.UserHomeDir()
+	globalPath, err := agentconfig.GlobalPath()
 	if err != nil {
-		return nil, fmt.Errorf("resolve home directory: %v", err)
+		return nil, err
 	}
 
-	globalPath := filepath.Join(
-		home, ".agents", "permissions.json")
 	projectPath := ""
 	localPath := ""
 	if cwd != "" {
@@ -213,6 +211,20 @@ func LoadPolicySnapshot(configDir, cwd string) (*PolicySnapshot, error) {
 		localPath, "local agent config")
 	if err != nil {
 		return nil, err
+	}
+
+	// Whether prompts start off is the user's choice, so a project's
+	// file, which everyone working in it shares, cannot make it. The
+	// project's file is the global one when the project is the home
+	// directory.
+	for _, source := range []AgentConfigSource{project, local} {
+		if source.Config != nil && source.Config.Prompts != "" &&
+			source.fileID != global.fileID {
+			return nil, fmt.Errorf(
+				"%s sets prompts, which only "+
+					"~/.agents/permissions.json may set",
+				source.Path)
+		}
 	}
 
 	var claudeSettings []claudeSettingsSource

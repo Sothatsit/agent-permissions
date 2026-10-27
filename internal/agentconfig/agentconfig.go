@@ -8,9 +8,9 @@
 // (rule ID -> {Enabled}) overrides Rules-layer config, and a top-level Aliases
 // object (command -> command) lets one command take another's entries. The
 // top-level shape also carries optional enabled-presets / disabled-presets
-// fields for selecting which embedded presets contribute, and
-// subagents-can-ask, which lets a subagent's command prompt instead of being
-// denied.
+// fields for selecting which embedded presets contribute, subagents-can-ask,
+// which lets a subagent's command prompt instead of being denied, and prompts,
+// the user's default for the per-session prompts switch.
 package agentconfig
 
 import (
@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"path/filepath"
 	"slices"
 
 	"github.com/sothatsit/agent-permissions/internal/atomicfile"
@@ -66,6 +67,11 @@ type Config struct {
 	// SubagentsCanAsk is nil when the field is absent, so a more general
 	// file can still decide.
 	SubagentsCanAsk *bool
+
+	// Prompts is "off" when a session starts with permission prompts off,
+	// "on" when it starts with them on, and empty when the field is
+	// absent, which also means on.
+	Prompts string
 }
 
 // Clone returns an independent copy of the config.
@@ -126,6 +132,17 @@ type rawConfig struct {
 	EnabledPresets  *[]string                   `json:"enabled-presets,omitempty"`
 	DisabledPresets *[]string                   `json:"disabled-presets,omitempty"`
 	SubagentsCanAsk *bool                       `json:"subagents-can-ask,omitempty"`
+	Prompts         string                      `json:"prompts,omitempty"`
+}
+
+// GlobalPath is the user's own config, ~/.agents/permissions.json.
+func GlobalPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home directory: %v", err)
+	}
+
+	return filepath.Join(home, ".agents", "permissions.json"), nil
 }
 
 // Load reads the JSON file at path and returns the parsed config. Returns nil,
@@ -156,6 +173,12 @@ func Parse(path string, data []byte) (*Config, error) {
 			"invalid JSON in %s: %v", path, err)
 	}
 
+	if raw.Prompts != "" && raw.Prompts != "on" && raw.Prompts != "off" {
+		return nil, fmt.Errorf(
+			"%s: prompts is %q, not \"on\" or \"off\"",
+			path, raw.Prompts)
+	}
+
 	return &Config{
 		Path:            path,
 		Allow:           raw.Allow,
@@ -167,6 +190,7 @@ func Parse(path string, data []byte) (*Config, error) {
 		EnabledPresets:  raw.EnabledPresets,
 		DisabledPresets: raw.DisabledPresets,
 		SubagentsCanAsk: raw.SubagentsCanAsk,
+		Prompts:         raw.Prompts,
 	}, nil
 }
 
@@ -188,6 +212,7 @@ func (c *Config) Save() error {
 		EnabledPresets:  c.EnabledPresets,
 		DisabledPresets: c.DisabledPresets,
 		SubagentsCanAsk: c.SubagentsCanAsk,
+		Prompts:         c.Prompts,
 	}
 	data, err := json.MarshalIndent(raw, "", "  ")
 	if err != nil {

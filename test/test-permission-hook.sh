@@ -8477,7 +8477,7 @@ assert_contains "snippet: file script auto allows" \
 
 # --- Prompts off: the hook denies where it would ask ---
 #
-# The switch is a marker under ~/.agents keyed by session id, written by
+# The switch is a file under ~/.agents keyed by session id, written by
 # `prompts off`. HOME is the test tree, so the real switch is never touched.
 
 _write_project_settings '{}'
@@ -8496,10 +8496,8 @@ assert_contains "prompts off: unknown command denies" \
     "$(_decision "$out")" "deny"
 assert_contains "prompts off: reason names the switch" \
     "$(_reason "$out")" "prompts are off"
-assert_contains "prompts off: reason says how to restore prompts" \
-    "$(_reason "$out")" "agent-permissions prompts on"
-assert_contains "prompts off: reason warns against flipping the switch" \
-    "$(_reason "$out")" "leave them on"
+assert_contains "prompts off: reason says how to ask once" \
+    "$(_reason "$out")" "agent-permissions prompts once"
 assert_contains "prompts off: reason keeps the original" \
     "$(_reason "$out")" "Unknown command"
 
@@ -8537,6 +8535,56 @@ _prompts on >/dev/null
 out=$(_run_hook "frobnicate --foo")
 assert_contains "prompts on again: unknown command asks" \
     "$(_decision "$out")" "ask"
+
+# `prompts once` lets one ask through, then prompts are off again.
+_prompts off >/dev/null
+_prompts once >/dev/null
+out=$(_run_hook "frobnicate --foo")
+assert_contains "prompts once: first ask asks" \
+    "$(_decision "$out")" "ask"
+out=$(_run_hook "frobnicate --foo")
+assert_contains "prompts once: second ask denies" \
+    "$(_decision "$out")" "deny"
+assert_contains "prompts once: status is off after the ask" \
+    "$(_prompts status)" "off"
+
+# An allowed command leaves `once` waiting for the next ask.
+_prompts once >/dev/null
+out=$(_run_hook "git status")
+assert_contains "prompts once: allow still allows" \
+    "$(_decision "$out")" "allow"
+assert_contains "prompts once: allow keeps once" \
+    "$(_prompts status)" "once"
+_prompts on >/dev/null
+
+# "prompts": "off" in ~/.agents/permissions.json starts every session with
+# prompts off, and `prompts on` still turns one back on.
+mkdir -p "$HOME/.agents"
+echo '{"prompts": "off"}' > "$HOME/.agents/permissions.json"
+_bp_session_id="default-off-session-$$"
+out=$(_run_hook "frobnicate --foo")
+assert_contains "prompts default off: unknown command denies" \
+    "$(_decision "$out")" "deny"
+assert_contains "prompts default off: status is off" \
+    "$(_prompts status)" "off"
+_bp_session_id=""
+out=$(_run_hook "frobnicate --foo")
+assert_contains "prompts default off: no session id denies" \
+    "$(_decision "$out")" "deny"
+_bp_session_id="default-off-session-$$"
+_prompts on >/dev/null
+out=$(_run_hook "frobnicate --foo")
+assert_contains "prompts default off: prompts on asks" \
+    "$(_decision "$out")" "ask"
+rm -f "$HOME/.agents/permissions.json"
+
+# A project's .agents file is shared by everyone working in it, so it
+# cannot set the default.
+_write_agent_config '{"prompts": "off"}'
+out=$(_run_hook_error "frobnicate --foo")
+assert_contains "prompts in a project config fails" \
+    "$out" "only ~/.agents/permissions.json may set"
+_clear_agent_config
 _bp_session_id=""
 
 # dontAsk mode denies where the hook would ask, whatever the switch says.
