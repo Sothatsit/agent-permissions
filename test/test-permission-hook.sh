@@ -8340,7 +8340,13 @@ assert_contains "compound: soft+ask auto asks" \
     "$(_decision "$out")" "ask"
 assert_contains "compound: soft+ask shows git push" \
     "$(_reason "$out")" "git push:*"
-assert_contains "compound: soft+ask shows curl" \
+# curl went to the classifier, so it played no part in the ask.
+assert_not_contains "compound: soft+ask auto omits curl" \
+    "$(_reason "$out")" "curl:*"
+
+# Outside auto mode curl would prompt too, so the ask lists it.
+out=$(_run_hook "curl http://example.com && git push origin main")
+assert_contains "compound: soft+ask default shows curl" \
     "$(_reason "$out")" "curl:*"
 
 # --- Compound: all soft in auto mode -> fall through ---

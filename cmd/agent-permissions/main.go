@@ -164,6 +164,7 @@ func runClaudeHook() error {
 	// claude-hook is the Claude-Code-bound entrypoint, so swap the
 	// loader's Placeholder harness for the real one.
 	permissions.Harness = harness.ClaudeCode{}
+	permissions.SoftAsksFallThrough = input.PermissionMode == "auto"
 
 	br, err := resolved.Breakdown(input.ToolInput.Command)
 	if err != nil {
@@ -187,7 +188,7 @@ func runClaudeHook() error {
 	case model.SoftAsk:
 		// In auto mode, fall through to the classifier for
 		// per-invocation judgment. In other modes, prompt the user.
-		if input.PermissionMode == "auto" {
+		if permissions.SoftAsksFallThrough {
 			return nil
 		}
 

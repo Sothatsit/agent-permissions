@@ -125,6 +125,11 @@ type Permissions struct {
 	// Harness carries the harness-specific output text, so resolution
 	// never branches on which agent harness is running.
 	Harness harness.Harness
+
+	// SoftAsksFallThrough is set when soft-asks go to the harness's own
+	// judgement instead of prompting, as in Claude Code's auto mode. They
+	// then play no part in an ask, so its reason leaves them out.
+	SoftAsksFallThrough bool
 }
 
 type ConfigWarning struct {
@@ -511,11 +516,18 @@ func (p *Permissions) Check(
 		allows = aggregate.allows.items
 	}
 
+	// Unknowns are soft-asks too. Listing them beside an ask they did not
+	// cause sends the agent to have them allowed for nothing.
+	softAsks, unknownItems := aggregate.softAsks.items, unknowns.items
+	if p.SoftAsksFallThrough {
+		softAsks, unknownItems = nil, nil
+	}
+
 	return Result{
 		Decision: aggregate.decision,
 		Reason: formatResult(
-			aggregate.asks.items, aggregate.softAsks.items,
-			unknowns.items, nil, unknownHeader),
+			aggregate.asks.items, softAsks,
+			unknownItems, nil, unknownHeader),
 		Allows: allows,
 	}
 }
